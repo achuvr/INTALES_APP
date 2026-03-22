@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "332131859386",
+    "project_id": "intales-a0459",
+    "storage_bucket": "intales-a0459.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:332131859386:android:5eac64082fca7a506f3b83",
+        "android_client_info": {
+          "package_name": "com.intalescafe.intalescafeapp"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAyZaUBLaX2eZOk7WkAQgxF1KDXKtZgp-A"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
