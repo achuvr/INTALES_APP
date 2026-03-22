@@ -1,0 +1,1 @@
+# INTALES_APP
