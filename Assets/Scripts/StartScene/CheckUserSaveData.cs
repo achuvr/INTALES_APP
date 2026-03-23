@@ -23,6 +23,7 @@ public class CheckUserSaveData : MonoBehaviour
         Debug.Log("Android or iOS...");
         Directory.CreateDirectory(Application.persistentDataPath + "/TestUser");
         _path = Path.Combine(Application.persistentDataPath, "TestUser");
+        Debug.Log("path = " +  _path);
         #endif
         await CheckExistFile();
     }
