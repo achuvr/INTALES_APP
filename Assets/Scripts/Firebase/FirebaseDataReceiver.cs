@@ -241,11 +241,40 @@ public class FirebaseDataReceiver : SingletonBehaviour<FirebaseDataReceiver>
                         {
                             try
                             {
-                                StorageReference imageRef = _storage.GetReferenceFromUrl(data[i.ToString()].ToString());
-                                Task<System.Uri> getUrlTask = imageRef.GetDownloadUrlAsync();
-                                System.Uri downloadUrl = await getUrlTask;
+                                string key = i.ToString();
+                                if (!data.ContainsKey(key) || data[key] == null)
+                                {
+                                    Debug.LogWarning($"画像キー '{key}' がドキュメントに存在しません。スキップします。");
+                                    continue;
+                                }
 
-                                using (UnityWebRequest www = UnityWebRequestTexture.GetTexture(downloadUrl))
+                                string storageUrl = data[key].ToString();
+                                Debug.Log($"画像取得開始: key={key}, url={storageUrl}");
+
+                                string imageUrl;
+                                if (storageUrl.StartsWith("gs://"))
+                                {
+                                    // gs://bucket/path 形式からパスを抽出してReferenceを作成
+                                    System.Uri gsUri = new System.Uri(storageUrl);
+                                    string path = gsUri.AbsolutePath.TrimStart('/');
+                                    StorageReference imageRef = _storage.RootReference.Child(path);
+                                    System.Uri downloadUri = await imageRef.GetDownloadUrlAsync();
+                                    imageUrl = downloadUri.ToString();
+                                }
+                                else if (storageUrl.StartsWith("http"))
+                                {
+                                    // https:// 形式の場合はそのまま使用
+                                    imageUrl = storageUrl;
+                                }
+                                else
+                                {
+                                    // パスのみの場合はStorageのChildとして取得
+                                    StorageReference imageRef = _storage.RootReference.Child(storageUrl);
+                                    System.Uri downloadUri = await imageRef.GetDownloadUrlAsync();
+                                    imageUrl = downloadUri.ToString();
+                                }
+
+                                using (UnityWebRequest www = UnityWebRequestTexture.GetTexture(imageUrl))
                                 {
                                     // ダウンロードが完了するまで待機
                                     var operation = www.SendWebRequest();
@@ -257,8 +286,8 @@ public class FirebaseDataReceiver : SingletonBehaviour<FirebaseDataReceiver>
                                     // エラーチェック
                                     if (www.result != UnityWebRequest.Result.Success)
                                     {
-                                        Debug.LogError("画像のダウンロードに失敗しました: " + www.error);
-                                        return;
+                                        Debug.LogError($"画像のダウンロードに失敗しました (key={key}): {www.error} / HTTP {www.responseCode}");
+                                        continue;
                                     }
 
                                     // ダウンロードしたTexture2Dを取得
@@ -266,7 +295,7 @@ public class FirebaseDataReceiver : SingletonBehaviour<FirebaseDataReceiver>
 
                                     // 画像をキャッシュに保存（JPG形式）
                                     byte[] jpgData = texture.EncodeToJPG();
-                                    SaveImageToCache(i.ToString(), jpgData);
+                                    SaveImageToCache(key, jpgData);
 
                                     // Texture2DをSpriteに変換
                                     Sprite sprite = Sprite.Create(
@@ -274,7 +303,7 @@ public class FirebaseDataReceiver : SingletonBehaviour<FirebaseDataReceiver>
                                         new Rect(0, 0, texture.width, texture.height),
                                         Vector2.one * 0.5f
                                     );
-                                    sprite.name = i.ToString();
+                                    sprite.name = key;
 
                                     var pref = Instantiate(_eventNoticePrefab);
                                     pref.GetComponent<UnityEngine.UI.Image>().sprite = sprite;
@@ -282,9 +311,13 @@ public class FirebaseDataReceiver : SingletonBehaviour<FirebaseDataReceiver>
                                     pref.transform.SetAsFirstSibling();
                                 }
                             }
+                            catch (Firebase.Storage.StorageException storageEx)
+                            {
+                                Debug.LogError($"Firebase Storage エラー (key={i}): ErrorCode={storageEx.ErrorCode}, HTTP={storageEx.HttpResultCode}, Message={storageEx.Message}");
+                            }
                             catch (System.Exception e)
                             {
-                                Debug.LogError($"画像処理中にエラーが発生しました: {e.Message}");
+                                Debug.LogError($"画像処理中にエラーが発生しました (key={i}): {e.GetType().Name}: {e.Message}\n{e.StackTrace}");
                             }
                         }
                         _loadingPanel.SetActive(false);
