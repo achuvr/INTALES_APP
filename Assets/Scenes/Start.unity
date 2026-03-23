@@ -1670,6 +1670,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   _characterNameInputField: {fileID: 1476461522}
+  _loadingPanel: {fileID: 585818228}
 --- !u!1 &585818228
 GameObject:
   m_ObjectHideFlags: 0

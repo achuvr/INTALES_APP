@@ -3,6 +3,7 @@ using UnityEngine;
 using Firebase.Firestore;
 using Firebase.Extensions;
 using TMPro;
+using UnityEngine.SceneManagement;
 
 public class CreateNewCharacter : MonoBehaviour
 {
@@ -12,6 +13,7 @@ public class CreateNewCharacter : MonoBehaviour
     
     [SerializeField] private TMP_InputField _characterNameInputField;
 
+    [SerializeField] private GameObject _loadingPanel;
 
     private void Start()
     {
@@ -21,6 +23,7 @@ public class CreateNewCharacter : MonoBehaviour
     
     public void CreateCharacter()
     {
+        _loadingPanel.SetActive(true);
         if (_characterNameInputField.text != "")
         {
             var db = FirebaseFirestore.DefaultInstance;
@@ -104,6 +107,12 @@ public class CreateNewCharacter : MonoBehaviour
                 
                 // Scene Loading
                 UserDataManager.instance.FetchUserDataByUIDForReload();
+
+                if (SceneManager.GetActiveScene().name.IndexOf("Start") != -1)
+                {
+                    SceneManager.LoadScene("Home");
+                }
+                
                 Destroy(GameObject.FindWithTag("New").gameObject);
                 GameObject.FindObjectOfType<CallMethodFromQR>().End();
             });
