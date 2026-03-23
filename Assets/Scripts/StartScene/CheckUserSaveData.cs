@@ -19,7 +19,8 @@ public class CheckUserSaveData : MonoBehaviour
     {
         #if UNITY_EDITOR
         _path = Path.Combine(Application.dataPath, "TestUser");
-        #elif PLATFORM_ANDROID
+        #elif PLATFORM_ANDROID || UNITY_IOS
+        Debug.Log("Android or iOS...");
         Directory.CreateDirectory(Application.persistentDataPath + "/TestUser");
         _path = Path.Combine(Application.persistentDataPath, "TestUser");
         #endif
