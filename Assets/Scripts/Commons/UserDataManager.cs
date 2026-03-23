@@ -165,6 +165,72 @@ public class UserDataManager : SingletonBehaviour<UserDataManager>
             Debug.LogError($"Firestoreからのデータ取得中にエラーが発生しました: {ex.Message}");
         }
     }
+    
+    public async UniTask FetchUserDataByUIDForReload(bool isStartScene)
+    {
+        db = FirebaseFirestore.DefaultInstance;
+        if (string.IsNullOrEmpty(_uid))
+        {
+            Debug.LogError("No user data found");
+            return;
+        }
+
+        DocumentReference docRef = db.Collection("users").Document(_uid);
+        try
+        {
+            DocumentSnapshot snapshot = await docRef.GetSnapshotAsync();
+            if (snapshot.Exists)
+            {
+                Debug.Log("Find document! UID = " + _uid);
+
+                // ユーザーの基本情報を取得
+                _userData = snapshot.ConvertTo<UserData>();
+                Debug.Log($"{_userData.Username},{_userData.FiveCoupon},{_userData.SevenCoupon},{_userData.GetRegistrationDateTime().ToString()}");
+
+                // キャラクターデータの取得
+                CollectionReference charactersRef = db.Collection("users").Document(_uid).Collection("characters");
+                try
+                {
+                    QuerySnapshot querySnapshot = await charactersRef.GetSnapshotAsync();
+                    _userData.Characters.Clear();
+
+                    foreach (var document in querySnapshot.Documents)
+                    {
+                        Debug.Log($"document.id = {document.Id}");
+                        if (document.Exists)
+                        {
+                            Character character = document.ConvertTo<Character>();
+                            Debug.Log($"[character] {document.Id} => " + $"{character.Name}, {character.Job}, {character.Element}, {character.Level}");
+                            _userData.Characters.Add(character);
+                        }
+                    }
+                    Debug.Log($"Loaded characters = {_userData.Characters.Count}");
+                }
+                catch (System.Exception ex)
+                {
+                    // 4. エラー処理
+                    // ★注意: ここでも "Missing or insufficient permissions" が発生する可能性があります
+                    Debug.LogError($"キャラ取得エラー: {ex}");
+                    Debug.LogError($"サブコレクションの取得エラー: {ex.Message}");
+                }
+            }
+            else
+            {
+                // ドキュメントが存在しない場合 (UIDが存在しない、またはまだデータが書き込まれていない)
+                Debug.LogWarning($"警告: UID '{_uid}' に対応するドキュメントは存在しません。");
+
+                // ★存在しなかった場合の処理 (例: 新規登録画面へ誘導、初期データをFirestoreに書き込むなど)
+                //HandleMissingUser(_uid);
+            }
+        }
+        catch (System.Exception ex)
+        {
+            // 4. エラー処理 (権限不足、ネットワークエラーなど)
+            Debug.LogError($"Firestoreからのデータ取得中にエラーが発生しました: {ex.Message}");
+        }
+
+        SceneManager.LoadScene("Home");
+    }
 
     private IEnumerator LoadSceneAsyncWithActivationControl()
     {

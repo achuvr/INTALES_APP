@@ -106,12 +106,14 @@ public class CreateNewCharacter : MonoBehaviour
                 }
                 
                 // Scene Loading
-                UserDataManager.instance.FetchUserDataByUIDForReload();
+                UserDataManager.instance.FetchUserDataByUIDForReload(true);
 
+                /*
                 if (SceneManager.GetActiveScene().name.IndexOf("Start") != -1)
                 {
                     SceneManager.LoadScene("Home");
                 }
+                */
                 
                 Destroy(GameObject.FindWithTag("New").gameObject);
                 GameObject.FindObjectOfType<CallMethodFromQR>().End();
