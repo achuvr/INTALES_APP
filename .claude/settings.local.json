@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find C:UsersintalworksPersonalUnityINTALES_APPAssetsScenes -name *.unity)",
+      "Bash(find C:UsersintalworksPersonalUnityINTALES_APPAssets -name *.unity -maxdepth 3)"
+    ]
+  }
+}
