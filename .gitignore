@@ -41,3 +41,7 @@ sysinfo.txt
 
 # Builds
 *.apk
+
+# Purchased Asset Store assets (license required per user)
+Assets/Synaptic AI Pro/
+Assets/Synaptic AI Pro.meta

@@ -1,17 +1,12 @@
 {
-  "mcpServers": {
+  "servers": {
     "unity-synaptic": {
+      "type": "stdio",
       "command": "C:/Program Files/nodejs/node.exe",
       "args": [
         "C:/Users/intal/works/Personal/Unity/INTALES_APP/Assets/Synaptic AI Pro/MCPServer/index-supersave.js"
       ],
-      "env": {}
+      "cwd": "C:/Users/intal/works/Personal/Unity/INTALES_APP/Assets/Synaptic AI Pro/MCPServer"
     }
-  },
-  "permissions": {
-    "allow": [
-      "mcp__unity-synaptic"
-    ],
-    "deny": []
   }
 }
