@@ -37,10 +37,12 @@ public class CharacterPageManager : MonoBehaviour
     public void ChangePage()
     {
         var assets = AssetsDatabase.instance;
-        _nameText.text = UserDataManager.instance.UserData.Characters[_currentPage].Name;
+        var chara = UserDataManager.instance.UserData.Characters[_currentPage];
+
+        _nameText.text = chara.Name;
         _statusText.text = "職業　　";
 
-        switch (UserDataManager.instance.UserData.Characters[_currentPage].Job)
+        switch (chara.Job)
         {
             case "warrior":
                 _jobImage.sprite = assets.WarriorSprite;
@@ -63,7 +65,7 @@ public class CharacterPageManager : MonoBehaviour
 
         Color32 color;
         string hexColor;
-        switch (UserDataManager.instance.UserData.Characters[_currentPage].Element)
+        switch (chara.Element)
         {
             case "fire":
                 _jobImage.color = color = assets.FireColor;
@@ -87,14 +89,27 @@ public class CharacterPageManager : MonoBehaviour
                 break;
         }
 
-        _statusText.text += $"レベル　{UserDataManager.instance.UserData.Characters[_currentPage].Level}";
+        _statusText.text += $"レベル　{chara.Level}";
 
-        // キャラクター変更時にText_Todayの強調表示を更新
+        // Text_Today 強調更新
         if (_todayText != null)
-        {
-            var chara = UserDataManager.instance.UserData.Characters[_currentPage];
             _todayText.text = HomeSceneInitializer.BuildTodayText(
                 HomeSceneInitializer.TodayData, chara.Job, chara.Element);
-        }
+
+        // 属性エフェクト再生
+        if (ElementEffectController.instance != null)
+            ElementEffectController.instance.PlayEffect(chara.Element);
+    }
+
+    /// <summary>
+    /// Image_CharacterSelecterのEventTriggerから呼ぶ
+    /// キャラクター画面を開いたときに現在のキャラクターの属性エフェクトを発動
+    /// </summary>
+    public void OnCharacterPageOpened()
+    {
+        var chara = UserDataManager.instance.UserData.Characters[_currentPage];
+        if (ElementEffectController.instance != null)
+            ElementEffectController.instance.PlayEffect(chara.Element);
     }
 }
+
