@@ -17,6 +17,9 @@ public class HomeSceneInitializer : MonoBehaviour
     [SerializeField] private GameObject _rightArrow;
     [SerializeField] private GameObject _leftArrow;
 
+    // 今日のjob/elementを他クラスから参照できるよう保持
+    public static Today TodayData { get; private set; }
+
     public async void Start()
     {
         var assets = AssetsDatabase.instance;
@@ -95,30 +98,11 @@ public class HomeSceneInitializer : MonoBehaviour
                     if (document.Exists)
                     {
                         _today = document.ConvertTo<Today>();
+                        TodayData = _today;
                         Debug.Log($"{_today.Job},{_today.Element}");
 
-                        // プレイヤーのjob/elementと比較して一致する部分を強調表示
                         var chara = UserDataManager.instance.UserData.Characters[UserDataManager.instance.CurrentSelectCharacterNumber];
-                        string jobName = _today.GetJobJPName();
-                        string elName  = _today.GetElementJPName();
-
-                        if (chara.Job == _today.Job)
-                            jobName = $"<color=#000000><size=115%>{jobName}</size></color>";
-                        if (chara.Element == _today.Element)
-                        {
-                            // 属性ごとに色を変える：炎=赤、水=青、自然=緑、雷=黄
-                            string elColor = _today.Element switch {
-                                "fire"    => "#FF3300",
-                                "water"   => "#0066FF",
-                                "nature"  => "#33AA00",
-                                "thunder" => "#FFD700",
-                                _         => "#FFFFFF"
-                            };
-                            elName = $"<color={elColor}><size=115%>{elName}</size></color>";
-                        }
-
-
-                        _todayText.text = $"本日は…\n{jobName} の {elName} の日！";
+                        _todayText.text = BuildTodayText(_today, chara.Job, chara.Element);
                     }
                 }
             }
@@ -131,6 +115,34 @@ public class HomeSceneInitializer : MonoBehaviour
         {
             Debug.LogError($"データ取得エラー: {ex.Message}");
         }
+    }
+
+    // 強調テキストを生成するstaticメソッド（CharacterPageManagerからも呼ぶ）
+    public static string BuildTodayText(Today today, string charaJob, string charaElement)
+    {
+        if (today == null) return "";
+
+        string jobName = today.GetJobJPName();
+        string elName  = today.GetElementJPName();
+
+        // 職業一致 → 黒で強調
+        if (charaJob == today.Job)
+            jobName = $"<color=#000000><size=115%>{jobName}</size></color>";
+
+        // 属性一致 → 属性ごとの色で強調
+        if (charaElement == today.Element)
+        {
+            string elColor = today.Element switch {
+                "fire"    => "#FF3300",
+                "water"   => "#0066FF",
+                "nature"  => "#33AA00",
+                "thunder" => "#FFD700",
+                _         => "#FFFFFF"
+            };
+            elName = $"<color={elColor}><size=115%>{elName}</size></color>";
+        }
+
+        return $"本日は…\n{jobName} の {elName} の日！";
     }
 }
 
