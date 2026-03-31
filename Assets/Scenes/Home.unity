@@ -11894,6 +11894,7 @@ MonoBehaviour:
   _atkCouponSprite: {fileID: 21300000, guid: a54931ea1d20ff548a2fe456fd417404, type: 3}
   _loadingPanel: {fileID: 701582153}
   _audioSource: {fileID: 2003230349}
+  _levelUpSE: {fileID: 8300000, guid: e8b6ddb7d6d9b614682c4c1c47a7d3b3, type: 3}
 --- !u!4 &2003230348
 Transform:
   m_ObjectHideFlags: 0

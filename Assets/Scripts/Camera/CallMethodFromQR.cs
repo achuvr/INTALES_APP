@@ -61,7 +61,9 @@ public class CallMethodFromQR : MonoBehaviour
                 
                 Debug.Log($"[character] {uid} => " + $"{character.Name}, {character.Job}, {character.Element}, {character.Level}");
                 UserDataManager.instance.UserData.Characters[currentSelectCharacterNumber].Level = character.Level;
+                AssetsDatabase.instance.PlayLevelUpSE(); // レベルアップSEを再生
                 End();
+
             }
         });
     }

@@ -35,8 +35,18 @@ public class AssetsDatabase : SingletonBehaviour<AssetsDatabase>
     public GameObject LoadingPanel => _loadingPanel;
 
     [Space(20), SerializeField] private AudioSource _audioSource;
+    [SerializeField] private AudioClip _levelUpSE;
     public void PlaySE(AudioClip clip)
     {
         _audioSource.PlayOneShot(clip);
     }
+    public void PlayLevelUpSE()
+    {
+        if (_levelUpSE != null)
+            _audioSource.PlayOneShot(_levelUpSE);
+    }
+
+
+
+
 }
