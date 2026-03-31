@@ -1,0 +1,1 @@
+C:\Users\intal\works\Personal\Unity\INTALES_APP\Library\Bee\Android\Prj\IL2CPP\Gradle\unityLibrary\build\intermediates\cxx\RelWithDebInfo\c5k1w1q2\obj\arm64-v8a

@@ -1,11 +1,11 @@
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
+using UnityEngine.EventSystems;
 using Firebase.Firestore;
 
 public class HomeSceneInitializer : MonoBehaviour
 {
-    
     private FirebaseFirestore _database;
     private Today _today;
 
@@ -16,7 +16,7 @@ public class HomeSceneInitializer : MonoBehaviour
 
     [SerializeField] private GameObject _rightArrow;
     [SerializeField] private GameObject _leftArrow;
-    
+
     public async void Start()
     {
         var assets = AssetsDatabase.instance;
@@ -28,34 +28,31 @@ public class HomeSceneInitializer : MonoBehaviour
             _leftArrow.SetActive(false);
             _rightArrow.SetActive(false);
         }
-        
+
         _nameText.text = UserDataManager.instance.UserData.Characters[UserDataManager.instance.CurrentSelectCharacterNumber].Name;
         _statusText.text = "職業　　";
-        
+
         switch (UserDataManager.instance.UserData.Characters[UserDataManager.instance.CurrentSelectCharacterNumber].Job)
         {
             case "warrior":
                 _jobImage.sprite = assets.WarriorSprite;
                 _statusText.text += "戦士\n";
                 break;
-            
             case "magician":
                 _jobImage.sprite = assets.MagicianSprite;
                 _statusText.text += "魔法使い\n";
                 break;
-            
             case "archer":
                 _jobImage.sprite = assets.ArcherSprite;
                 _statusText.text += "弓使い\n";
                 break;
-            
             case "gunner":
                 _jobImage.sprite = assets.GunnerSprite;
                 _statusText.text += "銃使い\n";
                 break;
         }
         _statusText.text += "属性　　";
-        
+
         Color32 color;
         string hexColor;
         switch (UserDataManager.instance.UserData.Characters[UserDataManager.instance.CurrentSelectCharacterNumber].Element)
@@ -65,19 +62,16 @@ public class HomeSceneInitializer : MonoBehaviour
                 hexColor = $"#{color.r:X2}{color.g:X2}{color.b:X2}";
                 _statusText.text += $"<color={hexColor}>炎</color>\n";
                 break;
-            
             case "water":
                 _jobImage.color = color = assets.WaterColor;
                 hexColor = $"#{color.r:X2}{color.g:X2}{color.b:X2}";
                 _statusText.text += $"<color={hexColor}>水</color>\n";
                 break;
-            
             case "nature":
                 _jobImage.color = color = assets.NatureColor;
                 hexColor = $"#{color.r:X2}{color.g:X2}{color.b:X2}";
                 _statusText.text += $"<color={hexColor}>自然</color>\n";
                 break;
-            
             case "thunder":
                 _jobImage.color = color = assets.ThunderColor;
                 hexColor = $"#{color.r:X2}{color.g:X2}{color.b:X2}";
@@ -96,17 +90,37 @@ public class HomeSceneInitializer : MonoBehaviour
             QuerySnapshot snapshot = await colRef.GetSnapshotAsync();
             if (colRef != null)
             {
-                Today today;
-                foreach(var document in snapshot.Documents)
+                foreach (var document in snapshot.Documents)
                 {
                     if (document.Exists)
                     {
                         _today = document.ConvertTo<Today>();
                         Debug.Log($"{_today.Job},{_today.Element}");
-                        _todayText.text = $"本日は…\n{_today.GetJobJPName()} の {_today.GetElementJPName()} の日！";
+
+                        // プレイヤーのjob/elementと比較して一致する部分を強調表示
+                        var chara = UserDataManager.instance.UserData.Characters[UserDataManager.instance.CurrentSelectCharacterNumber];
+                        string jobName = _today.GetJobJPName();
+                        string elName  = _today.GetElementJPName();
+
+                        if (chara.Job == _today.Job)
+                            jobName = $"<color=#000000><size=115%>{jobName}</size></color>";
+                        if (chara.Element == _today.Element)
+                        {
+                            // 属性ごとに色を変える：炎=赤、水=青、自然=緑、雷=黄
+                            string elColor = _today.Element switch {
+                                "fire"    => "#FF3300",
+                                "water"   => "#0066FF",
+                                "nature"  => "#33AA00",
+                                "thunder" => "#FFD700",
+                                _         => "#FFFFFF"
+                            };
+                            elName = $"<color={elColor}><size=115%>{elName}</size></color>";
+                        }
+
+
+                        _todayText.text = $"本日は…\n{jobName} の {elName} の日！";
                     }
                 }
-                
             }
             else
             {
@@ -124,16 +138,16 @@ public class HomeSceneInitializer : MonoBehaviour
 public class Today
 {
     public Today() {}
-    
-    [SerializeField] private string job;
+
+    [UnityEngine.SerializeField] private string job;
     [FirestoreProperty("job")]
     public string Job
     {
         get { return job; }
-        set { job = value; } 
+        set { job = value; }
     }
-    
-    [SerializeField] private string element;
+
+    [UnityEngine.SerializeField] private string element;
     [FirestoreProperty("el")]
     public string Element
     {
@@ -145,16 +159,11 @@ public class Today
     {
         switch (job)
         {
-            case "warrior":
-                return "戦士";
-            case "magician":
-                return "魔法使い";
-            case "archer":
-                return "弓使い";
-            case "gunner":
-                return "銃使い";
+            case "warrior":  return "戦士";
+            case "magician": return "魔法使い";
+            case "archer":   return "弓使い";
+            case "gunner":   return "銃使い";
         }
-
         return "error";
     }
 
@@ -162,16 +171,11 @@ public class Today
     {
         switch (element)
         {
-            case "fire":
-                return "炎";
-            case "water":
-                return "水";
-            case "nature":
-                return "自然";
-            case "thunder":
-                return "雷";
+            case "fire":    return "炎";
+            case "water":   return "水";
+            case "nature":  return "自然";
+            case "thunder": return "雷";
         }
-
         return "error";
     }
 }

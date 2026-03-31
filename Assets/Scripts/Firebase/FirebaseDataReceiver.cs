@@ -36,6 +36,15 @@ public class FirebaseDataReceiver : SingletonBehaviour<FirebaseDataReceiver>
         _database = FirebaseFirestore.DefaultInstance;
         _auth = Firebase.Auth.FirebaseAuth.DefaultInstance;
 
+        // EventImagePreviewがシーンになければ自動生成
+        if (EventImagePreview.instance == null)
+        {
+            var go = new UnityEngine.GameObject("EventImagePreview");
+            go.AddComponent<EventImagePreview>();
+        }
+
+
+
         CheckAndClearCacheIfNewDay();
         FetchEventNoticeData();
         FetchAchievementData();
@@ -206,7 +215,22 @@ public class FirebaseDataReceiver : SingletonBehaviour<FirebaseDataReceiver>
                     sprite.name = fileName;
 
                     var pref = Instantiate(_eventNoticePrefab);
-                    pref.GetComponent<UnityEngine.UI.Image>().sprite = sprite;
+                    var img = pref.GetComponent<UnityEngine.UI.Image>();
+                    img.sprite = sprite;
+                    // アスペクト比を保ってサイズ調整
+                    var rt = pref.GetComponent<RectTransform>();
+                    float parentWidth = _scrollContent.GetComponent<RectTransform>().rect.width;
+                    if (parentWidth <= 0) parentWidth = Screen.width;
+                    float aspectRatio = (float)texture.width / texture.height;
+                    rt.sizeDelta = new Vector2(parentWidth, parentWidth / aspectRatio);
+                    // タップでプレビューを開く
+                    var tappable = pref.AddComponent<EventImageTappable>();
+                    tappable.Setup(sprite);
+
+
+
+
+
                     pref.transform.SetParent(_scrollContent, false);
                     pref.transform.SetAsFirstSibling();
                 }
@@ -306,7 +330,22 @@ public class FirebaseDataReceiver : SingletonBehaviour<FirebaseDataReceiver>
                                     sprite.name = key;
 
                                     var pref = Instantiate(_eventNoticePrefab);
-                                    pref.GetComponent<UnityEngine.UI.Image>().sprite = sprite;
+                                    var img = pref.GetComponent<UnityEngine.UI.Image>();
+                                    img.sprite = sprite;
+                                    // アスペクト比を保ってサイズ調整
+                                    var rt = pref.GetComponent<RectTransform>();
+                                    float parentWidth = _scrollContent.GetComponent<RectTransform>().rect.width;
+                                    if (parentWidth <= 0) parentWidth = Screen.width;
+                                    float aspectRatio = (float)texture.width / texture.height;
+                                    rt.sizeDelta = new Vector2(parentWidth, parentWidth / aspectRatio);
+                                    // タップでプレビューを開く
+                                    var tappable2 = pref.AddComponent<EventImageTappable>();
+                                    tappable2.Setup(sprite);
+
+
+
+
+
                                     pref.transform.SetParent(_scrollContent, false);
                                     pref.transform.SetAsFirstSibling();
                                 }
