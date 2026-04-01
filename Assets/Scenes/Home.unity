@@ -11928,6 +11928,7 @@ MonoBehaviour:
   _loadingPanel: {fileID: 701582153}
   _audioSource: {fileID: 2003230349}
   _levelUpSE: {fileID: 8300000, guid: e8b6ddb7d6d9b614682c4c1c47a7d3b3, type: 3}
+  _equipSE: {fileID: 8300000, guid: 524792a42590f174c8d07084b21218e2, type: 3}
 --- !u!4 &2003230348
 Transform:
   m_ObjectHideFlags: 0

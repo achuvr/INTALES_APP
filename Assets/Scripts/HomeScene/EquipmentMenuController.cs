@@ -85,6 +85,9 @@ public class EquipmentMenuController : MonoBehaviour
             LocalEquipSave.Save(charIdx, item.SlotType, item.ItemId);
             Debug.Log($"[Equip] {item.SlotType} = {item.ItemId} ({item.Name ?? "?"})");
 
+            // 装備SEを再生
+            AssetsDatabase.instance?.PlayEquipSE();
+
             // UIを即時更新
             SafeRebuildItemList(_currentSlot);
             RefreshSlotIndicators();

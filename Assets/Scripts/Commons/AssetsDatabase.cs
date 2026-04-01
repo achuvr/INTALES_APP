@@ -36,6 +36,7 @@ public class AssetsDatabase : SingletonBehaviour<AssetsDatabase>
 
     [Space(20), SerializeField] private AudioSource _audioSource;
     [SerializeField] private AudioClip _levelUpSE;
+    [SerializeField] private AudioClip _equipSE;
     public void PlaySE(AudioClip clip)
     {
         _audioSource.PlayOneShot(clip);
@@ -44,6 +45,11 @@ public class AssetsDatabase : SingletonBehaviour<AssetsDatabase>
     {
         if (_levelUpSE != null)
             _audioSource.PlayOneShot(_levelUpSE);
+    }
+    public void PlayEquipSE()
+    {
+        if (_equipSE != null)
+            _audioSource.PlayOneShot(_equipSE);
     }
 
 
