@@ -306,4 +306,39 @@ public class Character
     
     [FirestoreProperty("lv")]
     public int Level { get; set; }
+
+    /// <summary>
+    /// 装備データ（武器/頭/体/足/スキルブックA/B）。
+    /// Firestore の "equipment" マップに対応。
+    /// 古いキャラクターデータに存在しない場合は空の Equipment を返す。
+    /// </summary>
+    [FirestoreProperty("equipment")]
+    public Equipment Equipment
+    {
+        get => _equipment ?? (_equipment = new Equipment());
+        set => _equipment = value;
+    }
+    private Equipment _equipment;
+
+    /// <summary>
+    /// このキャラクターが所持している装備アイテムの一覧。
+    /// Firestore の "inventory" 配列に対応。
+    /// 古いデータに存在しない場合は空リストを返す（null安全）。
+    /// </summary>
+    [FirestoreProperty("inventory")]
+    public System.Collections.Generic.List<ItemData> Inventory
+    {
+        get => _inventory ?? (_inventory = new System.Collections.Generic.List<ItemData>());
+        set => _inventory = value;
+    }
+    private System.Collections.Generic.List<ItemData> _inventory;
+
+    /// <summary>
+    /// 指定スロットに装備できるアイテムを所持品から取得
+    /// </summary>
+    public System.Collections.Generic.List<ItemData> GetInventoryBySlot(EquipmentSlot slot)
+        => Inventory.FindAll(item => item.SlotType == slot);
 }
+
+// NOTE: Equipment クラスと EquipmentSlot 列挙型は
+// Assets/Scripts/Commons/Equipment.cs で定義されています。

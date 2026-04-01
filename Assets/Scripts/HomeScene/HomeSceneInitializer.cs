@@ -26,6 +26,9 @@ public class HomeSceneInitializer : MonoBehaviour
         _database = FirebaseFirestore.DefaultInstance;
         FetchGoodDay();
 
+        // ローカルに保存した装備データをキャラクターに復元
+        LocalEquipSave.ApplyAll(UserDataManager.instance.UserData.Characters);
+
         if (UserDataManager.instance.UserData.Characters.Count == 1)
         {
             _leftArrow.SetActive(false);
