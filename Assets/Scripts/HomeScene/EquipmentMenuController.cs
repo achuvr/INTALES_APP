@@ -122,7 +122,7 @@ public class EquipmentMenuController : MonoBehaviour
     {
         var border = MakeRect("__SlotBorder", _overlay.transform, C_BORDER, 978, 1089);
         var panel  = MakeRect("__SlotPanel", border.transform, C_PARCHMENT, 962, 1073);
-        MakeFancyBtn("__Close", panel.transform, C_CLOSE_BTN, "✕", jp, 40, 452, 507, 58, 58, Hide);
+        MakeFancyBtn("__Close", panel.transform, C_CLOSE_BTN, "✕", jp, 64, 422, 478, 93, 93, Hide);
         MakeLabel("__Title", panel.transform, "装備スロット選択", jp, 48, FontStyles.Bold, C_TITLE, 0, 444, 851, 93);
         MakeRect("__Div", panel.transform, C_DIVIDER, 851, 4)
             .GetComponent<RectTransform>().anchoredPosition = new Vector2(0, 379);
