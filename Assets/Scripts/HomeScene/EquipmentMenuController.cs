@@ -3,6 +3,7 @@ using UnityEngine.UI;
 using TMPro;
 using System.Collections.Generic;
 using System.Linq;
+using Cysharp.Threading.Tasks;
 
 public class EquipmentMenuController : MonoBehaviour
 {
@@ -276,17 +277,27 @@ public class EquipmentMenuController : MonoBehaviour
                 DestroyImmediate(child.gameObject);
         }
 
-        // 削除直後に再構築
-        RebuildItemList(slot);
+        // 削除直後に非同期で再構築
+        RebuildItemListAsync(slot).Forget();
     }
 
-    private void RebuildItemList(EquipmentSlot slot)
+    private async UniTaskVoid RebuildItemListAsync(EquipmentSlot slot)
     {
         if (_listContent == null) return;
         var jp = GetJpFont();
         var chara = UserDataManager.instance?.UserData?.Characters?
             .ElementAtOrDefault(UserDataManager.instance.CurrentSelectCharacterNumber);
-        var items = chara?.GetInventoryBySlot(slot) ?? new List<ItemData>();
+
+        // ItemRepository 経由でアイテム情報を取得
+        List<ItemData> items;
+        if (chara != null && chara.Inventory.Count > 0 && ItemRepository.instance != null)
+        {
+            items = await ItemRepository.instance.GetInventoryBySlotAsync(chara.Inventory, slot);
+        }
+        else
+        {
+            items = new List<ItemData>();
+        }
 
         if (items.Count == 0)
         {

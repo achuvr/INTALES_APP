@@ -2,12 +2,16 @@ using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
 using UnityEngine.EventSystems;
+using UnityEngine.SceneManagement;
 using Firebase.Firestore;
+using Cysharp.Threading.Tasks;
 
 public class HomeSceneInitializer : MonoBehaviour
 {
     private FirebaseFirestore _database;
     private Today _today;
+
+    [SerializeField] private bool _isDebugMode;
 
     [SerializeField] private UnityEngine.UI.Image _jobImage;
     [SerializeField] private TextMeshProUGUI _nameText;
@@ -19,12 +23,21 @@ public class HomeSceneInitializer : MonoBehaviour
 
     // 今日のjob/elementを他クラスから参照できるよう保持
     public static Today TodayData { get; private set; }
-
+    
     public async void Start()
     {
+        if (_isDebugMode)
+        {
+            SceneManager.LoadScene("IconUploader");
+        }
+        
         var assets = AssetsDatabase.instance;
         _database = FirebaseFirestore.DefaultInstance;
         FetchGoodDay();
+
+        // アイテムマスターデータの週次同期（土曜5時以降の初回起動時）
+        if (ItemSyncManager.instance != null)
+            ItemSyncManager.instance.InitAsync().Forget();
 
         // ローカルに保存した装備データをキャラクターに復元
         LocalEquipSave.ApplyAll(UserDataManager.instance.UserData.Characters);

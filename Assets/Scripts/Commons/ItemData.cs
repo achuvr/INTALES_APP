@@ -140,6 +140,18 @@ public class ItemData
     [FirestoreProperty("effects")]
     public List<ItemEffect> Effects { get; set; }
 
+    // アイコン画像URL（マスターデータの icon_url）
+    [FirestoreProperty("icon_url")]
+    public string IconUrl { get; set; }
+
+    // 説明文
+    [FirestoreProperty("description")]
+    public string Description { get; set; }
+
+    // ゲーム名
+    [FirestoreProperty("game")]
+    public string Game { get; set; }
+
 
 
 

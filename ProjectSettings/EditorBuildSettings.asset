@@ -17,6 +17,9 @@ EditorBuildSettings:
   - enabled: 1
     path: Assets/Scenes/New.unity
     guid: 6465567628601ac4b97179013a97c1af
+  - enabled: 1
+    path: Assets/Scenes/dev/IconUploader.unity
+    guid: 43a38ca3daa9c704789284991d11c72a
   m_configObjects:
     com.unity.input.settings.actions: {fileID: -944628639613478452, guid: 052faaac586de48259a63d0c4782560b, type: 3}
   m_UseUCBPForAssetBundles: 0

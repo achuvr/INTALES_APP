@@ -321,23 +321,17 @@ public class Character
     private Equipment _equipment;
 
     /// <summary>
-    /// このキャラクターが所持している装備アイテムの一覧。
+    /// このキャラクターが所持しているアイテムの参照一覧。
     /// Firestore の "inventory" 配列に対応。
-    /// 古いデータに存在しない場合は空リストを返す（null安全）。
+    /// 各エントリは job + item_id だけを持ち、実データは ItemRepository で取得する。
     /// </summary>
     [FirestoreProperty("inventory")]
-    public System.Collections.Generic.List<ItemData> Inventory
+    public System.Collections.Generic.List<InventoryRef> Inventory
     {
-        get => _inventory ?? (_inventory = new System.Collections.Generic.List<ItemData>());
+        get => _inventory ?? (_inventory = new System.Collections.Generic.List<InventoryRef>());
         set => _inventory = value;
     }
-    private System.Collections.Generic.List<ItemData> _inventory;
-
-    /// <summary>
-    /// 指定スロットに装備できるアイテムを所持品から取得
-    /// </summary>
-    public System.Collections.Generic.List<ItemData> GetInventoryBySlot(EquipmentSlot slot)
-        => Inventory.FindAll(item => item.SlotType == slot);
+    private System.Collections.Generic.List<InventoryRef> _inventory;
 }
 
 // NOTE: Equipment クラスと EquipmentSlot 列挙型は
