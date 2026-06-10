@@ -189,8 +189,32 @@ public class DiceRollController : MonoBehaviour
         _resultValue.text = total.ToString();
         _resultDetail.text = count > 1 ? $"（{string.Join(" ＋ ", rolls)}）" : "";
 
-        Debug.Log($"[Dice] {label} → {total} ({string.Join(",", rolls)})");
+        // 出目の強さ（0=全部1の最小値, 1=全部最大の出目）に応じたスキルエフェクト
+        // 形は職業、色は属性で決まる
+        float denom = count * faces - count;
+        float intensity = denom > 0 ? (total - count) / denom : 1f;
+        var (job, element) = GetSelectedJobAndElement();
+        _sim.PlayResultEffect(job, element, intensity);
+
+        Debug.Log($"[Dice] {label} → {total} ({string.Join(",", rolls)}) intensity={intensity:F2}");
         _rolling = false;
+    }
+
+    /// <summary>選択中キャラクターの職業と属性（取得できないときはwarrior/fire）</summary>
+    private static (string job, string element) GetSelectedJobAndElement()
+    {
+        var manager = UserDataManager.instance;
+        var characters = manager?.UserData?.Characters;
+        int idx = manager != null ? manager.CurrentSelectCharacterNumber : 0;
+        if (characters != null && idx < characters.Count)
+        {
+            var chara = characters[idx];
+            return (
+                string.IsNullOrEmpty(chara.Job) ? "warrior" : chara.Job,
+                string.IsNullOrEmpty(chara.Element) ? "fire" : chara.Element
+            );
+        }
+        return ("warrior", "fire");
     }
 
     // ================================================================
