@@ -381,12 +381,26 @@ public class FriendMenuController : MonoBehaviour
     // ================================================================
     private void BuildEntryButton()
     {
-        // 右上のフローティングボタン
+        // 右上のフローティングボタン。位置は従来どおり画面（Canvas）基準で決める
         var border = MakeRect("__FriendBtnBorder", _canvas.transform, C_BORDER, 196, 86);
         var rt = border.GetComponent<RectTransform>();
         rt.anchorMin = rt.anchorMax = new Vector2(1f, 1f);
         rt.pivot = new Vector2(1f, 1f);
         rt.anchoredPosition = new Vector2(-30, -280); // リロードボタン(150px)の下に配置
+
+        // そのうえで Page_Characters の子へ移動（worldPositionStays=true で見た目の位置は維持）。
+        // キャラクターページ表示中のみボタンが表示される（ページの SetActive に自動追従）。
+        // Transform.Find は非アクティブの子も見つけられる。
+        var page = _canvas.transform.Find("Page_Characters");
+        if (page != null)
+        {
+            border.transform.SetParent(page, true);
+            border.transform.SetAsLastSibling(); // ページ内の他要素より手前に表示
+        }
+        else
+        {
+            Debug.LogWarning("[Friend] Page_Characters が見つからないため、Canvas直下にボタンを置きます");
+        }
 
         var inner = MakeRect("__FriendBtn", border.transform, C_PARCHMENT, 188, 78);
         var jp = GetJpFont();
