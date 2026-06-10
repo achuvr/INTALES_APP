@@ -121,7 +121,8 @@ public class CheckUserSaveData : MonoBehaviour
                 { "lastDate", Timestamp.GetCurrentTimestamp() },
                 { "atk_coupon", 1 },
                 { "drink_coupon", 0 },
-                { "coffee_coupon", 0 }
+                { "coffee_coupon", 0 },
+                { "characters", new Dictionary<string, object>() } // キャラはこのマップに内蔵する（サブコレクション廃止）
             };
             await docRef.SetAsync(settings, SetOptions.MergeAll);
             SetUserDataSingleton(uid);

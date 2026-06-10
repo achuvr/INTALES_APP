@@ -29,6 +29,7 @@ public class EquipmentMenuController : MonoBehaviour
     private static readonly Color C_BADGE_EQ     = new Color(0.22f, 0.68f, 0.22f, 0.95f);
     private static readonly Color C_EMPTY_TXT    = new Color(0.50f, 0.32f, 0.10f);
     private static readonly Color C_EFFECT       = new Color(0.52f, 0.28f, 0.06f);
+    private static readonly Color C_MUTED        = new Color(0.52f, 0.38f, 0.22f, 0.85f);
 
     private static readonly (EquipmentSlot slot, string label, Color color, string iconRes)[] SLOTS =
     {
@@ -66,7 +67,7 @@ public class EquipmentMenuController : MonoBehaviour
     }
 
     // ================================================================
-    // 装備処理（PlayerPrefsにローカル保存）
+    // 装備処理
     // ================================================================
     private void EquipItem(ItemData item)
     {
@@ -86,10 +87,10 @@ public class EquipmentMenuController : MonoBehaviour
             LocalEquipSave.Save(charIdx, item.SlotType, item.ItemId);
             Debug.Log($"[Equip] {item.SlotType} = {item.ItemId} ({item.Name ?? "?"})");
 
-            // 装備SEを再生
-            AssetsDatabase.instance?.PlayEquipSE();
+            CheckSetEffect(charIdx);
+            RecalcStats(chara, charIdx).Forget();
 
-            // UIを即時更新
+            AssetsDatabase.instance?.PlayEquipSE();
             SafeRebuildItemList(_currentSlot);
             RefreshSlotIndicators();
         }
@@ -101,6 +102,52 @@ public class EquipmentMenuController : MonoBehaviour
         {
             _isEquipping = false;
         }
+    }
+
+    // ================================================================
+    // ステータス再計算
+    // ================================================================
+    private async UniTaskVoid RecalcStats(Character chara, int charIdx)
+    {
+        if (ItemRepository.instance == null) return;
+
+        var refs = new List<InventoryRef>();
+        foreach (EquipmentSlot slot in System.Enum.GetValues(typeof(EquipmentSlot)))
+        {
+            string itemId = LocalEquipSave.Load(charIdx, slot);
+            if (string.IsNullOrEmpty(itemId)) continue;
+            var inv = chara.Inventory.FirstOrDefault(x => x.ItemId == itemId);
+            if (inv != null) refs.Add(inv);
+        }
+
+        var items = await ItemRepository.instance.GetItemsAsync(refs);
+
+        int atk = 0;
+        float prob = 0f, critRate = 0f, critDmg = 0f;
+
+        foreach (var item in items)
+        {
+            if (item?.Effects == null) continue;
+            foreach (var fx in item.Effects)
+            {
+                if (fx == null) continue;
+                switch (fx.Type)
+                {
+                    case EffectType.AtkUp:            atk      += fx.Value; break;
+                    case EffectType.ProbUp:            prob     += fx.Value; break;
+                    case EffectType.CriticalRateUp:    critRate += fx.Value; break;
+                    case EffectType.CriticalDamageUp:  critDmg  += fx.Value; break;
+                }
+            }
+        }
+
+        chara.BaseAtk        = atk;
+        chara.BaseProb       = prob;
+        chara.BaseCritRate   = critRate;
+        chara.BaseCritDamage = critDmg;
+        chara.JobRank        = chara.Level / 50 + 1;
+
+        Debug.Log($"[Equip] Stats: ATK={atk} Prob={prob} CritRate={critRate} CritDmg={critDmg} JobRank={chara.JobRank}");
     }
 
     // ================================================================
@@ -223,6 +270,35 @@ public class EquipmentMenuController : MonoBehaviour
         return border;
     }
 
+    // ================================================================
+    // セット効果判定
+    // ================================================================
+    private void CheckSetEffect(int charIdx)
+    {
+        var cacheManager = ItemCacheManager.instance;
+        if (cacheManager == null || !cacheManager.IsLoaded) return;
+
+        var setSlots = new[] { EquipmentSlot.Weapon, EquipmentSlot.Head, EquipmentSlot.Body, EquipmentSlot.Feet };
+        string setGame = null;
+
+        foreach (var slot in setSlots)
+        {
+            string itemId = LocalEquipSave.Load(charIdx, slot);
+            if (string.IsNullOrEmpty(itemId)) return;
+
+            var cached = cacheManager.GetAll().FirstOrDefault(x => x.item_id == itemId);
+            if (cached == null || string.IsNullOrEmpty(cached.game)) return;
+
+            if (setGame == null)
+                setGame = cached.game;
+            else if (setGame != cached.game)
+                return;
+        }
+
+        Debug.Log($"[Equip] {setGame}のセット効果が発動します！");
+        AssetsDatabase.instance?.PlaySetSE();
+    }
+
     // =================== 表示制御 ===================
 
     public void ShowSlotPanel()
@@ -263,21 +339,17 @@ public class EquipmentMenuController : MonoBehaviour
     }
 
     // ================================================================
-    // アイテム一覧（DestroyImmediateで同フレーム再構築）
+    // アイテム一覧
     // ================================================================
     private void SafeRebuildItemList(EquipmentSlot slot)
     {
         if (_listContent == null) return;
-
-        // 逆順でDestroyImmediate（同フレームで即時削除）
         for (int i = _listContent.childCount - 1; i >= 0; i--)
         {
             var child = _listContent.GetChild(i);
             if (child != null && child.gameObject != null)
                 DestroyImmediate(child.gameObject);
         }
-
-        // 削除直後に非同期で再構築
         RebuildItemListAsync(slot).Forget();
     }
 
@@ -288,16 +360,11 @@ public class EquipmentMenuController : MonoBehaviour
         var chara = UserDataManager.instance?.UserData?.Characters?
             .ElementAtOrDefault(UserDataManager.instance.CurrentSelectCharacterNumber);
 
-        // ItemRepository 経由でアイテム情報を取得
         List<ItemData> items;
         if (chara != null && chara.Inventory.Count > 0 && ItemRepository.instance != null)
-        {
             items = await ItemRepository.instance.GetInventoryBySlotAsync(chara.Inventory, slot);
-        }
         else
-        {
             items = new List<ItemData>();
-        }
 
         if (items.Count == 0)
         {
@@ -316,38 +383,33 @@ public class EquipmentMenuController : MonoBehaviour
         foreach (var item in items)
         {
             if (item == null) continue;
-            bool isEquipped = item.IsEquippedBy(chara);
-            MakeItemRow(item, isEquipped, jp);
+            MakeItemRow(item, item.IsEquippedBy(chara), jp);
         }
     }
 
     // ================================================================
-    // アイテム行（タップで装備・装備中の視覚表示）
+    // アイテム行（アイコン + 装備名 + 効果）
     // ================================================================
     private void MakeItemRow(ItemData item, bool isEquipped, TMP_FontAsset jp)
     {
-        // デバッグ用：何がnullか突き止める
-        if (item == null) {
-            Debug.LogError("MakeItemRow: 引数の item が null です！");
-            return;
-        }
-        if (_listContent == null) {
-            Debug.LogError("MakeItemRow: _listContent がセットされていません！");
-            return;
-        }
-        
-        // 行の背景
+        if (item == null) { Debug.LogError("MakeItemRow: item が null"); return; }
+        if (_listContent == null) { Debug.LogError("MakeItemRow: _listContent がnull"); return; }
+
+        const float ICON_SIZE = 160f;
+        const float ICON_PAD  = 16f;
+
+
+        // ---- 行背景 ----
         var row = new GameObject("__Row_" + (item.ItemId ?? "unknown"));
         row.transform.SetParent(_listContent, false);
-        var rowRT = row.AddComponent<RectTransform>();
+        var rowRT  = row.AddComponent<RectTransform>();
         rowRT.anchorMin = new Vector2(0f,1f); rowRT.anchorMax = new Vector2(1f,1f);
         rowRT.pivot = new Vector2(0.5f,1f);
         var rowImg = row.AddComponent<Image>();
         rowImg.color = isEquipped ? C_ROW_EQUIPPED : C_ROW_NORMAL;
-        var rowLE = row.AddComponent<LayoutElement>();
-        rowLE.preferredHeight = 190f; rowLE.flexibleWidth = 1f;
+        var rowLE   = row.AddComponent<LayoutElement>();
+        rowLE.preferredHeight = 290f; rowLE.flexibleWidth = 1f; rowLE.flexibleHeight = 1f;
 
-        // 装備中: ゴールド枠（背後に配置）
         if (isEquipped)
         {
             var eb = new GameObject("__EqBorder");
@@ -359,37 +421,59 @@ public class EquipmentMenuController : MonoBehaviour
             eb.transform.SetAsFirstSibling();
         }
 
-        // タップで装備ボタン
         var btn = row.AddComponent<Button>();
         btn.navigation = new Navigation { mode = Navigation.Mode.None };
         var cb = ColorBlock.defaultColorBlock;
-        cb.normalColor      = Color.white;
-        cb.highlightedColor = new Color(1f,1f,0.75f,1f);
-        cb.pressedColor     = new Color(0.85f,0.85f,0.60f,1f);
-        btn.colors = cb;
-        btn.targetGraphic = rowImg;
+        cb.normalColor = Color.white; cb.highlightedColor = new Color(1f,1f,0.75f,1f);
+        cb.pressedColor = new Color(0.85f,0.85f,0.60f,1f);
+        btn.colors = cb; btn.targetGraphic = rowImg;
         var capturedItem = item;
         btn.onClick.AddListener(() => EquipItem(capturedItem));
 
-        // 左エリア（名前＋効果を縦積み）
+        // ---- アイコン（左端）----
+        float leftOffset = 16f;
+        var cacheManager = ItemCacheManager.instance;
+        if (cacheManager != null)
+        {
+            var sprite = cacheManager.GetIconSprite(item.ItemId);
+            if (sprite != null)
+            {
+                var iconGO = new GameObject("__Icon");
+                iconGO.transform.SetParent(row.transform, false);
+                var irt = iconGO.AddComponent<RectTransform>();
+                // 上下ストレッチ・左端固定・内側パディングで中央揃え
+                irt.anchorMin = new Vector2(0f, 0f); irt.anchorMax = new Vector2(0f, 1f);
+                irt.pivot = new Vector2(0f, 0.5f);
+                irt.offsetMin = new Vector2(ICON_PAD, 20f);          // 左端・下端パディング
+                irt.offsetMax = new Vector2(ICON_PAD + ICON_SIZE, -20f); // 右端・上端パディング
+                irt.anchoredPosition = Vector2.zero;
+                irt.pivot = new Vector2(0f, 0.5f);
+                // sizeDelta はストレッチ時に不要（offsetMin/Maxで制御済み）
+
+                var iconImg = iconGO.AddComponent<Image>();
+                iconImg.sprite = sprite; iconImg.preserveAspect = true; iconImg.raycastTarget = false;
+                leftOffset = ICON_SIZE + ICON_PAD * 2f;
+            }
+        }
+
+        // ---- 左テキストエリア（名前＋効果） ----
         float rightPct = isEquipped ? 0.65f : 1.00f;
         var leftGO = new GameObject("__Left");
         leftGO.transform.SetParent(row.transform, false);
         var lrt = leftGO.AddComponent<RectTransform>();
         lrt.anchorMin = new Vector2(0f,0f); lrt.anchorMax = new Vector2(rightPct,1f);
-        lrt.offsetMin = new Vector2(20f,0f); lrt.offsetMax = new Vector2(-8f,0f);
+        lrt.offsetMin = new Vector2(leftOffset, 0f); lrt.offsetMax = new Vector2(-8f, 0f);
         var lvlg = leftGO.AddComponent<VerticalLayoutGroup>();
         lvlg.childForceExpandWidth = true; lvlg.childForceExpandHeight = false;
         lvlg.childControlHeight = true; lvlg.childControlWidth = true;
-        lvlg.spacing = 10f; lvlg.padding = new RectOffset(0,0,20,20);
+        lvlg.spacing = 8f; lvlg.padding = new RectOffset(0, 0, 18, 14);
 
-        // アイテム名
         var nameGO = new GameObject("__Name");
         nameGO.transform.SetParent(leftGO.transform, false);
         nameGO.AddComponent<RectTransform>();
         nameGO.AddComponent<LayoutElement>().preferredHeight = 70f;
         var ntxt = nameGO.AddComponent<TextMeshProUGUI>();
-        ntxt.text = (!string.IsNullOrEmpty(item.Name)) ? item.Name : (item.ItemId ?? "---");
+        ntxt.text = !string.IsNullOrEmpty(item.Name) ? item.Name : (item.ItemId ?? "---");
         ntxt.fontSize = 50f; ntxt.fontStyle = FontStyles.Bold;
         ntxt.alignment = TextAlignmentOptions.MidlineLeft;
         ntxt.color = C_TITLE;
@@ -397,7 +481,6 @@ public class EquipmentMenuController : MonoBehaviour
         ntxt.raycastTarget = false;
         if (jp != null) ntxt.font = jp;
 
-        // 効果テキスト
         if (item.Effects != null && item.Effects.Count > 0)
         {
             var fxGO = new GameObject("__Effects");
@@ -414,31 +497,43 @@ public class EquipmentMenuController : MonoBehaviour
             if (jp != null) ftxt.font = jp;
         }
 
-        // 装備中バッジ（右エリア）
+        // 説明文
+        if (!string.IsNullOrEmpty(item.Description))
+        {
+            var descGO = new GameObject("__Desc");
+            descGO.transform.SetParent(leftGO.transform, false);
+            descGO.AddComponent<RectTransform>();
+            var descLE = descGO.AddComponent<LayoutElement>();
+            descLE.preferredHeight = 60f; descLE.flexibleHeight = 1f;
+            var dtxt = descGO.AddComponent<TextMeshProUGUI>();
+            dtxt.text = item.Description;
+            dtxt.fontSize = 40f;
+            dtxt.alignment = TextAlignmentOptions.TopLeft;
+            dtxt.color = new Color(0.40f, 0.22f, 0.06f, 1f);
+            dtxt.overflowMode = TextOverflowModes.Overflow;
+            dtxt.enableWordWrapping = true;
+            dtxt.raycastTarget = false;
+            if (jp != null) dtxt.font = jp;
+        }
+
         if (isEquipped)
         {
-            // 1. 背景用のオブジェクト
             var badgeGO = new GameObject("__Badge");
             badgeGO.transform.SetParent(row.transform, false);
             var brt = badgeGO.AddComponent<RectTransform>();
-            brt.anchorMin = new Vector2(0.67f,0.18f);
-            brt.anchorMax = new Vector2(0.97f,0.82f);
+            brt.anchorMin = new Vector2(0.67f, 0.18f);
+            brt.anchorMax = new Vector2(0.97f, 0.82f);
             brt.offsetMin = brt.offsetMax = Vector2.zero;
             badgeGO.AddComponent<Image>().color = C_BADGE_EQ;
-
-            // 2. 文字用のオブジェクト（背景の子にする）
             var textGO = new GameObject("__BadgeText");
-            textGO.transform.SetParent(badgeGO.transform, false); // badgeGOの子にする
+            textGO.transform.SetParent(badgeGO.transform, false);
             var trt = textGO.AddComponent<RectTransform>();
-            trt.anchorMin = Vector2.zero; trt.anchorMax = Vector2.one; // 親いっぱいに広げる
+            trt.anchorMin = Vector2.zero; trt.anchorMax = Vector2.one;
             trt.offsetMin = trt.offsetMax = Vector2.zero;
-
             var btxt = textGO.AddComponent<TextMeshProUGUI>();
-            btxt.text = "装備中"; 
-            btxt.fontSize = 38f;
+            btxt.text = "装備中"; btxt.fontSize = 38f;
             btxt.alignment = TextAlignmentOptions.Center;
-            btxt.color = Color.white; 
-            btxt.raycastTarget = false;
+            btxt.color = Color.white; btxt.raycastTarget = false;
             if (jp != null) btxt.font = jp;
         }
     }

@@ -102,210 +102,76 @@ public class ItemBagPageManager : MonoBehaviour
         UseCoupon();
     }
     
+    /// <summary>
+    /// クーポンを消費する。
+    /// FieldValue.Increment によるサーバー側減算1回で完結し、
+    /// 読み取り（事前チェック・書き込み後の再取得）は行わない。
+    /// ローカルの UserData も同時に減算して表示を更新する。
+    /// </summary>
     private async UniTask UseCoupon()
     {
-        AssetsDatabase.instance.LoadingPanel.SetActive(true);
-        var db = FirebaseFirestore.DefaultInstance;
-        var uid = UserDataManager.instance.UID;
-        CollectionReference charactersRef = db.Collection("users").Document(uid).Collection("characters");
-        
+        string couponField;
+        string couponDisplayName;
+        System.Action<UserData, int> applyLocal;
+
         switch (_currentCouponName)
         {
             case "5":
-                charactersRef.Limit(1).GetSnapshotAsync().ContinueWithOnMainThread(async task =>
-                {
-                    if (task.IsFaulted)
-                    {
-                        Debug.LogError("エラーが発生しました: " + task.Exception);
-                        return;
-                    }
-
-                    QuerySnapshot snapshot = task.Result;
-                    if (snapshot.Count > 0)
-                    {
-                        Dictionary<string, object> data = new Dictionary<string, object>
-                        {
-                            {
-                                "five_coupon", (UserDataManager.instance.UserData.FiveCoupon - _numOfUsingCoupon)
-                            },
-                        };
-                        
-                        var docRef = db.Collection("users").Document(uid);
-                        await docRef.SetAsync(data, SetOptions.MergeAll);
-                        await UniTask.Delay(1000);
-
-                        // データの更新
-                        DocumentSnapshot ds = await docRef.GetSnapshotAsync();
-                        var userData = ds.ConvertTo<UserData>();
-                        UserDataManager.instance.SetUserData(userData);
-                        Debug.Log("5クーポンを消費！");
-                        UpdateCouponDisplay();
-                        int usedCount = _numOfUsingCoupon;
-                        _numOfUsingCoupon = 0;
-                        _numOfUsingCouponText.text = "0";
-                        AssetsDatabase.instance.LoadingPanel.SetActive(false);
-                        _couponPanel.SetActive(false);
-                        ShowItemUsedPopup(FIVE_COUPON_NAME, usedCount).Forget();
-                    }
-                });
+                couponField = "five_coupon";
+                couponDisplayName = FIVE_COUPON_NAME;
+                applyLocal = (d, n) => d.FiveCoupon -= n;
                 break;
-
             case "7":
-                charactersRef.Limit(1).GetSnapshotAsync().ContinueWithOnMainThread(async task =>
-                {
-                    if (task.IsFaulted)
-                    {
-                        Debug.LogError("エラーが発生しました: " + task.Exception);
-                        return;
-                    }
-
-                    QuerySnapshot snapshot = task.Result;
-                    if (snapshot.Count > 0)
-                    {
-                        Dictionary<string, object> data = new Dictionary<string, object>
-                        {
-                            {
-                                "seven_coupon", (UserDataManager.instance.UserData.SevenCoupon - _numOfUsingCoupon)
-                            },
-                        };
-                        
-                        var docRef = db.Collection("users").Document(uid);
-                        await docRef.SetAsync(data, SetOptions.MergeAll);
-                        await UniTask.Delay(1000);
-
-                        // データの更新
-                        DocumentSnapshot ds = await docRef.GetSnapshotAsync();
-                        var userData = ds.ConvertTo<UserData>();
-                        UserDataManager.instance.SetUserData(userData);
-                        Debug.Log("7クーポンを消費！");
-                        UpdateCouponDisplay();
-                        int usedCount = _numOfUsingCoupon;
-                        _numOfUsingCoupon = 0;
-                        _numOfUsingCouponText.text = "0";
-                        AssetsDatabase.instance.LoadingPanel.SetActive(false);
-                        _couponPanel.SetActive(false);
-                        ShowItemUsedPopup(SEVEN_COUPON_NAME, usedCount).Forget();
-                    }
-                });
+                couponField = "seven_coupon";
+                couponDisplayName = SEVEN_COUPON_NAME;
+                applyLocal = (d, n) => d.SevenCoupon -= n;
                 break;
-
             case "drink":
-                charactersRef.Limit(1).GetSnapshotAsync().ContinueWithOnMainThread(async task =>
-                {
-                    if (task.IsFaulted)
-                    {
-                        Debug.LogError("エラーが発生しました: " + task.Exception);
-                        return;
-                    }
-
-                    QuerySnapshot snapshot = task.Result;
-                    if (snapshot.Count > 0)
-                    {
-                        Dictionary<string, object> data = new Dictionary<string, object>
-                        {
-                            {
-                                "drink_coupon", (UserDataManager.instance.UserData.DrinkCoupon - _numOfUsingCoupon)
-                            },
-                        };
-                        
-                        var docRef = db.Collection("users").Document(uid);
-                        await docRef.SetAsync(data, SetOptions.MergeAll);
-                        await UniTask.Delay(1000);
-
-                        // データの更新
-                        DocumentSnapshot ds = await docRef.GetSnapshotAsync();
-                        var userData = ds.ConvertTo<UserData>();
-                        UserDataManager.instance.SetUserData(userData);
-                        Debug.Log("Drinkクーポンを消費！");
-                        UpdateCouponDisplay();
-                        int usedCount = _numOfUsingCoupon;
-                        _numOfUsingCoupon = 0;
-                        _numOfUsingCouponText.text = "0";
-                        AssetsDatabase.instance.LoadingPanel.SetActive(false);
-                        _couponPanel.SetActive(false);
-                        ShowItemUsedPopup(DRINK_COUPON_NAME, usedCount).Forget();
-                    }
-                });
+                couponField = "drink_coupon";
+                couponDisplayName = DRINK_COUPON_NAME;
+                applyLocal = (d, n) => d.DrinkCoupon -= n;
                 break;
-
             case "coffee":
-                charactersRef.Limit(1).GetSnapshotAsync().ContinueWithOnMainThread(async task =>
-                {
-                    if (task.IsFaulted)
-                    {
-                        Debug.LogError("エラーが発生しました: " + task.Exception);
-                        return;
-                    }
-
-                    QuerySnapshot snapshot = task.Result;
-                    if (snapshot.Count > 0)
-                    {
-                        Dictionary<string, object> data = new Dictionary<string, object>
-                        {
-                            {
-                                "coffee_coupon", (UserDataManager.instance.UserData.CoffeeCoupon - _numOfUsingCoupon)
-                            },
-                        };
-                        
-                        var docRef = db.Collection("users").Document(uid);
-                        await docRef.SetAsync(data, SetOptions.MergeAll);
-                        await UniTask.Delay(1000);
-
-                        // データの更新
-                        DocumentSnapshot ds = await docRef.GetSnapshotAsync();
-                        var userData = ds.ConvertTo<UserData>();
-                        UserDataManager.instance.SetUserData(userData);
-                        Debug.Log("Coffeeクーポンを消費！");
-                        UpdateCouponDisplay();
-                        int usedCount = _numOfUsingCoupon;
-                        _numOfUsingCoupon = 0;
-                        _numOfUsingCouponText.text = "0";
-                        AssetsDatabase.instance.LoadingPanel.SetActive(false);
-                        _couponPanel.SetActive(false);
-                        ShowItemUsedPopup(COFFEE_COUPON_NAME, usedCount).Forget();
-                    }
-                });
+                couponField = "coffee_coupon";
+                couponDisplayName = COFFEE_COUPON_NAME;
+                applyLocal = (d, n) => d.CoffeeCoupon -= n;
                 break;
-
             case "atk":
-                charactersRef.Limit(1).GetSnapshotAsync().ContinueWithOnMainThread(async task =>
-                {
-                    if (task.IsFaulted)
-                    {
-                        Debug.LogError("エラーが発生しました: " + task.Exception);
-                        return;
-                    }
-
-                    QuerySnapshot snapshot = task.Result;
-                    if (snapshot.Count > 0)
-                    {
-                        Dictionary<string, object> data = new Dictionary<string, object>
-                        {
-                            {
-                                "atk_coupon", (UserDataManager.instance.UserData.ATKCoupon - _numOfUsingCoupon)
-                            },
-                        };
-                        
-                        var docRef = db.Collection("users").Document(uid);
-                        await docRef.SetAsync(data, SetOptions.MergeAll);
-                        await UniTask.Delay(1000);
-
-                        // データの更新
-                        DocumentSnapshot ds = await docRef.GetSnapshotAsync();
-                        var userData = ds.ConvertTo<UserData>();
-                        UserDataManager.instance.SetUserData(userData);
-                        Debug.Log("ATKクーポンを消費！");
-                        UpdateCouponDisplay();
-                        int usedCount = _numOfUsingCoupon;
-                        _numOfUsingCoupon = 0;
-                        _numOfUsingCouponText.text = "0";
-                        AssetsDatabase.instance.LoadingPanel.SetActive(false);
-                        _couponPanel.SetActive(false);
-                        ShowItemUsedPopup(ATK_COUPON_NAME, usedCount).Forget();
-                    }
-                });
+                couponField = "atk_coupon";
+                couponDisplayName = ATK_COUPON_NAME;
+                applyLocal = (d, n) => d.ATKCoupon -= n;
                 break;
+            default:
+                return;
         }
+
+        AssetsDatabase.instance.LoadingPanel.SetActive(true);
+        var db = FirebaseFirestore.DefaultInstance;
+        var uid = UserDataManager.instance.UID;
+        int usedCount = _numOfUsingCoupon;
+
+        try
+        {
+            await db.Collection("users").Document(uid).UpdateAsync(new Dictionary<string, object>
+            {
+                { couponField, FieldValue.Increment(-usedCount) },
+            }).AsUniTask();
+        }
+        catch (System.Exception ex)
+        {
+            Debug.LogError($"クーポン消費エラー ({couponDisplayName}): {ex.Message}");
+            AssetsDatabase.instance.LoadingPanel.SetActive(false);
+            return;
+        }
+
+        applyLocal(UserDataManager.instance.UserData, usedCount);
+        Debug.Log($"{couponDisplayName}を消費！");
+        UpdateCouponDisplay();
+        _numOfUsingCoupon = 0;
+        _numOfUsingCouponText.text = "0";
+        AssetsDatabase.instance.LoadingPanel.SetActive(false);
+        _couponPanel.SetActive(false);
+        ShowItemUsedPopup(couponDisplayName, usedCount).Forget();
     }
 
     public void Plus()

@@ -15,7 +15,8 @@ using Firebase.Storage;
 public class FirebaseDataReceiver : SingletonBehaviour<FirebaseDataReceiver>
 {
     private const string CACHE_FOLDER_NAME = "EventImageCache";
-    private const string LAST_FETCH_DATE_KEY = "LastEventImageFetchDate";
+    // 前回ダウンロードしたイベント画像URLリスト（改行区切り）。これが変わったときだけ再取得する
+    private const string CACHED_EVENT_URLS_KEY = "CachedEventImageUrls";
 
     private FirebaseFirestore _database;
     private Firebase.Auth.FirebaseAuth _auth;
@@ -45,26 +46,8 @@ public class FirebaseDataReceiver : SingletonBehaviour<FirebaseDataReceiver>
 
 
 
-        CheckAndClearCacheIfNewDay();
         FetchEventNoticeData();
         FetchAchievementData();
-    }
-
-    /// <summary>
-    /// 日付が変わっていたらキャッシュをクリアする
-    /// </summary>
-    private void CheckAndClearCacheIfNewDay()
-    {
-        string today = DateTime.Now.ToString("yyyy-MM-dd");
-        string lastFetchDate = PlayerPrefs.GetString(LAST_FETCH_DATE_KEY, "");
-
-        if (lastFetchDate != today)
-        {
-            ClearImageCache();
-            PlayerPrefs.SetString(LAST_FETCH_DATE_KEY, today);
-            PlayerPrefs.Save();
-            Debug.Log($"新しい日付です。キャッシュをクリアしました: {today}");
-        }
     }
 
     /// <summary>
@@ -79,22 +62,22 @@ public class FirebaseDataReceiver : SingletonBehaviour<FirebaseDataReceiver>
     }
 
     /// <summary>
-    /// [デバッグ用] 日付が変わった時の処理をシミュレートする
-    /// キャッシュをクリアし、UIをリセットして、Firebaseから再取得する
+    /// [デバッグ用] イベント画像を強制的に再取得する
+    /// キャッシュとURL履歴をクリアし、UIをリセットして、Firebaseから再取得する
     /// </summary>
-    [ContextMenu("Debug: Simulate New Day")]
+    [ContextMenu("Debug: Force Refetch Event Images")]
     public void DebugSimulateNewDay()
     {
-        Debug.Log("[デバッグ] 日付変更をシミュレートします");
+        Debug.Log("[デバッグ] イベント画像を強制再取得します");
 
         // キャッシュをクリア
         ClearImageCache();
         Debug.Log("[デバッグ] キャッシュをクリアしました");
 
-        // 保存された日付をリセット
-        PlayerPrefs.DeleteKey(LAST_FETCH_DATE_KEY);
+        // 保存されたURLリストをリセット
+        PlayerPrefs.DeleteKey(CACHED_EVENT_URLS_KEY);
         PlayerPrefs.Save();
-        Debug.Log("[デバッグ] 保存された日付をリセットしました");
+        Debug.Log("[デバッグ] 保存されたURLリストをリセットしました");
 
         // 既存のUI要素をクリア
         ClearEventNoticeUI();
@@ -173,18 +156,27 @@ public class FirebaseDataReceiver : SingletonBehaviour<FirebaseDataReceiver>
         return Directory.Exists(CacheFolderPath) && Directory.GetFiles(CacheFolderPath, "*.jpg").Length > 0;
     }
 
+    /// <summary>
+    /// イベント画像を表示する。
+    /// master/config の URL リストが前回ダウンロード時と同じならローカルキャッシュを使い、
+    /// 変わっていたときだけ再ダウンロードする
+    /// （旧実装の「毎日キャッシュ破棄→再DL」をやめ、転送量を画像更新時のみに抑える）。
+    /// </summary>
     private async void FetchEventNoticeData()
     {
-        // キャッシュが存在する場合はローカルから読み込み
-        if (HasValidCache())
+        var config = await MasterData.GetConfigAsync();
+        string signature = config.EventImages != null ? string.Join("\n", config.EventImages) : "";
+        string cachedSignature = PlayerPrefs.GetString(CACHED_EVENT_URLS_KEY, "__none__");
+
+        if (signature == cachedSignature && HasValidCache())
         {
-            Debug.Log("キャッシュから画像を読み込みます");
+            Debug.Log("イベント画像に変更なし → キャッシュから読み込みます");
             LoadImagesFromCache();
             return;
         }
 
-        // キャッシュがない場合はFirebaseから取得
-        Debug.Log("Firebaseから画像を取得します");
+        Debug.Log("イベント画像が更新されています → 再ダウンロードします");
+        ClearImageCache();
         await FetchAndCacheImagesFromFirebase();
     }
 
@@ -246,33 +238,30 @@ public class FirebaseDataReceiver : SingletonBehaviour<FirebaseDataReceiver>
     }
 
     /// <summary>
-    /// Firebaseから画像を取得してキャッシュに保存
+    /// Firebaseから画像を取得してキャッシュに保存。
+    /// 画像URL一覧は master/config の event_images（1ドキュメント）から取得する。
     /// </summary>
     private async Task FetchAndCacheImagesFromFirebase()
     {
-        CollectionReference colRef = _database.Collection("events");
         try
         {
-            QuerySnapshot snapshot = await colRef.GetSnapshotAsync();
-            if (snapshot != null)
+            var config = await MasterData.GetConfigAsync();
+            var eventImages = config.EventImages;
+            if (eventImages != null && eventImages.Count > 0)
             {
-                foreach (var document in snapshot.Documents)
+                int failedCount = 0;
+                for (int i = 0; i < eventImages.Count; i++)
                 {
-                    if (document.Exists)
-                    {
-                        Dictionary<string, object> data = document.ToDictionary();
-                        for (int i = 0; i < data.Count; i++)
-                        {
                             try
                             {
                                 string key = i.ToString();
-                                if (!data.ContainsKey(key) || data[key] == null)
+                                if (string.IsNullOrEmpty(eventImages[i]))
                                 {
-                                    Debug.LogWarning($"画像キー '{key}' がドキュメントに存在しません。スキップします。");
+                                    Debug.LogWarning($"画像キー '{key}' のURLが空です。スキップします。");
                                     continue;
                                 }
 
-                                string storageUrl = data[key].ToString();
+                                string storageUrl = eventImages[i];
                                 Debug.Log($"画像取得開始: key={key}, url={storageUrl}");
 
                                 string imageUrl;
@@ -311,6 +300,7 @@ public class FirebaseDataReceiver : SingletonBehaviour<FirebaseDataReceiver>
                                     if (www.result != UnityWebRequest.Result.Success)
                                     {
                                         Debug.LogError($"画像のダウンロードに失敗しました (key={key}): {www.error} / HTTP {www.responseCode}");
+                                        failedCount++;
                                         continue;
                                     }
 
@@ -352,20 +342,33 @@ public class FirebaseDataReceiver : SingletonBehaviour<FirebaseDataReceiver>
                             }
                             catch (Firebase.Storage.StorageException storageEx)
                             {
+                                failedCount++;
                                 Debug.LogError($"Firebase Storage エラー (key={i}): ErrorCode={storageEx.ErrorCode}, HTTP={storageEx.HttpResultCode}, Message={storageEx.Message}");
                             }
                             catch (System.Exception e)
                             {
+                                failedCount++;
                                 Debug.LogError($"画像処理中にエラーが発生しました (key={i}): {e.GetType().Name}: {e.Message}\n{e.StackTrace}");
                             }
-                        }
-                        _loadingPanel.SetActive(false);
-                    }
                 }
+
+                if (failedCount == 0)
+                {
+                    // 全画像のDLに成功したときだけURLリストを記録する
+                    // （失敗があれば記録せず、次回起動時に再ダウンロードを試みる）
+                    PlayerPrefs.SetString(CACHED_EVENT_URLS_KEY, string.Join("\n", eventImages));
+                    PlayerPrefs.Save();
+                }
+                else
+                {
+                    Debug.LogWarning($"イベント画像 {failedCount}件のDLに失敗。次回起動時に再取得します");
+                }
+                _loadingPanel.SetActive(false);
             }
             else
             {
-                Debug.Log($"ドキュメントが見つかりません。");
+                Debug.Log($"イベント画像が登録されていません。");
+                _loadingPanel.SetActive(false);
             }
         }
         catch (System.Exception ex)
@@ -376,28 +379,11 @@ public class FirebaseDataReceiver : SingletonBehaviour<FirebaseDataReceiver>
 
     private async void FetchAchievementData()
     {
-        CollectionReference colRef = _database.Collection("achievements");
+        // master/config の achievements 配列から取得（追加の読み取りは発生しない）
         try
         {
-            QuerySnapshot snapshot = await colRef.GetSnapshotAsync();
-            _achievementList = new List<Achievement>();
-            if (colRef != null)
-            {
-                Achievement achievement;
-                foreach(var document in snapshot.Documents)
-                {
-                    if (document.Exists)
-                    {
-                        achievement = document.ConvertTo<Achievement>();
-                        _achievementList.Add(achievement);
-                    }
-                }
-                
-            }
-            else
-            {
-                Debug.Log($"ドキュメントが見つかりません。");
-            }
+            var config = await MasterData.GetConfigAsync();
+            _achievementList = config.Achievements ?? new List<Achievement>();
         }
         catch (System.Exception ex)
         {

@@ -9,8 +9,8 @@ using System.Linq;
 /// 開発・テスト用：プレイヤーのインベントリにサンプルアイテムを追加する
 /// Playモード中に Tools メニューから実行してください。
 ///
-/// マスターデータ: item/{job}/items/{itemId} に書き込み
-/// インベントリ: users/{uid}/characters/{charIdx}/inventory に InventoryRef を書き込み
+/// マスターデータ: master/items の items.{itemId} に書き込み
+/// インベントリ: users/{uid}.characters.{charIdx}.inventory に InventoryRef を書き込み
 /// </summary>
 public static class DevAddTestItem
 {
@@ -223,17 +223,14 @@ public static class DevAddTestItem
             EditorUtility.DisplayDialog("注意", "Playモード中に実行してください（Firebase接続が必要）", "OK");
             return;
         }
-        if (ItemSyncManager.instance == null)
+        if (ItemCacheManager.instance == null)
         {
-            Debug.LogError("[DevAddTestItem] ItemSyncManager がシーンに存在しません。");
+            Debug.LogError("[DevAddTestItem] ItemCacheManager がシーンに存在しません。");
             return;
         }
 
-        // lastSync をクリアして全件取得させる
-        PlayerPrefs.DeleteKey("ItemSync_LastSyncUtc");
-        PlayerPrefs.Save();
-
-        await ItemSyncManager.instance.InitAsync();
+        // バージョンを無視して全件取得させる
+        await ItemCacheManager.instance.SyncAsync(msg => Debug.Log($"[DevAddTestItem] {msg}"), force: true);
         EditorUtility.DisplayDialog("完了", "アイテムDBの同期が完了しました。", "OK");
     }
 
@@ -279,14 +276,10 @@ public static class DevAddTestItem
         );
     }
 
-    /// <summary>マスターデータ item/{job}/items/{itemId} に書き込む</summary>
+    /// <summary>マスターデータ master/items の items.{itemId} に書き込む</summary>
     private static async System.Threading.Tasks.Task SaveToMasterAsync(string job, ItemData item)
     {
         var db = FirebaseFirestore.DefaultInstance;
-        var docRef = db.Collection("item")
-                       .Document(job)
-                       .Collection("items")
-                       .Document(item.ItemId);
 
         var effectList = new List<Dictionary<string, object>>();
         if (item.Effects != null)
@@ -307,8 +300,18 @@ public static class DevAddTestItem
             { "effects",   effectList        },
         };
 
-        await docRef.SetAsync(data, SetOptions.MergeAll);
-        Debug.Log($"[DevAddTestItem] マスターに保存: item/{job}/items/{item.ItemId}");
+        await db.Collection("master").Document("items").SetAsync(
+            new Dictionary<string, object>
+            {
+                { "items", new Dictionary<string, object> { { item.ItemId, data } } }
+            },
+            SetOptions.MergeAll);
+
+        // クライアントの差分同期判定用にバージョンを上げる
+        await db.Collection("master").Document("config")
+            .UpdateAsync("items_version", FieldValue.Increment(1));
+
+        Debug.Log($"[DevAddTestItem] マスターに保存: master/items items.{item.ItemId}");
     }
 
     /// <summary>キャラクターのインベントリに InventoryRef を追加（ローカルのみ）</summary>
@@ -325,34 +328,15 @@ public static class DevAddTestItem
         Debug.Log($"[DevAddTestItem] ローカルに追加: {job}/{itemId}");
     }
 
-    /// <summary>インベントリ参照をFirestoreに保存</summary>
+    /// <summary>インベントリ参照をFirestoreに保存（users/{uid}.characters.{idx}.inventory）</summary>
     private static async System.Threading.Tasks.Task SaveInventoryToFirestore()
     {
         var manager = UserDataManager.instance;
         int charIdx = manager.CurrentSelectCharacterNumber;
         var chara   = manager.UserData.Characters[charIdx];
 
-        var db     = FirebaseFirestore.DefaultInstance;
-        var docRef = db.Collection("users")
-                       .Document(manager.UID)
-                       .Collection("characters")
-                       .Document(charIdx.ToString());
-
-        var inventoryData = new List<Dictionary<string, object>>();
-        foreach (var r in chara.Inventory)
-        {
-            inventoryData.Add(new Dictionary<string, object>
-            {
-                { "job",     r.Job    },
-                { "item_id", r.ItemId },
-            });
-        }
-
-        await docRef.SetAsync(
-            new Dictionary<string, object> { { "inventory", inventoryData } },
-            SetOptions.MergeAll
-        );
-        Debug.Log($"[DevAddTestItem] Firestore保存完了（{inventoryData.Count}件の参照）");
+        await ItemSyncManager.SaveInventoryAsync(manager.UID, charIdx, chara.Inventory);
+        Debug.Log($"[DevAddTestItem] Firestore保存完了（{chara.Inventory.Count}件の参照）");
     }
 }
 #endif

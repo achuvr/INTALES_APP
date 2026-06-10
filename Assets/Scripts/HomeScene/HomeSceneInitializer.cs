@@ -42,6 +42,13 @@ public class HomeSceneInitializer : MonoBehaviour
         // ローカルに保存した装備データをキャラクターに復元
         LocalEquipSave.ApplyAll(UserDataManager.instance.UserData.Characters);
 
+        // フレンド機能のUI（コード生成）をセットアップ（シーン編集不要で追加するため）
+        if (GetComponent<FriendMenuController>() == null)
+            gameObject.AddComponent<FriendMenuController>();
+
+        // チェックアウト忘れ（営業終了時刻を過ぎた来店）を自動クローズ
+        LocalVisitLog.AutoCloseStaleVisits();
+
         if (UserDataManager.instance.UserData.Characters.Count == 1)
         {
             _leftArrow.SetActive(false);
@@ -103,29 +110,22 @@ public class HomeSceneInitializer : MonoBehaviour
 
     private async void FetchGoodDay()
     {
-        CollectionReference colRef = _database.Collection("today");
+        // master/config に集約済み（today/achievements/events を1ドキュメントで取得）
         try
         {
-            QuerySnapshot snapshot = await colRef.GetSnapshotAsync();
-            if (colRef != null)
+            var config = await MasterData.GetConfigAsync();
+            if (config.Today == null)
             {
-                foreach (var document in snapshot.Documents)
-                {
-                    if (document.Exists)
-                    {
-                        _today = document.ConvertTo<Today>();
-                        TodayData = _today;
-                        Debug.Log($"{_today.Job},{_today.Element}");
+                Debug.Log($"master/config に today がありません。");
+                return;
+            }
 
-                        var chara = UserDataManager.instance.UserData.Characters[UserDataManager.instance.CurrentSelectCharacterNumber];
-                        _todayText.text = BuildTodayText(_today, chara.Job, chara.Element);
-                    }
-                }
-            }
-            else
-            {
-                Debug.Log($"ドキュメントが見つかりません。");
-            }
+            _today = config.Today;
+            TodayData = _today;
+            Debug.Log($"{_today.Job},{_today.Element}");
+
+            var chara = UserDataManager.instance.UserData.Characters[UserDataManager.instance.CurrentSelectCharacterNumber];
+            _todayText.text = BuildTodayText(_today, chara.Job, chara.Element);
         }
         catch (System.Exception ex)
         {

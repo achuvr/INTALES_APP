@@ -1,0 +1,56 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ★ 新構造: master コレクション（アイテムマスター・セッション設定）
+    //    読み取りは誰でもOK（公開マスターデータ）、書き込みはログインユーザーのみ
+    //    （旧 item コレクションと同じセキュリティポリシー）
+    match /master/{docId} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+
+  	// events コレクションは誰でも read OK（write は禁止）
+    match /events/{docId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /item/{jobId}/items/{itemId} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+
+    // usersコレクションのルール
+    match /users/{userId} {
+      // ユーザー本人であれば基本ドキュメントの読み取りを許可
+      // allow read, write: if request.auth.uid == userId;
+      allow read, write: if true;
+
+      // 1. users/{userId}/achievements サブコレクションのルール (既存)
+      match /achievements/{achievementId} {
+        // ユーザー本人(userId)が、自分のアチーブメントを読み書きできる
+        allow read, write: if request.auth.uid == userId;
+      }
+
+      // 2. characters サブコレクションのルール
+      //    （新構造では users/{userId} の characters マップに移行済み。
+      //      旧バージョンアプリの互換のためルールは残している）
+      match /characters/{characterId} {
+        // ユーザー本人(userId)が、自分のキャラクター情報を読み書きできる
+        allow read, write: if request.auth.uid == userId;
+      }
+    }
+
+    // アチーブメント情報も、ユーザーIDが一致する場合のみ読み書き可能
+    match /achievements/{documentId} {
+      allow read: if request.auth != null; // 記録の読み取りはログインしていればOK
+      allow create: if request.auth != null && request.auth.uid == request.resource.data.user_id; // 書き込みは自分のIDと一致しているか確認
+    }
+
+    match /today/{documentId} {
+      allow read: if request.auth != null; // 記録の読み取りはログインしていればOK
+      allow create: if request.auth != null && request.auth.uid == request.resource.data.user_id; // 書き込みは自分のIDと一致しているか確認
+    }
+  }
+}

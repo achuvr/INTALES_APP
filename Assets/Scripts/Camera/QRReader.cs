@@ -40,9 +40,16 @@ public class QRReader : MonoBehaviour
         }
     }
 
-    private async void BranchText()
+    private void BranchText()
     {
-        switch (_result) 
+        // フレンド登録QR（"friend:{uid}:{name}"）は内容が可変なのでswitchの前に判定する
+        if (_result.StartsWith(CallMethodFromQR.FRIEND_QR_PREFIX))
+        {
+            _callMethodFromQR.AddFriend(_result).Forget();
+            return;
+        }
+
+        switch (_result)
         {
             case "Lv+1":
                 _callMethodFromQR.LevelUp(1);
@@ -81,24 +88,25 @@ public class QRReader : MonoBehaviour
             case "NewCharacter":
                 _callMethodFromQR.NewCharacter();
                 break;
-            
+
             case "coffee":
                 _callMethodFromQR.Coffee();
                 break;
-            
+
+            // 入退店兼用QR（1枚で in/out を自動切り替え）
+            case "checkin":
+            case "checkout":
+            case "visit":
+                _callMethodFromQR.ToggleVisit();
+                break;
+
             default:
                 Debug.Log("Not Found QR Code");
                 break;
         }
-        
-        var db = FirebaseFirestore.DefaultInstance;
-        var uid = UserDataManager.instance.UID;
-        var docRef = db.Collection("users").Document(uid);
-        Dictionary<string, object> settings = new Dictionary<string, object>
-        {
-            { "lastDate", Timestamp.GetCurrentTimestamp() }
-        };
-        await docRef.SetAsync(settings, SetOptions.MergeAll);
+
+        // lastDate の更新は各アクション（レベルアップ・クーポン入手）の書き込みに
+        // 含めるようにしたため、ここでの追加書き込みは行わない。
     }
     
     private IEnumerator LoadSceneAsyncWithActivationControl()

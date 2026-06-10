@@ -1,4 +1,28 @@
 {
+  "permissions": {
+    "allow": [
+      "mcp__unity-synaptic",
+      "Bash(Select-Object FullName)",
+      "Bash(Format-Table -AutoSize -Wrap)",
+      "mcp__ide__getDiagnostics",
+      "PowerShell(firebase *)",
+      "PowerShell(npm *)",
+      "PowerShell(Get-ChildItem env: | Where-Object { $_.Name -match 'CI$|CI_|CONTINUOUS|TERM|FIREBASE' } | Format-Table Name, Value)",
+      "PowerShell(if \\(Test-Path \"C:\\\\Users\\\\intal\\\\.secrets\\\\intales-admin.json\"\\) { \"OK: file exists\"; \\(Get-Item \"C:\\\\Users\\\\intal\\\\.secrets\\\\intales-admin.json\"\\).Length } else { \"NOT FOUND\"; if \\(Test-Path \"C:\\\\Users\\\\intal\\\\.secrets\"\\) { Get-ChildItem \"C:\\\\Users\\\\intal\\\\.secrets\" | Select-Object Name } })",
+      "PowerShell($j = Get-Content \"C:\\\\Users\\\\intal\\\\.secrets\\\\intales-a0459-firebase-adminsdk-fbsvc-6f20ee1a7f.json\" -Raw | ConvertFrom-Json; \"type: $\\($j.type\\)\"; \"project_id: $\\($j.project_id\\)\"; \"client_email: $\\($j.client_email\\)\")",
+      "PowerShell($env:GOOGLE_APPLICATION_CREDENTIALS = \"C:\\\\Users\\\\intal\\\\.secrets\\\\intales-a0459-firebase-adminsdk-fbsvc-6f20ee1a7f.json\"; node \"C:\\\\Users\\\\intal\\\\works\\\\Personal\\\\Unity\\\\INTALES_APP\\\\tools\\\\firestore\\\\list-collections.js\")",
+      "PowerShell([Environment]::SetEnvironmentVariable\\(\"GOOGLE_APPLICATION_CREDENTIALS\", \"C:\\\\Users\\\\intal\\\\.secrets\\\\intales-a0459-firebase-adminsdk-fbsvc-6f20ee1a7f.json\", \"User\"\\); \"Set OK\")",
+      "PowerShell($env:GOOGLE_APPLICATION_CREDENTIALS = \"C:\\\\Users\\\\intal\\\\.secrets\\\\intales-a0459-firebase-adminsdk-fbsvc-6f20ee1a7f.json\"; node \"C:\\\\Users\\\\intal\\\\works\\\\Personal\\\\Unity\\\\INTALES_APP\\\\tools\\\\firestore\\\\dump-structure.js\")",
+      "PowerShell($env:GOOGLE_APPLICATION_CREDENTIALS = \"C:\\\\Users\\\\intal\\\\.secrets\\\\intales-a0459-firebase-adminsdk-fbsvc-6f20ee1a7f.json\"; node \"C:\\\\Users\\\\intal\\\\works\\\\Personal\\\\Unity\\\\INTALES_APP\\\\tools\\\\firestore\\\\migrate-to-v2.js\")",
+      "PowerShell($env:GOOGLE_APPLICATION_CREDENTIALS = \"C:\\\\Users\\\\intal\\\\.secrets\\\\intales-a0459-firebase-adminsdk-fbsvc-6f20ee1a7f.json\"; node \"C:\\\\Users\\\\intal\\\\works\\\\Personal\\\\Unity\\\\INTALES_APP\\\\tools\\\\firestore\\\\migrate-to-v2.js\" --apply)",
+      "PowerShell($env:GOOGLE_APPLICATION_CREDENTIALS = \"C:\\\\Users\\\\intal\\\\.secrets\\\\intales-a0459-firebase-adminsdk-fbsvc-6f20ee1a7f.json\"; node \"C:\\\\Users\\\\intal\\\\works\\\\Personal\\\\Unity\\\\INTALES_APP\\\\tools\\\\firestore\\\\verify-v2.js\")",
+      "PowerShell(firebase firestore:rules:list *)",
+      "PowerShell($env:GOOGLE_APPLICATION_CREDENTIALS = \"C:\\\\Users\\\\intal\\\\.secrets\\\\intales-a0459-firebase-adminsdk-fbsvc-6f20ee1a7f.json\"; node \"C:\\\\Users\\\\intal\\\\works\\\\Personal\\\\Unity\\\\INTALES_APP\\\\tools\\\\firestore\\\\get-rules.js\")",
+      "PowerShell($env:GOOGLE_APPLICATION_CREDENTIALS = \"C:\\\\Users\\\\intal\\\\.secrets\\\\intales-a0459-firebase-adminsdk-fbsvc-6f20ee1a7f.json\"; node \"C:\\\\Users\\\\intal\\\\works\\\\Personal\\\\Unity\\\\INTALES_APP\\\\tools\\\\firestore\\\\deploy-rules.js\")",
+      "PowerShell(Get-Process *)"
+    ],
+    "deny": []
+  },
   "mcpServers": {
     "unity-synaptic": {
       "command": "C:/Program Files/nodejs/node.exe",
@@ -7,11 +31,5 @@
       ],
       "env": {}
     }
-  },
-  "permissions": {
-    "allow": [
-      "mcp__unity-synaptic"
-    ],
-    "deny": []
   }
 }

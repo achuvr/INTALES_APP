@@ -32,6 +32,7 @@ public class IconUploaderManager : MonoBehaviour
         ("魔法使い","magician"),
         ("弓使い",  "archer"),
         ("銃使い",  "gunner"),
+        ("共通",    "common"),
     };
 
     // ---- カテゴリ ----
@@ -233,30 +234,27 @@ public class IconUploaderManager : MonoBehaviour
                 { "description", _descriptionInput?.text.Trim() ?? "" },
             };
 
-            // item/{jobKey}/items/{autoId} に保存
-            // item コレクション → 職業ドキュメント → items サブコレクション
-            var docRef = await db
-                .Collection("item")
-                .Document(jobKey)
-                .Collection("items")
-                .AddAsync(itemData)
-                .AsUniTask();
-
-            // item/_metadata の last_updated を更新（同期判定用）
-            await db.Collection("item").Document("_metadata")
+            // master/items の items.{autoId} に保存（全アイテムを1ドキュメントに集約）
+            string newId = db.Collection("master").Document().Id; // 自動ID生成
+            await db.Collection("master").Document("items")
                 .SetAsync(new Dictionary<string, object>
                 {
-                    { "last_updated", Timestamp.GetCurrentTimestamp() }
+                    { "items", new Dictionary<string, object> { { newId, itemData } } }
                 }, SetOptions.MergeAll)
                 .AsUniTask();
 
-            SS($"完了！ Firestore ID: {docRef.Id}", C_OK);
+            // master/config の items_version を上げる（クライアントの差分同期判定用）
+            await db.Collection("master").Document("config")
+                .UpdateAsync("items_version", FieldValue.Increment(1))
+                .AsUniTask();
+
+            SS($"完了！ Firestore ID: {newId}", C_OK);
             if (_urlLabel != null)
             {
                 _urlLabel.text  = _lastDownloadUrl;
                 _urlLabel.color = new Color(0.55f,0.75f,1.00f);
             }
-            Debug.Log($"[IconUploader] 保存完了 id={docRef.Id} url={_lastDownloadUrl}");
+            Debug.Log($"[IconUploader] 保存完了 id={newId} url={_lastDownloadUrl}");
         }
         catch (System.Exception ex)
         {

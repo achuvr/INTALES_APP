@@ -20,8 +20,9 @@ public enum EffectType
     GoldBonus,      // 獲得ゴールド + Value%
     SkillSlotUnlock,// スキルスロットを解放 (Valueでスロット番号)
 
-    SpecialAbility, // 特殊能力付与 (Valueで種類番号)
-    ProbUp,         // 確率上昇 (Valueで対象種類・確率%など)
+    CriticalDamageUp, // クリティカルダメージ + Value%
+    SpecialAbility,   // 特殊能力付与 (Valueで種類番号)
+    ProbUp,           // 確率上昇 (Valueで対象種類・確率%など)
 }
 
 // ============================================================

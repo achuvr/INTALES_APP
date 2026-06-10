@@ -45,3 +45,6 @@ sysinfo.txt
 # Purchased Asset Store assets (license required per user)
 Assets/Synaptic AI Pro/
 Assets/Synaptic AI Pro.meta
+
+# Firestore admin tools
+tools/firestore/node_modules/
