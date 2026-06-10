@@ -55,6 +55,10 @@ public class HomeSceneInitializer : MonoBehaviour
         if (GetComponent<PresenceIndicator>() == null)
             gameObject.AddComponent<PresenceIndicator>();
 
+        // 退会（アカウント削除）機能（Page_Info下部にボタンを置く）
+        if (GetComponent<AccountDeletionController>() == null)
+            gameObject.AddComponent<AccountDeletionController>();
+
         // チェックアウト忘れ（営業終了時刻を過ぎた来店）を自動クローズ
         // 自動クローズが発生した場合は、共有していた在店状態も解除する
         if (LocalVisitLog.AutoCloseStaleVisits() > 0)

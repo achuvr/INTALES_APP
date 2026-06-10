@@ -48,7 +48,8 @@ service cloud.firestore {
                .affectedKeys().hasOnly([request.auth.uid])
         )
       );
-      allow delete: if false;
+      // 退会（アカウント削除）のため本人のみ削除可
+      allow delete: if signedIn() && request.auth.uid == userId;
 
       // 旧構造のサブコレクション（現行アプリは未使用。本人のみに制限）
       match /achievements/{achievementId} {
