@@ -59,6 +59,10 @@ public class HomeSceneInitializer : MonoBehaviour
         if (GetComponent<AccountDeletionController>() == null)
             gameObject.AddComponent<AccountDeletionController>();
 
+        // ダイスロール機能（戦闘ボタンから開く）
+        if (GetComponent<DiceRollController>() == null)
+            gameObject.AddComponent<DiceRollController>();
+
         // チェックアウト忘れ（営業終了時刻を過ぎた来店）を自動クローズ
         // 自動クローズが発生した場合は、共有していた在店状態も解除する
         if (LocalVisitLog.AutoCloseStaleVisits() > 0)
