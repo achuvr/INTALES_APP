@@ -60,6 +60,19 @@ public class Dice3DSimulator : MonoBehaviour
         if (_cam != null) _cam.enabled = visible;
     }
 
+    /// <summary>
+    /// ダイス本体の色をキャラクターの属性に合わせる（次のロールから反映）。
+    /// 数字の読みやすさを保つため、属性色を白寄りに明るくした色を使う。
+    /// </summary>
+    public void SetDiceElement(string element)
+    {
+        if (_dieMat == null) return;
+        var (primary, _) = ElementColors(element);
+        var bodyColor = Color.Lerp(primary, Color.white, 0.45f);
+        if (_dieMat.HasProperty("_BaseColor")) _dieMat.SetColor("_BaseColor", bodyColor);
+        if (_dieMat.HasProperty("_Color")) _dieMat.SetColor("_Color", bodyColor);
+    }
+
     // ================================================================
     // ロール実行
     // ================================================================

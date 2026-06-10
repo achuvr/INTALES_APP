@@ -180,6 +180,10 @@ public class DiceRollController : MonoBehaviour
             _sim = Dice3DSimulator.Create(GetJpFont());
         _diceView.texture = _sim.Texture;
 
+        // ダイス本体の色をキャラクターの属性カラーにする
+        var (job, element) = GetSelectedJobAndElement();
+        _sim.SetDiceElement(element);
+
         // ロール音はダイスの物理衝突に同期して Dice3DSimulator 側で鳴る
 
         // 物理演算でダイスを転がし、静止後の出目を受け取る
@@ -193,7 +197,6 @@ public class DiceRollController : MonoBehaviour
         // 形は職業、色は属性で決まる
         float denom = count * faces - count;
         float intensity = denom > 0 ? (total - count) / denom : 1f;
-        var (job, element) = GetSelectedJobAndElement();
         _sim.PlayResultEffect(job, element, intensity);
 
         Debug.Log($"[Dice] {label} → {total} ({string.Join(",", rolls)}) intensity={intensity:F2}");
