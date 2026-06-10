@@ -10,6 +10,13 @@ service cloud.firestore {
       allow write: if request.auth != null;
     }
 
+    // ★ 在店状況の共有（presence/store の1ドキュメントに uid→チェックイン時刻のマップ）
+    //    「ログイン情報を公開する」をONにしたユーザーだけが自分のエントリを書く
+    match /presence/{docId} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+
   	// events コレクションは誰でも read OK（write は禁止）
     match /events/{docId} {
       allow read: if true;

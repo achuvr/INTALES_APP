@@ -155,6 +155,13 @@ public class UserData
     public Dictionary<string, Character> CharactersMap { get; set; }
 
     /// <summary>
+    /// 在店状況（チェックイン中かどうか）をフレンドに公開するか。
+    /// ONのときだけ presence/store に自分のチェックイン時刻が書き込まれる。
+    /// </summary>
+    [FirestoreProperty("share_presence")]
+    public bool SharePresence { get; set; }
+
+    /// <summary>
     /// フレンド一覧（キー: フレンドのUID）。
     /// Firestore の friends マップに対応。表示用に相手の名前を非正規化して持つ
     /// （フレンド一覧の表示に追加の読み取りを発生させないため）。

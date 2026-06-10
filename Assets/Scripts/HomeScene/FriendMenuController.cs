@@ -27,6 +27,9 @@ public class FriendMenuController : MonoBehaviour
     private Texture2D _qrTexture;
     private ListenerRegistration _listener;
     private GameObject _modal; // アクションメニュー／確認ダイアログ（開閉のたびに生成・破棄）
+    private TextMeshProUGUI _shareCheckMark; // 「ログイン情報を公開する」チェックボックスの✓
+    private Dictionary<string, Timestamp> _presence; // 在店状況（uid→チェックイン時刻）
+    private bool _togglingShare;
 
     private static readonly Color C_PARCHMENT = new Color(0.99f, 0.95f, 0.84f, 0.98f);
     private static readonly Color C_BORDER    = new Color(0.84f, 0.66f, 0.18f, 1.00f);
@@ -76,11 +79,25 @@ public class FriendMenuController : MonoBehaviour
     // ================================================================
     public void ShowFriendList()
     {
+        UpdateShareCheckMark();
         RebuildFriendList();
         _overlay.SetActive(true);
         _listPanel.SetActive(true);
         _qrPanel.SetActive(false);
         StopListener();
+        RefreshPresenceAsync().Forget();
+    }
+
+    /// <summary>
+    /// 在店状況を取得してリストに「ログイン中」を反映する。
+    /// presence/store の1ドキュメント読み取りだけで全フレンド分がわかる。
+    /// </summary>
+    private async UniTask RefreshPresenceAsync()
+    {
+        _presence = await PresenceService.GetPresenceAsync();
+        // 取得中にパネルが閉じられたりQR表示に切り替わっていたら何もしない
+        if (_overlay.activeSelf && _listPanel.activeSelf)
+            RebuildFriendList();
     }
 
     private void ShowMyQR()
@@ -192,6 +209,15 @@ public class FriendMenuController : MonoBehaviour
             string displayName = kv.Value.Favorite
                 ? $"<color=#D4A82E>★</color> {kv.Value.Name}"
                 : kv.Value.Name;
+
+            // 在店中（公開ONでチェックイン中、営業終了時刻前）なら「ログイン中」を付ける
+            if (_presence != null &&
+                _presence.TryGetValue(kv.Key, out var checkinAt) &&
+                PresenceService.IsStillPresent(checkinAt))
+            {
+                displayName += " <color=#1FA838><size=70%>●ログイン中</size></color>";
+            }
+
             var name = MakeLabel("__Name", row.transform, displayName, jp, 40, FontStyles.Bold, C_TITLE, 500, 90);
             name.GetComponent<TextMeshProUGUI>().alignment = TextAlignmentOptions.MidlineLeft;
 
@@ -407,9 +433,9 @@ public class FriendMenuController : MonoBehaviour
         MakeRect("__Div", panel.transform, C_DIVIDER, 820, 4)
             .GetComponent<RectTransform>().anchoredPosition = new Vector2(0, 510);
 
-        // スクロールリスト
-        var scrollGO = MakeRect("__Scroll", panel.transform, new Color(0.94f, 0.89f, 0.76f, 0.90f), 860, 880);
-        scrollGO.GetComponent<RectTransform>().anchoredPosition = new Vector2(0, 30);
+        // スクロールリスト（下部に公開設定の行を置くぶん少し短め）
+        var scrollGO = MakeRect("__Scroll", panel.transform, new Color(0.94f, 0.89f, 0.76f, 0.90f), 860, 800);
+        scrollGO.GetComponent<RectTransform>().anchoredPosition = new Vector2(0, 70);
         var scroll = scrollGO.AddComponent<ScrollRect>();
         scrollGO.AddComponent<RectMask2D>();
 
@@ -434,11 +460,100 @@ public class FriendMenuController : MonoBehaviour
         scroll.movementType = ScrollRect.MovementType.Clamped;
         _listContent = content.transform;
 
+        // 「ログイン情報を公開する」チェックボックス
+        BuildShareToggle(panel.transform, jp);
+
         // 自分のQRを表示ボタン
         MakeButton("__ShowQR", panel.transform, C_GOLD_BTN, "自分のQRを表示", jp, 44, C_TITLE, 600, 110,
             new Vector2(0, -550), ShowMyQR);
 
         return border;
+    }
+
+    /// <summary>「ログイン情報を公開する」のチェックボックス行を作る</summary>
+    private void BuildShareToggle(Transform parent, TMP_FontAsset jp)
+    {
+        var row = new GameObject("__ShareRow");
+        row.transform.SetParent(parent, false);
+        var rt = row.AddComponent<RectTransform>();
+        rt.sizeDelta = new Vector2(700, 70);
+        rt.anchoredPosition = new Vector2(0, -415);
+
+        // チェックボックス（金枠＋羊皮紙＋✓）
+        var box = MakeRect("__CheckBorder", row.transform, C_BORDER, 60, 60);
+        box.GetComponent<RectTransform>().anchoredPosition = new Vector2(-310, 0);
+        var inner = MakeRect("__Check", box.transform, Color.white, 50, 50);
+        var mark = MakeLabel("__Mark", inner.transform, "✓", jp, 44, FontStyles.Bold,
+            new Color(0.16f, 0.62f, 0.22f), 50, 50);
+        _shareCheckMark = mark.GetComponent<TextMeshProUGUI>();
+        _shareCheckMark.alignment = TextAlignmentOptions.Center;
+
+        var label = MakeLabel("__ShareLabel", row.transform, "ログイン情報を公開する", jp, 36, FontStyles.Bold, C_TITLE, 560, 70);
+        var labelTmp = label.GetComponent<TextMeshProUGUI>();
+        labelTmp.alignment = TextAlignmentOptions.MidlineLeft;
+        label.GetComponent<RectTransform>().anchoredPosition = new Vector2(30, 0);
+
+        // 行全体をタップ可能にする
+        var rowImg = row.AddComponent<Image>();
+        rowImg.color = new Color(0, 0, 0, 0); // 透明だがレイキャストは受ける
+        var btn = row.AddComponent<Button>();
+        btn.transition = Selectable.Transition.None;
+        btn.onClick.AddListener(() => ToggleSharePresenceAsync().Forget());
+
+        UpdateShareCheckMark();
+    }
+
+    private void UpdateShareCheckMark()
+    {
+        if (_shareCheckMark != null)
+            _shareCheckMark.enabled = UserDataManager.instance.UserData.SharePresence;
+    }
+
+    /// <summary>
+    /// 公開設定のON/OFF切り替え。
+    /// ONに切替: 設定を保存し、いまチェックイン中なら在店状態も共有する。
+    /// OFFに切替: 設定を保存し、共有済みの在店状態を削除する（誰からも見えなくなる）。
+    /// </summary>
+    private async UniTask ToggleSharePresenceAsync()
+    {
+        if (_togglingShare) return; // 連打防止
+        _togglingShare = true;
+
+        var manager = UserDataManager.instance;
+        bool newValue = !manager.UserData.SharePresence;
+
+        try
+        {
+            await FirebaseFirestore.DefaultInstance
+                .Collection("users").Document(manager.UID)
+                .UpdateAsync("share_presence", newValue).AsUniTask();
+
+            manager.UserData.SharePresence = newValue;
+            UpdateShareCheckMark();
+
+            if (newValue)
+            {
+                // いま店にいる（チェックイン中）なら、即座に共有する
+                if (LocalVisitLog.HasOpenVisit())
+                    await PresenceService.WriteAsync(true);
+                ShowToast("ログイン情報を公開しました");
+            }
+            else
+            {
+                // 共有済みのエントリを消して、誰からも見えない状態にする
+                await PresenceService.WriteAsync(false);
+                ShowToast("ログイン情報を非公開にしました");
+            }
+        }
+        catch (System.Exception ex)
+        {
+            Debug.LogError($"[Friend] 公開設定の更新エラー: {ex.Message}");
+            ShowToast("設定の更新に失敗しました");
+        }
+        finally
+        {
+            _togglingShare = false;
+        }
     }
 
     private GameObject BuildQRPanel(TMP_FontAsset jp)

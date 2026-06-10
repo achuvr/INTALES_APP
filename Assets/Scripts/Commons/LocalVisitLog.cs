@@ -118,8 +118,9 @@ public static class LocalVisitLog
     /// <summary>
     /// 指定チェックイン時刻に対する「退店期限（営業終了時刻）」を返す。
     /// チェックイン以降で最初に来る営業終了時刻を求める（深夜閉店=24時超にも対応）。
+    /// 在店状況の共有（PresenceService）の「まだ店にいる扱いか」の判定にも使う。
     /// </summary>
-    private static DateTime ClosingDeadlineFor(DateTime checkinTime)
+    public static DateTime ClosingDeadlineFor(DateTime checkinTime)
     {
         var close = checkinTime.Date.AddMinutes(ClosingMinutesFromMidnight);
         // チェックイン以降で最初の営業終了時刻に正規化

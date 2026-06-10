@@ -47,7 +47,9 @@ public class HomeSceneInitializer : MonoBehaviour
             gameObject.AddComponent<FriendMenuController>();
 
         // チェックアウト忘れ（営業終了時刻を過ぎた来店）を自動クローズ
-        LocalVisitLog.AutoCloseStaleVisits();
+        // 自動クローズが発生した場合は、共有していた在店状態も解除する
+        if (LocalVisitLog.AutoCloseStaleVisits() > 0)
+            PresenceService.SetCheckedInAsync(false).Forget();
 
         if (UserDataManager.instance.UserData.Characters.Count == 1)
         {

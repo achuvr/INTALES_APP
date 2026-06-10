@@ -167,7 +167,9 @@ public class CallMethodFromQR : MonoBehaviour
         var record = LocalVisitLog.Record();
         Debug.Log($"[CheckIn] 入店時間をローカルに記録しました: {record.checkedInAt}");
 
-        // ユーザーデータの変更はないので、Firestore再読込はせずQR表示だけ閉じる
+        // 「ログイン情報を公開する」がONならフレンドに在店中が見えるよう共有する
+        PresenceService.SetCheckedInAsync(true).Forget();
+
         EndFromButton();
     }
 
@@ -199,7 +201,9 @@ public class CallMethodFromQR : MonoBehaviour
         else
             Debug.Log($"[CheckOut] チェックアウトを記録しました: 滞在 {record.stayText}");
 
-        // ユーザーデータの変更はないので、Firestore再読込はせずQR表示だけ閉じる
+        // 共有していた在店状態を解除する
+        PresenceService.SetCheckedInAsync(false).Forget();
+
         EndFromButton();
     }
 
