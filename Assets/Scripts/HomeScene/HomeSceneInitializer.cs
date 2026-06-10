@@ -46,6 +46,10 @@ public class HomeSceneInitializer : MonoBehaviour
         if (GetComponent<FriendMenuController>() == null)
             gameObject.AddComponent<FriendMenuController>();
 
+        // 左上の「ログイン中」バッジ（チェックイン中のみ表示）
+        if (GetComponent<PresenceIndicator>() == null)
+            gameObject.AddComponent<PresenceIndicator>();
+
         // チェックアウト忘れ（営業終了時刻を過ぎた来店）を自動クローズ
         // 自動クローズが発生した場合は、共有していた在店状態も解除する
         if (LocalVisitLog.AutoCloseStaleVisits() > 0)

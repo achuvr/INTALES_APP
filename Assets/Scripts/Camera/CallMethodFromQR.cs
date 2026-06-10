@@ -170,6 +170,9 @@ public class CallMethodFromQR : MonoBehaviour
         // 「ログイン情報を公開する」がONならフレンドに在店中が見えるよう共有する
         PresenceService.SetCheckedInAsync(true).Forget();
 
+        // 左上の「ログイン中」バッジを更新
+        PresenceIndicator.Refresh();
+
         EndFromButton();
     }
 
@@ -196,15 +199,26 @@ public class CallMethodFromQR : MonoBehaviour
     public void CheckOut()
     {
         var record = LocalVisitLog.CheckOut();
-        if (record == null)
-            Debug.LogWarning("[CheckOut] チェックイン記録が無いため、チェックアウトを記録できませんでした");
-        else
-            Debug.Log($"[CheckOut] チェックアウトを記録しました: 滞在 {record.stayText}");
 
         // 共有していた在店状態を解除する
         PresenceService.SetCheckedInAsync(false).Forget();
 
+        // 左上の「ログイン中」バッジを更新
+        PresenceIndicator.Refresh();
+
         EndFromButton();
+
+        if (record == null)
+        {
+            Debug.LogWarning("[CheckOut] チェックイン記録が無いため、チェックアウトを記録できませんでした");
+            FriendMenuController.ShowToast("チェックイン記録が見つかりませんでした");
+        }
+        else
+        {
+            Debug.Log($"[CheckOut] チェックアウトを記録しました: 滞在 {record.stayText}");
+            // QRカメラを閉じてから滞在時間のモーダルを表示する
+            CheckOutModal.Show(record.stayText);
+        }
     }
 
     /// <summary>
