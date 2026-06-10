@@ -2,62 +2,117 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // ★ 新構造: master コレクション（アイテムマスター・セッション設定）
-    //    読み取りは誰でもOK（公開マスターデータ）、書き込みはログインユーザーのみ
-    //    （旧 item コレクションと同じセキュリティポリシー）
+    // ================================================================
+    // 共通関数
+    // ================================================================
+
+    // ログイン済みか
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    // 管理者（店側）か。tools/firestore/set-admin.js でカスタムクレームを付与する
+    function isAdmin() {
+      return signedIn() && request.auth.token.get('admin', false) == true;
+    }
+
+    // ================================================================
+    // マスターデータ（master/items, master/config）
+    //   読み取り: ログインユーザー / 書き込み: 管理者のみ
+    //   （IconUploader・アイテム登録ツールは管理者アカウントで実行すること）
+    // ================================================================
     match /master/{docId} {
-      allow read: if true;
-      allow write: if request.auth != null;
+      allow read: if signedIn();
+      allow write: if isAdmin();
     }
 
-    // ★ 在店状況の共有（presence/store の1ドキュメントに uid→チェックイン時刻のマップ）
-    //    「ログイン情報を公開する」をONにしたユーザーだけが自分のエントリを書く
+    // ================================================================
+    // ユーザーデータ
+    //   読み取り・作成: 本人のみ
+    //   更新: 本人は全フィールド可。
+    //         他人は「friends マップの自分のUIDのキーだけ」変更可
+    //         （フレンド登録・解除のための相互書き込み。それ以外は一切不可）
+    //   削除: 不可
+    // ================================================================
+    match /users/{userId} {
+      allow read: if signedIn() && request.auth.uid == userId;
+      allow create: if signedIn() && request.auth.uid == userId;
+      allow update: if signedIn() && (
+        request.auth.uid == userId
+        || (
+          // 変更がトップレベルで friends フィールドのみ
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['friends'])
+          // かつ friends マップ内の変更が「自分のUIDのキー」のみ
+          && request.resource.data.get('friends', {})
+               .diff(resource.data.get('friends', {}))
+               .affectedKeys().hasOnly([request.auth.uid])
+        )
+      );
+      allow delete: if false;
+
+      // 旧構造のサブコレクション（現行アプリは未使用。本人のみに制限）
+      match /achievements/{achievementId} {
+        allow read, write: if signedIn() && request.auth.uid == userId;
+      }
+      match /characters/{characterId} {
+        allow read, write: if signedIn() && request.auth.uid == userId;
+      }
+    }
+
+    // ================================================================
+    // 在店状況の共有（presence/store の1ドキュメント）
+    //   読み取り: ログインユーザー
+    //   書き込み: 自分のUIDのフィールドのみ追加・更新・削除できる
+    // ================================================================
     match /presence/{docId} {
-      allow read: if true;
-      allow write: if request.auth != null;
+      allow read: if signedIn();
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly([request.auth.uid]);
+      allow update: if signedIn()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([request.auth.uid]);
+      allow delete: if false;
     }
 
-  	// events コレクションは誰でも read OK（write は禁止）
+    // ================================================================
+    // 紙の会員証の引き継ぎコード
+    //   発行・編集・削除・一覧: 管理者のみ
+    //   個別取得(get): ログインユーザー（QRで読んだコードの照会用）
+    //   使用(claim): 未使用のコードに対して、claimed/claimed_by/claimed_at の
+    //                3フィールドだけを自分のUIDで埋める更新のみ許可
+    //                （ルールレベルで二重使用・改ざんを防ぐ）
+    // ================================================================
+    match /transfers/{code} {
+      allow get: if signedIn();
+      allow list: if isAdmin();
+      allow create, delete: if isAdmin();
+      allow update: if isAdmin() || (
+        signedIn()
+        && resource.data.get('claimed', false) == false
+        && request.resource.data.claimed == true
+        && request.resource.data.claimed_by == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['claimed', 'claimed_by', 'claimed_at'])
+      );
+    }
+
+    // ================================================================
+    // 旧構造（バックアップ残置分）: 読み取りのみ許可、書き込みは禁止
+    // ================================================================
     match /events/{docId} {
-      allow read: if true;
+      allow read: if signedIn();
       allow write: if false;
     }
-
     match /item/{jobId}/items/{itemId} {
-      allow read: if true;
-      allow write: if request.auth != null;
+      allow read: if signedIn();
+      allow write: if isAdmin();
     }
-
-    // usersコレクションのルール
-    match /users/{userId} {
-      // ユーザー本人であれば基本ドキュメントの読み取りを許可
-      // allow read, write: if request.auth.uid == userId;
-      allow read, write: if true;
-
-      // 1. users/{userId}/achievements サブコレクションのルール (既存)
-      match /achievements/{achievementId} {
-        // ユーザー本人(userId)が、自分のアチーブメントを読み書きできる
-        allow read, write: if request.auth.uid == userId;
-      }
-
-      // 2. characters サブコレクションのルール
-      //    （新構造では users/{userId} の characters マップに移行済み。
-      //      旧バージョンアプリの互換のためルールは残している）
-      match /characters/{characterId} {
-        // ユーザー本人(userId)が、自分のキャラクター情報を読み書きできる
-        allow read, write: if request.auth.uid == userId;
-      }
-    }
-
-    // アチーブメント情報も、ユーザーIDが一致する場合のみ読み書き可能
     match /achievements/{documentId} {
-      allow read: if request.auth != null; // 記録の読み取りはログインしていればOK
-      allow create: if request.auth != null && request.auth.uid == request.resource.data.user_id; // 書き込みは自分のIDと一致しているか確認
+      allow read: if signedIn();
+      allow write: if false;
     }
-
     match /today/{documentId} {
-      allow read: if request.auth != null; // 記録の読み取りはログインしていればOK
-      allow create: if request.auth != null && request.auth.uid == request.resource.data.user_id; // 書き込みは自分のIDと一致しているか確認
+      allow read: if signedIn();
+      allow write: if isAdmin();
     }
   }
 }

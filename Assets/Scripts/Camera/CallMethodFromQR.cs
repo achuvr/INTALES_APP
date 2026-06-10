@@ -81,6 +81,118 @@ public class CallMethodFromQR : MonoBehaviour
     /// <summary>QRコードのフレンド登録プレフィックス。形式: "friend:{uid}:{name}"</summary>
     public const string FRIEND_QR_PREFIX = "friend:";
 
+    /// <summary>紙の会員証引き継ぎQRのプレフィックス。形式: "transfer:{引き継ぎコード}"</summary>
+    public const string TRANSFER_QR_PREFIX = "transfer:";
+
+    /// <summary>
+    /// 紙の会員証の引き継ぎQRを読み取ったときの処理。
+    /// 店側が CardTransfer シーンで発行した transfers/{code} を読み（1read）、
+    /// キャラクター追加と使用済みマークを1つのバッチで書き込む（アトミック）。
+    /// コードは一度使うと使用済みになり、二重引き継ぎはできない。
+    /// </summary>
+    public async UniTask ClaimTransfer(string qrText)
+    {
+        string code = qrText.Substring(TRANSFER_QR_PREFIX.Length).Trim();
+        if (string.IsNullOrEmpty(code))
+        {
+            FriendMenuController.ShowToast("引き継ぎQRを読み取れませんでした");
+            EndFromButton();
+            return;
+        }
+
+        var manager = UserDataManager.instance;
+        var db = FirebaseFirestore.DefaultInstance;
+        var transferRef = db.Collection("transfers").Document(code);
+
+        try
+        {
+            var snap = await transferRef.GetSnapshotAsync().AsUniTask();
+            if (!snap.Exists)
+            {
+                FriendMenuController.ShowToast("引き継ぎコードが見つかりません");
+                EndFromButton();
+                return;
+            }
+            if (snap.TryGetValue("claimed", out bool claimed) && claimed)
+            {
+                FriendMenuController.ShowToast("この引き継ぎコードは使用済みです");
+                EndFromButton();
+                return;
+            }
+
+            string charaName = snap.TryGetValue("name", out string n) ? n : "";
+            string job       = snap.TryGetValue("job", out string j) ? j : "warrior";
+            string el        = snap.TryGetValue("el", out string e) ? e : "fire";
+            int    level     = snap.TryGetValue("lv", out int lv) ? lv : 1;
+            int fiveCoupon  = snap.TryGetValue("five_coupon", out int f5) ? f5 : 0;
+            int sevenCoupon = snap.TryGetValue("seven_coupon", out int f7) ? f7 : 0;
+            int drinkCoupon = snap.TryGetValue("drink_coupon", out int fd) ? fd : 0;
+
+            int newIndex = manager.UserData.Characters.Count;
+            var characterData = new Dictionary<string, object>
+            {
+                { "name", charaName },
+                { "job", job },
+                { "el", el },
+                { "lv", level },
+            };
+
+            // キャラクター追加・クーポン加算・使用済みマークを同時に書き込む
+            var userUpdates = new Dictionary<FieldPath, object>
+            {
+                { new FieldPath("characters", newIndex.ToString()), characterData },
+            };
+            if (fiveCoupon > 0)
+                userUpdates[new FieldPath("five_coupon")] = FieldValue.Increment(fiveCoupon);
+            if (sevenCoupon > 0)
+                userUpdates[new FieldPath("seven_coupon")] = FieldValue.Increment(sevenCoupon);
+            if (drinkCoupon > 0)
+                userUpdates[new FieldPath("drink_coupon")] = FieldValue.Increment(drinkCoupon);
+
+            var batch = db.StartBatch();
+            batch.Update(db.Collection("users").Document(manager.UID), userUpdates);
+            batch.Update(transferRef, new Dictionary<FieldPath, object>
+            {
+                { new FieldPath("claimed"), true },
+                { new FieldPath("claimed_by"), manager.UID },
+                { new FieldPath("claimed_at"), Timestamp.GetCurrentTimestamp() },
+            });
+            await batch.CommitAsync().AsUniTask();
+
+            // ローカルにも反映（再取得しない）
+            var chara = new Character
+            {
+                Name = charaName, Job = job, Element = el, Level = level,
+            };
+            if (manager.UserData.CharactersMap == null)
+                manager.UserData.CharactersMap = new Dictionary<string, Character>();
+            manager.UserData.CharactersMap[newIndex.ToString()] = chara;
+            manager.UserData.BuildCharacterList();
+            manager.UserData.FiveCoupon  += fiveCoupon;
+            manager.UserData.SevenCoupon += sevenCoupon;
+            manager.UserData.DrinkCoupon += drinkCoupon;
+
+            Debug.Log($"[QR] 会員証引き継ぎ完了: {charaName} Lv{level} クーポン5%×{fiveCoupon}/7%×{sevenCoupon}/ドリンク×{drinkCoupon} ({code})");
+            AssetsDatabase.instance?.PlayLevelUpSE();
+            End();
+
+            var couponParts = new List<string>();
+            if (fiveCoupon > 0)  couponParts.Add($"5%OFF×{fiveCoupon}");
+            if (sevenCoupon > 0) couponParts.Add($"7%OFF×{sevenCoupon}");
+            if (drinkCoupon > 0) couponParts.Add($"ドリンク×{drinkCoupon}");
+            string sub = "紙の会員証のキャラクターが\nアプリに引き継がれました";
+            if (couponParts.Count > 0)
+                sub += $"\nクーポン: {string.Join(" / ", couponParts)}";
+            InfoModal.Show("引き継ぎ完了！", $"{charaName}\nLv{level}", sub);
+        }
+        catch (System.Exception ex)
+        {
+            Debug.LogError($"[QR] 引き継ぎエラー: {ex.Message}");
+            FriendMenuController.ShowToast("引き継ぎに失敗しました");
+            EndFromButton();
+        }
+    }
+
     /// <summary>
     /// フレンド登録QRを読み取ったときの処理。
     /// 自分と相手の users ドキュメントの friends マップを

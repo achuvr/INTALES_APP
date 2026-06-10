@@ -165,6 +165,8 @@ public class FirebaseDataReceiver : SingletonBehaviour<FirebaseDataReceiver>
     private async void FetchEventNoticeData()
     {
         var config = await MasterData.GetConfigAsync();
+        // 通信待ちの間にシーン遷移などで自分が破棄されていたら何もしない
+        if (this == null) return;
         string signature = config.EventImages != null ? string.Join("\n", config.EventImages) : "";
         string cachedSignature = PlayerPrefs.GetString(CACHED_EVENT_URLS_KEY, "__none__");
 
@@ -246,6 +248,8 @@ public class FirebaseDataReceiver : SingletonBehaviour<FirebaseDataReceiver>
         try
         {
             var config = await MasterData.GetConfigAsync();
+            // 通信待ちの間にシーン遷移などで自分が破棄されていたら何もしない
+            if (this == null) return;
             var eventImages = config.EventImages;
             if (eventImages != null && eventImages.Count > 0)
             {
@@ -295,6 +299,9 @@ public class FirebaseDataReceiver : SingletonBehaviour<FirebaseDataReceiver>
                                     {
                                         await Task.Yield();
                                     }
+
+                                    // ダウンロード中にシーン遷移していたら中断（表示先が破棄されている）
+                                    if (this == null || _scrollContent == null) return;
 
                                     // エラーチェック
                                     if (www.result != UnityWebRequest.Result.Success)
@@ -363,12 +370,12 @@ public class FirebaseDataReceiver : SingletonBehaviour<FirebaseDataReceiver>
                 {
                     Debug.LogWarning($"イベント画像 {failedCount}件のDLに失敗。次回起動時に再取得します");
                 }
-                _loadingPanel.SetActive(false);
+                if (_loadingPanel != null) _loadingPanel.SetActive(false);
             }
             else
             {
                 Debug.Log($"イベント画像が登録されていません。");
-                _loadingPanel.SetActive(false);
+                if (_loadingPanel != null) _loadingPanel.SetActive(false);
             }
         }
         catch (System.Exception ex)

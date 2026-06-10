@@ -12,6 +12,7 @@ public class HomeSceneInitializer : MonoBehaviour
     private Today _today;
 
     [SerializeField] private bool _isDebugMode;
+    [SerializeField] private bool _isCardTransferMode; // 紙の会員証引き継ぎツールを開く（店側用）
 
     [SerializeField] private UnityEngine.UI.Image _jobImage;
     [SerializeField] private TextMeshProUGUI _nameText;
@@ -29,6 +30,10 @@ public class HomeSceneInitializer : MonoBehaviour
         if (_isDebugMode)
         {
             SceneManager.LoadScene("IconUploader");
+        }
+        if (_isCardTransferMode)
+        {
+            SceneManager.LoadScene("CardTransfer");
         }
         
         var assets = AssetsDatabase.instance;

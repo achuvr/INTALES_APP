@@ -49,6 +49,13 @@ public class QRReader : MonoBehaviour
             return;
         }
 
+        // 紙の会員証引き継ぎQR（"transfer:{コード}"）
+        if (_result.StartsWith(CallMethodFromQR.TRANSFER_QR_PREFIX))
+        {
+            _callMethodFromQR.ClaimTransfer(_result).Forget();
+            return;
+        }
+
         switch (_result)
         {
             case "Lv+1":
