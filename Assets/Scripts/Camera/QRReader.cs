@@ -56,6 +56,13 @@ public class QRReader : MonoBehaviour
             return;
         }
 
+        // イベントガチャQR（"gacha_event" または "gacha_event:{プールID}"）
+        if (_result.StartsWith(CallMethodFromQR.GACHA_EVENT_QR_PREFIX))
+        {
+            _callMethodFromQR.EventGacha(_result).Forget();
+            return;
+        }
+
         switch (_result)
         {
             case "Lv+1":

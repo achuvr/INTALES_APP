@@ -63,6 +63,10 @@ public class HomeSceneInitializer : MonoBehaviour
         if (GetComponent<DiceRollController>() == null)
             gameObject.AddComponent<DiceRollController>();
 
+        // ガチャ機能（左上のガチャボタンから開く。イベントガチャはQR読み取りから）
+        if (GetComponent<GachaController>() == null)
+            gameObject.AddComponent<GachaController>();
+
         // チェックアウト忘れ（営業終了時刻を過ぎた来店）を自動クローズ
         // 自動クローズが発生した場合は、共有していた在店状態も解除する
         if (LocalVisitLog.AutoCloseStaleVisits() > 0)
@@ -143,6 +147,22 @@ public class HomeSceneInitializer : MonoBehaviour
             TodayData = _today;
             Debug.Log($"{_today.Job},{_today.Element}");
 
+            // 1行表示のまま画面内に収める:
+            // シーン上のレイアウト（幅929px・中心が右寄り）だと長い職業名で右端が
+            // 画面からはみ出すため、画面内（幅760px・中央）に寄せ直し、
+            // それでも収まらない分はフォントの自動縮小で吸収する（改行はさせない）
+            // 高さが狭いと縦方向にも自動縮小がかかって文字が小さくなりすぎるため、
+            // 高さはフォント1行分より余裕を持たせ、横幅だけで縮小がかかるようにする
+            var todayRt = _todayText.rectTransform;
+            todayRt.anchoredPosition = new Vector2(0, todayRt.anchoredPosition.y);
+            todayRt.sizeDelta = new Vector2(780, 100);
+            _todayText.textWrappingMode = TextWrappingModes.NoWrap;
+            _todayText.overflowMode = TextOverflowModes.Overflow;
+            _todayText.alignment = TextAlignmentOptions.Center;
+            _todayText.enableAutoSizing = true;
+            _todayText.fontSizeMax = _todayText.fontSize; // 元の71ptを上限に
+            _todayText.fontSizeMin = 40;
+
             var chara = UserDataManager.instance.UserData.Characters[UserDataManager.instance.CurrentSelectCharacterNumber];
             _todayText.text = BuildTodayText(_today, chara.Job, chara.Element);
         }
@@ -177,7 +197,7 @@ public class HomeSceneInitializer : MonoBehaviour
             elName = $"<color={elColor}><size=115%>{elName}</size></color>";
         }
 
-        return $"本日は…\n{jobName} の {elName} の日！";
+        return $"本日は…{jobName} の {elName} の日！";
     }
 }
 

@@ -381,35 +381,71 @@ public class FriendMenuController : MonoBehaviour
     // ================================================================
     private void BuildEntryButton()
     {
-        // 右上のフローティングボタン。位置は従来どおり画面（Canvas）基準で決める
-        var border = MakeRect("__FriendBtnBorder", _canvas.transform, C_BORDER, 196, 86);
-        var rt = border.GetComponent<RectTransform>();
-        rt.anchorMin = rt.anchorMax = new Vector2(1f, 1f);
-        rt.pivot = new Vector2(1f, 1f);
-        rt.anchoredPosition = new Vector2(-30, -280); // リロードボタン(150px)の下に配置
+        // 下部ボタングリッドの3行目右に置く（左はガチャボタン）。
+        // 列・サイズ・配色はバッグ/情報/戦闘/装備ボタンに合わせる（GachaController の定数・スタイルを共用）。
+        var btnGO = MakeRect("__FriendBtn", _canvas.transform, Color.white,
+            GachaController.GRID_BTN_W, GachaController.GRID_BTN_H);
+        GachaController.ApplyGridButtonStyle(btnGO.GetComponent<Image>());
+        var rt = btnGO.GetComponent<RectTransform>();
 
-        // そのうえで Page_Characters の子へ移動（worldPositionStays=true で見た目の位置は維持）。
-        // キャラクターページ表示中のみボタンが表示される（ページの SetActive に自動追従）。
-        // Transform.Find は非アクティブの子も見つけられる。
+        // Page_Characters の子に置く（キャラクターページ表示中のみ表示される）。
+        // 既存4ボタンと同じく中央アンカー基準の座標で配置する。
         var page = _canvas.transform.Find("Page_Characters");
         if (page != null)
         {
-            border.transform.SetParent(page, true);
-            border.transform.SetAsLastSibling(); // ページ内の他要素より手前に表示
+            btnGO.transform.SetParent(page, false);
+            btnGO.transform.SetAsLastSibling(); // ページ内の他要素より手前に表示
         }
         else
         {
             Debug.LogWarning("[Friend] Page_Characters が見つからないため、Canvas直下にボタンを置きます");
         }
+        rt.anchoredPosition = new Vector2(GachaController.GRID_COL_X, GachaController.GRID_ROW_Y);
 
-        var inner = MakeRect("__FriendBtn", border.transform, C_PARCHMENT, 188, 78);
         var jp = GetJpFont();
-        var label = MakeLabel("__Label", inner.transform, "フレンド", jp, 36, FontStyles.Bold, C_TITLE, 188, 78);
-        label.GetComponent<TextMeshProUGUI>().alignment = TextAlignmentOptions.Center;
+        var ink = GachaController.GRID_TEXT_COLOR;
 
-        var btn = inner.AddComponent<Button>();
-        btn.targetGraphic = inner.GetComponent<Image>();
+        // 人型アイコン（2人のシルエットを円の組み合わせで描く。色は他ボタンの文字色に合わせる）。
+        // 「フレンド」は4文字で幅を取るため、アイコンは少し小さめにして左端に寄せる
+        var icon = new GameObject("__Icon");
+        icon.transform.SetParent(btnGO.transform, false);
+        var irt = icon.AddComponent<RectTransform>();
+        irt.sizeDelta = new Vector2(64, 64);
+        irt.anchoredPosition = new Vector2(-152, 0);
+        var inkBack = new Color(ink.r, ink.g, ink.b, 0.45f);
+        MakeEllipse(icon.transform, inkBack, 18, 18, new Vector2(-16, 16)); // 後ろの人・頭
+        MakeEllipse(icon.transform, inkBack, 32, 22, new Vector2(-16, -6)); // 後ろの人・体
+        MakeEllipse(icon.transform, ink, 23, 23, new Vector2(9, 14));       // 前の人・頭
+        MakeEllipse(icon.transform, ink, 39, 27, new Vector2(9, -11));      // 前の人・体
+
+        // 文字サイズは既存ボタン（バッグ等）と同じ実効サイズに合わせる
+        // （4文字で収まらない場合のみ自動で僅かに縮む）
+        var label = MakeLabel("__Label", btnGO.transform, "フレンド", jp, GachaController.GRID_FONT_SIZE,
+            FontStyles.Bold, ink, 296, GachaController.GRID_BTN_H);
+        label.GetComponent<RectTransform>().anchoredPosition = new Vector2(36, 0);
+        var labelTmp = label.GetComponent<TextMeshProUGUI>();
+        labelTmp.alignment = TextAlignmentOptions.Center;
+        labelTmp.enableAutoSizing = true;
+        labelTmp.fontSizeMax = GachaController.GRID_FONT_SIZE;
+        labelTmp.fontSizeMin = 50;
+
+        var btn = btnGO.AddComponent<Button>();
+        btn.targetGraphic = btnGO.GetComponent<Image>();
         btn.onClick.AddListener(ShowFriendList);
+    }
+
+    /// <summary>アイコン用の円・楕円パーツを置く</summary>
+    private static void MakeEllipse(Transform parent, Color color, float w, float h, Vector2 pos)
+    {
+        var go = new GameObject("__Ellipse");
+        go.transform.SetParent(parent, false);
+        var rt = go.AddComponent<RectTransform>();
+        rt.sizeDelta = new Vector2(w, h);
+        rt.anchoredPosition = pos;
+        var img = go.AddComponent<Image>();
+        UICircleSprite.Apply(img);
+        img.color = color;
+        img.raycastTarget = false;
     }
 
     private void BuildUI()

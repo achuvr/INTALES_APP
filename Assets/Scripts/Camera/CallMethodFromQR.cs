@@ -81,6 +81,48 @@ public class CallMethodFromQR : MonoBehaviour
     /// <summary>QRコードのフレンド登録プレフィックス。形式: "friend:{uid}:{name}"</summary>
     public const string FRIEND_QR_PREFIX = "friend:";
 
+    /// <summary>
+    /// イベントガチャQRのプレフィックス。
+    /// "gacha_event" → master/gacha の event プール、
+    /// "gacha_event:{プールID}" → 指定プール（イベントごとに変えたい場合用）。
+    /// </summary>
+    public const string GACHA_EVENT_QR_PREFIX = "gacha_event";
+
+    /// <summary>
+    /// イベントガチャQRを読み取ったときの処理。無料で1回引ける。
+    /// 同じQRを読むたびに引ける（来店していないと読めないQRであることが前提）。
+    /// </summary>
+    public async UniTask EventGacha(string qrText)
+    {
+        // "gacha_event:xxx" ならプールIDを取り出す（なければ "event"）
+        string poolId = GachaService.EVENT_POOL;
+        int sep = qrText.IndexOf(':');
+        if (sep >= 0 && sep < qrText.Length - 1)
+            poolId = qrText.Substring(sep + 1).Trim();
+
+        try
+        {
+            var result = await GachaService.DrawAsync(poolId, free: true);
+            if (!result.Success)
+            {
+                FriendMenuController.ShowToast(result.Error);
+                EndFromButton();
+                return;
+            }
+
+            Debug.Log($"[QR] イベントガチャ: {result.Type}/{result.Id} を入手 ({poolId})");
+            AssetsDatabase.instance?.PlayLevelUpSE();
+            End();
+            InfoModal.Show("イベントガチャ", result.DisplayName, result.SubText);
+        }
+        catch (System.Exception ex)
+        {
+            Debug.LogError($"[QR] イベントガチャエラー: {ex.Message}");
+            FriendMenuController.ShowToast("ガチャに失敗しました");
+            EndFromButton();
+        }
+    }
+
     /// <summary>紙の会員証引き継ぎQRのプレフィックス。形式: "transfer:{引き継ぎコード}"</summary>
     public const string TRANSFER_QR_PREFIX = "transfer:";
 

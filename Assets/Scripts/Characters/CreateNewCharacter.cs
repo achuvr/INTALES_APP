@@ -32,7 +32,7 @@ public class CreateNewCharacter : MonoBehaviour
             return;
         }
 
-        _loadingPanel.SetActive(true);
+        SetLoading(true);
 
         var db = FirebaseFirestore.DefaultInstance;
         var uid = UserDataManager.instance.UID;
@@ -61,7 +61,7 @@ public class CreateNewCharacter : MonoBehaviour
         catch (System.Exception ex)
         {
             Debug.LogError("書き込みエラー: " + ex.Message);
-            _loadingPanel.SetActive(false);
+            SetLoading(false);
             return;
         }
 
@@ -74,6 +74,21 @@ public class CreateNewCharacter : MonoBehaviour
 
         var qr = GameObject.FindWithTag("QR");
         if (qr != null) Destroy(qr.gameObject);
+    }
+
+    /// <summary>
+    /// ローディング表示の切り替え。
+    /// Startシーンでは _loadingPanel がインスペクタで割り当て済みだが、
+    /// Newシーン（QRからのキャラ追加。Homeに追加ロードされる）では未割り当てのため、
+    /// Homeシーン側の共通ローディングパネルにフォールバックする。
+    /// どちらも無い場合は何もしない（NullReferenceException を出さない）。
+    /// </summary>
+    private void SetLoading(bool on)
+    {
+        var panel = _loadingPanel;
+        if (panel == null && AssetsDatabase.instance != null)
+            panel = AssetsDatabase.instance.LoadingPanel;
+        if (panel != null) panel.SetActive(on);
     }
 
     public void SetCurrentSelectJob(string currentSelectJob)

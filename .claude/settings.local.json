@@ -19,7 +19,13 @@
       "PowerShell(firebase firestore:rules:list *)",
       "PowerShell($env:GOOGLE_APPLICATION_CREDENTIALS = \"C:\\\\Users\\\\intal\\\\.secrets\\\\intales-a0459-firebase-adminsdk-fbsvc-6f20ee1a7f.json\"; node \"C:\\\\Users\\\\intal\\\\works\\\\Personal\\\\Unity\\\\INTALES_APP\\\\tools\\\\firestore\\\\get-rules.js\")",
       "PowerShell($env:GOOGLE_APPLICATION_CREDENTIALS = \"C:\\\\Users\\\\intal\\\\.secrets\\\\intales-a0459-firebase-adminsdk-fbsvc-6f20ee1a7f.json\"; node \"C:\\\\Users\\\\intal\\\\works\\\\Personal\\\\Unity\\\\INTALES_APP\\\\tools\\\\firestore\\\\deploy-rules.js\")",
-      "PowerShell(Get-Process *)"
+      "PowerShell(Get-Process *)",
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\intal\\\\works\\\\Personal\\\\Unity\\\\INTALES_APP\\\\Assets\" -Directory)",
+      "Bash(Select-Object Name)",
+      "Bash(echo \"exit=$?\")",
+      "Bash(node set-gacha.js)",
+      "Bash(node set-gacha.js --list-items)",
+      "Bash(python3 -)"
     ],
     "deny": []
   },
