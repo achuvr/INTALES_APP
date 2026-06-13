@@ -283,27 +283,68 @@ public class ItemCacheManager : SingletonBehaviour<ItemCacheManager>
     // ================================================================
     // アイコン取得 API
     // ================================================================
-    /// <summary>item_id からローカルキャッシュの Sprite を返す（なければ null）</summary>
+    /// <summary>生成済みアイコンSpriteのキャッシュ（item_id→Sprite。null=画像なしも記録）。</summary>
+    private readonly Dictionary<string, Sprite> _iconCache = new Dictionary<string, Sprite>();
+
+    /// <summary>図鑑アイコンの最大テクスチャ辺（これを超える画像は縮小する）。</summary>
+    private const int ICON_MAX_SIZE = 256;
+
+    /// <summary>
+    /// item_id からローカルキャッシュの Sprite を返す（なければ null）。
+    /// 一度生成した Sprite はキャッシュして使い回し（再生成によるメモリリークを防ぐ）、
+    /// テクスチャは ICON_MAX_SIZE 以下へ縮小＋GPU圧縮してメモリを大幅に節約する。
+    /// </summary>
     public Sprite GetIconSprite(string itemId)
     {
         if (string.IsNullOrEmpty(itemId)) return null;
-        string path = IconPath(itemId);
-        if (!File.Exists(path)) return null;
+        if (_iconCache.TryGetValue(itemId, out var cached)) return cached;
 
+        string path = IconPath(itemId);
+        if (!File.Exists(path)) { _iconCache[itemId] = null; return null; }
+
+        Sprite sprite = null;
         try
         {
-            var tex = new Texture2D(2, 2);
+            var tex = new Texture2D(2, 2, TextureFormat.RGBA32, false); // mipmapなし
             tex.LoadImage(File.ReadAllBytes(path));
-            return Sprite.Create(
-                tex,
-                new Rect(0, 0, tex.width, tex.height),
-                new Vector2(0.5f, 0.5f));
+            tex = ShrinkAndCompress(tex, ICON_MAX_SIZE);
+            sprite = Sprite.Create(tex, new Rect(0, 0, tex.width, tex.height), new Vector2(0.5f, 0.5f));
         }
         catch (Exception ex)
         {
             Debug.LogWarning($"[ItemCache] アイコン読み込み失敗: {itemId} - {ex.Message}");
-            return null;
         }
+        _iconCache[itemId] = sprite;
+        return sprite;
+    }
+
+    /// <summary>テクスチャを上限サイズ以下へ縮小し、GPU圧縮してメモリ使用量を削減する。</summary>
+    private static Texture2D ShrinkAndCompress(Texture2D src, int max)
+    {
+        int w = src.width, h = src.height;
+        int nw = w, nh = h;
+        if (w > max || h > max)
+        {
+            float s = Mathf.Min((float)max / w, (float)max / h);
+            nw = Mathf.Max(4, (Mathf.RoundToInt(w * s) / 4) * 4); // 圧縮できるよう4の倍数に
+            nh = Mathf.Max(4, (Mathf.RoundToInt(h * s) / 4) * 4);
+        }
+
+        var rt = RenderTexture.GetTemporary(nw, nh, 0, RenderTextureFormat.ARGB32);
+        var prev = RenderTexture.active;
+        Graphics.Blit(src, rt);
+        RenderTexture.active = rt;
+        var dst = new Texture2D(nw, nh, TextureFormat.RGBA32, false);
+        dst.ReadPixels(new Rect(0, 0, nw, nh), 0, 0);
+        dst.Apply(false, false);
+        RenderTexture.active = prev;
+        RenderTexture.ReleaseTemporary(rt);
+        UnityEngine.Object.Destroy(src); // 元の大テクスチャを解放
+
+        // GPU圧縮（Android=ETC2/ASTC）＋CPUコピー破棄でさらにメモリ削減
+        try { dst.Compress(false); dst.Apply(false, true); }
+        catch (Exception) { /* 圧縮非対応サイズ/環境はそのまま使う */ }
+        return dst;
     }
 
     /// <summary>アイコンがローカルキャッシュに存在するか</summary>

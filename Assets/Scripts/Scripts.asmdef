@@ -13,7 +13,9 @@
         "GUID:6546d7765b4165b40850b3667f981c26",
         "GUID:656e461844099ae43a609ff6109b0877",
         "GUID:2bafac87e7f4b9b418d9448d219b01ab",
-        "GUID:f51ebe6a0ceec4240a699833d6309b23"
+        "GUID:f51ebe6a0ceec4240a699833d6309b23",
+        "Fusion.Unity",
+        "Unity.InputSystem"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

@@ -300,6 +300,9 @@ public class CallMethodFromQR : MonoBehaviour
             // ローカルにも反映（再取得しない）
             me.Friends[friendUid] = new FriendEntry { Name = friendName, Since = now };
 
+            // 履歴に記録（端末ローカル・最大50件）
+            LocalHistoryLog.Add("friend", $"{friendName}さんとフレンドになった");
+
             Debug.Log($"[QR] フレンド登録: {friendName} ({friendUid})");
             AssetsDatabase.instance?.PlayLevelUpSE();
             FriendMenuController.ShowToast($"{friendName}さんとフレンドになりました！");
@@ -321,11 +324,15 @@ public class CallMethodFromQR : MonoBehaviour
         var record = LocalVisitLog.Record();
         Debug.Log($"[CheckIn] 入店時間をローカルに記録しました: {record.checkedInAt}");
 
+        // 入店チャイム（ピンポーン）
+        VisitChime.PlayCheckIn();
+
         // 「ログイン情報を公開する」がONならフレンドに在店中が見えるよう共有する
         PresenceService.SetCheckedInAsync(true).Forget();
 
-        // 左上の「ログイン中」バッジを更新
+        // 左上の「ログイン中」バッジとグループボタンの表示を更新
         PresenceIndicator.Refresh();
+        GroupController.RefreshVisibility();
 
         EndFromButton();
     }
@@ -357,8 +364,10 @@ public class CallMethodFromQR : MonoBehaviour
         // 共有していた在店状態を解除する
         PresenceService.SetCheckedInAsync(false).Forget();
 
-        // 左上の「ログイン中」バッジを更新
+        // 左上の「ログイン中」バッジとグループボタンの表示を更新
+        // （グループ参加中なら GroupController 側で自動脱退する）
         PresenceIndicator.Refresh();
+        GroupController.RefreshVisibility();
 
         EndFromButton();
 
@@ -370,6 +379,13 @@ public class CallMethodFromQR : MonoBehaviour
         else
         {
             Debug.Log($"[CheckOut] チェックアウトを記録しました: 滞在 {record.stayText}");
+
+            // 退店チャイム（下降音）
+            VisitChime.PlayCheckOut();
+
+            // 滞在時間を履歴に記録（端末ローカル・最大50件）
+            LocalHistoryLog.Add("visit", $"滞在時間 {record.stayText}");
+
             // QRカメラを閉じてから滞在時間のモーダルを表示する
             CheckOutModal.Show(record.stayText);
         }

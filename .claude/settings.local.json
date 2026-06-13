@@ -25,7 +25,21 @@
       "Bash(echo \"exit=$?\")",
       "Bash(node set-gacha.js)",
       "Bash(node set-gacha.js --list-items)",
-      "Bash(python3 -)"
+      "Bash(python3 -)",
+      "Bash(grep -E \"\\\\.cs$|^d\")",
+      "Bash(python3 -c ' *)",
+      "Bash(mv Assets/Textures/UI/Jobs/*.png Assets/Textures/UI/Jobs/*.png.meta Assets/Resources/JobIcons/)",
+      "Bash(mv Assets/Textures/UI/Rune_*.png Assets/Textures/UI/Rune_*.png.meta Assets/Resources/Runes/)",
+      "Bash(awk -F'\\\\t' '{print $3}')",
+      "Bash(grep -iv \"//\\\\|coroutine\\\\|Debug\")",
+      "Bash(awk '/^--- !u!29 &1/{f=1} f{print} /^  m_OcclusionCullingData: \\\\{fileID: 0\\\\}/{if\\(f1\\)exit} ' Assets/Scenes/New.unity)",
+      "Bash(sed -n '1,119p' Assets/Scenes/New.unity)",
+      "Read(//tmp/**)",
+      "Bash(sed -n '119p' Assets/Scenes/New.unity)",
+      "Bash(awk '/m_Name: Canvas$/,0' Assets/Scenes/Home.unity)",
+      "Bash(awk '{o+=gsub\\(/{/,\"{\"\\); c+=gsub\\(/}/,\"}\"\\)} END{print \"open=\"o\" close=\"c}' Assets/Scripts/HomeScene/ZukanController.cs)",
+      "PowerShell($f = \"C:\\\\Users\\\\intal\\\\.claude\\\\user_requests_log.md\"; $h = Select-String -Path $f -Pattern '^## \\\\[' ; $h | Select-Object -Last 8 | ForEach-Object { $_.LineNumber }; \"TOTAL_LINES:\"; \\(Get-Content $f | Measure-Object -Line\\).Lines)",
+      "PowerShell($f = \"C:\\\\Users\\\\intal\\\\.claude\\\\user_requests_log.md\"; $h = Select-String -Path $f -Pattern '^## \\\\[' ; $start = \\($h | Select-Object -Last 21 | Select-Object -First 1\\).LineNumber; \"START:$start\")"
     ],
     "deny": []
   },

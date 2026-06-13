@@ -76,15 +76,40 @@ public class Dice3DSimulator : MonoBehaviour
     // ================================================================
     // ロール実行
     // ================================================================
+    /// <summary>同じ面数のダイスを count 個振り、各ダイスの出目（面番号1..faces）を返す。</summary>
     public async UniTask<List<int>> RollAsync(int count, int faces)
+    {
+        var specs = new List<(int faces, System.Func<int, string> labeler)>();
+        for (int i = 0; i < count; i++) specs.Add((faces, null));
+        return await RollDiceAsync(specs);
+    }
+
+    /// <summary>
+    /// パーセンタイルロール（1D100）。十の位ダイス（00,10,…,90）と
+    /// 一の位ダイス（0,1,…,9）を振り、合計1〜100を返す（00と0は100扱い）。
+    /// </summary>
+    public async UniTask<int> RollPercentileAsync()
+    {
+        var specs = new List<(int faces, System.Func<int, string> labeler)>
+        {
+            (10, v => ((v - 1) * 10).ToString("00")), // 十の位: 00,10,…,90
+            (10, v => (v - 1).ToString()),            // 一の位: 0,1,…,9
+        };
+        var res = await RollDiceAsync(specs);
+        int value = (res[0] - 1) * 10 + (res[1] - 1);
+        return value == 0 ? 100 : value;
+    }
+
+    /// <summary>指定スペックのダイス群を投げ込み、静止後の出目（面番号1..faces）を返す。</summary>
+    private async UniTask<List<int>> RollDiceAsync(List<(int faces, System.Func<int, string> labeler)> specs)
     {
         ClearDice();
         SetVisible(true);
 
-        var dice = new List<(GameObject go, List<FaceInfo> faceInfos)>();
-        for (int i = 0; i < count; i++)
+        var dice = new List<(GameObject go, List<FaceInfo> faceInfos, int faces)>();
+        for (int i = 0; i < specs.Count; i++)
         {
-            var (go, infos) = CreateDie(faces);
+            var (go, infos) = CreateDie(specs[i].faces, specs[i].labeler);
             // トレイ上空のランダムな位置・回転・勢いで投げ込む
             go.transform.position = transform.position + new Vector3(
                 Random.Range(-1.2f, 1.2f), 3.5f + i * 1.4f, Random.Range(-1.2f, 1.2f));
@@ -94,7 +119,7 @@ public class Dice3DSimulator : MonoBehaviour
             rb.linearVelocity = new Vector3(Random.Range(-2.5f, 2.5f), -1f, Random.Range(-2.5f, 2.5f));
             rb.angularVelocity = Random.onUnitSphere * Random.Range(8f, 16f);
 
-            dice.Add((go, infos));
+            dice.Add((go, infos, specs[i].faces));
             _activeDice.Add(go);
         }
 
@@ -117,7 +142,7 @@ public class Dice3DSimulator : MonoBehaviour
 
         // 静止させて出目を読む
         var results = new List<int>();
-        foreach (var (go, infos) in dice)
+        foreach (var (go, infos, faces) in dice)
         {
             var rb = go.GetComponent<Rigidbody>();
             rb.isKinematic = true;
@@ -348,12 +373,35 @@ public class Dice3DSimulator : MonoBehaviour
         SpawnShockwaveRing(gold, 12f);
     }
 
+    /// <summary>
+    /// エフェクト用のプリミティブ形状GOをコライダー無しで作る。
+    /// GameObject.CreatePrimitive はコライダーも付与するため、Androidビルドの
+    /// エンジンコードストリッピングで該当コライダー型（例: CylinderのCapsuleCollider）が
+    /// 削除されていると「class doesn't exist」エラーになる。エフェクトにコライダーは
+    /// 不要なので、組み込みメッシュから直接組み立てて回避する。
+    /// </summary>
+    private static GameObject CreateFxPrimitive(PrimitiveType type, string name)
+    {
+        var go = new GameObject(name);
+        go.AddComponent<MeshFilter>().sharedMesh = GetBuiltinMesh(type);
+        go.AddComponent<MeshRenderer>();
+        return go;
+    }
+
+    private static Mesh GetBuiltinMesh(PrimitiveType type) => type switch
+    {
+        PrimitiveType.Cube     => Resources.GetBuiltinResource<Mesh>("Cube.fbx"),
+        PrimitiveType.Sphere   => Resources.GetBuiltinResource<Mesh>("New-Sphere.fbx"),
+        PrimitiveType.Cylinder => Resources.GetBuiltinResource<Mesh>("New-Cylinder.fbx"),
+        PrimitiveType.Capsule  => Resources.GetBuiltinResource<Mesh>("New-Capsule.fbx"),
+        PrimitiveType.Plane    => Resources.GetBuiltinResource<Mesh>("New-Plane.fbx"),
+        _                      => Resources.GetBuiltinResource<Mesh>("Quad.fbx"),
+    };
+
     /// <summary>天に伸びる光の柱（クリティカル用）</summary>
     private void SpawnLightPillar(Color color)
     {
-        var go = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
-        go.name = "__LightPillar";
-        Destroy(go.GetComponent<Collider>());
+        var go = CreateFxPrimitive(PrimitiveType.Cylinder, "__LightPillar");
         go.transform.SetParent(transform, false);
         go.transform.localPosition = new Vector3(0, 4f, 0);
 
@@ -491,9 +539,7 @@ public class Dice3DSimulator : MonoBehaviour
     /// <summary>1本の矢を上空に生成して落とす（軌跡付き、着地で土煙）</summary>
     private void SpawnArrow(Color primary)
     {
-        var go = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
-        go.name = "__Arrow";
-        Destroy(go.GetComponent<Collider>()); // 物理は使わず手動で落とす
+        var go = CreateFxPrimitive(PrimitiveType.Cylinder, "__Arrow"); // 物理は使わず手動で落とす
         go.transform.SetParent(transform, false);
         go.transform.localPosition = new Vector3(Random.Range(-2.2f, 2.2f), 6.5f, Random.Range(-2.2f, 2.2f));
         go.transform.localRotation = Quaternion.Euler(Random.Range(-12f, 12f), Random.Range(0f, 360f), Random.Range(-12f, 12f));
@@ -600,9 +646,7 @@ public class Dice3DSimulator : MonoBehaviour
     /// <summary>1発の弾丸を飛ばして着弾火花を出す</summary>
     private async UniTaskVoid FireBulletAsync(Vector3 from, Vector3 to, Color primary, Color secondary)
     {
-        var go = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-        go.name = "__Bullet";
-        Destroy(go.GetComponent<Collider>());
+        var go = CreateFxPrimitive(PrimitiveType.Sphere, "__Bullet");
         go.transform.SetParent(transform, false);
         go.transform.localPosition = from;
         go.transform.localScale = Vector3.one * 0.14f;
@@ -638,9 +682,7 @@ public class Dice3DSimulator : MonoBehaviour
     /// <summary>着弾地点の床に銃痕（焦げた弾痕デカール）を残す。しばらくしてフェードアウト</summary>
     private void SpawnBulletHole(Vector3 localPos)
     {
-        var go = GameObject.CreatePrimitive(PrimitiveType.Quad);
-        go.name = "__BulletHole";
-        Destroy(go.GetComponent<Collider>());
+        var go = CreateFxPrimitive(PrimitiveType.Quad, "__BulletHole");
         go.transform.SetParent(transform, false);
         // 床のわずか上に置く（複数の銃痕同士のチラつき防止に高さを微妙にずらす）
         go.transform.localPosition = new Vector3(localPos.x, 0.065f + Random.Range(0f, 0.008f), localPos.z);
@@ -702,9 +744,7 @@ public class Dice3DSimulator : MonoBehaviour
     /// <summary>巨大な斬撃線（横に伸びて一閃しフェードアウトする平面）</summary>
     private void SpawnSlash(float angleDeg, float length, Color color)
     {
-        var go = GameObject.CreatePrimitive(PrimitiveType.Quad);
-        go.name = "__Slash";
-        Destroy(go.GetComponent<Collider>());
+        var go = CreateFxPrimitive(PrimitiveType.Quad, "__Slash");
         go.transform.SetParent(transform, false);
         go.transform.localPosition = new Vector3(0, 1.6f, 0);
         go.transform.localRotation = Quaternion.Euler(90, 0, angleDeg); // 床と平行に置いて回転
@@ -871,9 +911,7 @@ public class Dice3DSimulator : MonoBehaviour
     /// <summary>床上の平面クアッドを作る（魔法陣・リング共通）</summary>
     private GameObject CreateFlatQuad(Texture2D tex, Color color)
     {
-        var go = GameObject.CreatePrimitive(PrimitiveType.Quad);
-        go.name = "__QuadFX";
-        Destroy(go.GetComponent<Collider>());
+        var go = CreateFxPrimitive(PrimitiveType.Quad, "__QuadFX");
         go.transform.SetParent(transform, false);
         go.transform.localPosition = new Vector3(0, 0.06f, 0);
         go.transform.localRotation = Quaternion.Euler(90, 0, 0);
@@ -1078,7 +1116,7 @@ public class Dice3DSimulator : MonoBehaviour
     // ================================================================
     // ダイス生成
     // ================================================================
-    private (GameObject, List<FaceInfo>) CreateDie(int faces)
+    private (GameObject, List<FaceInfo>) CreateDie(int faces, System.Func<int, string> labeler = null)
     {
         List<Vector3[]> facePolys = faces switch
         {
@@ -1140,8 +1178,9 @@ public class Dice3DSimulator : MonoBehaviour
             // 非平面の面では折り目に数字が食い込むため、浮かせ量を面の形状に応じて変える
             float labelOffset = polyList.Count >= 4 && faces == 10 ? 0.09f : 0.025f;
 
+            string label = labeler != null ? labeler(value) : value.ToString();
             faceInfos.Add(new FaceInfo { center = center, normal = faceNormal, value = value });
-            AttachNumberLabel(go.transform, center, faceNormal, value, labelOffset);
+            AttachNumberLabel(go.transform, center, faceNormal, label, labelOffset);
             value++;
         }
 
@@ -1243,9 +1282,9 @@ public class Dice3DSimulator : MonoBehaviour
     }
 
     /// <summary>面に数字の3Dテキストを貼る</summary>
-    private void AttachNumberLabel(Transform parent, Vector3 center, Vector3 normal, int value, float offset = 0.025f)
+    private void AttachNumberLabel(Transform parent, Vector3 center, Vector3 normal, string label, float offset = 0.025f)
     {
-        var go = new GameObject($"__Num_{value}");
+        var go = new GameObject($"__Num_{label}");
         go.transform.SetParent(parent, false);
         go.transform.localPosition = center + normal * offset;
 
@@ -1255,18 +1294,21 @@ public class Dice3DSimulator : MonoBehaviour
 
         var tmp = go.AddComponent<TextMeshPro>();
         if (_font != null) tmp.font = _font;
-        tmp.text = value.ToString();
+        tmp.text = label;
         tmp.color = new Color(0.18f, 0.08f, 0.02f);
         tmp.alignment = TextAlignmentOptions.Center;
         tmp.enableAutoSizing = true;
         tmp.fontSizeMin = 0.3f;
-        tmp.fontSizeMax = 12f;
+        // 面からはみ出さないよう上限を下げる。2桁（00,10…の十の位）は更に小さく＆字間を詰める
+        bool twoChar = label.Length >= 2;
+        tmp.fontSizeMax = twoChar ? 5.5f : 8.5f;
+        if (twoChar) tmp.characterSpacing = -10f;
         // 視認性のため太字＋アウトラインで数字を太らせる
         tmp.fontStyle = FontStyles.Bold;
         tmp.outlineWidth = 0.18f;
         tmp.outlineColor = new Color32(46, 20, 5, 255);
         var rt = tmp.GetComponent<RectTransform>();
-        rt.sizeDelta = new Vector2(0.62f, 0.62f) * DIE_SIZE;
+        rt.sizeDelta = new Vector2(0.58f, 0.58f) * DIE_SIZE;
     }
 
     // ================================================================

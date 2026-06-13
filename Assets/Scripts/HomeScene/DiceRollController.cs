@@ -188,18 +188,38 @@ public class DiceRollController : MonoBehaviour
 
         // 物理演算でダイスを転がし、静止後の出目を受け取る
         var rolls = await _sim.RollAsync(count, faces);
-        int total = rolls.Sum();
+        int rollTotal = rolls.Sum();
+
+        // ATKクーポンのボーナス（使用済みの分をここで消費して出目に加算）
+        int atkBonus = DiceAtkBonus.Consume();
+        int total = rollTotal + atkBonus;
+
+        // 内訳表示（複数ダイスかボーナスがあるときだけ出す）
+        string detail = "";
+        if (count > 1 || atkBonus > 0)
+        {
+            detail = $"（{string.Join(" ＋ ", rolls)}";
+            if (atkBonus > 0) detail += $" ＋ ATK{atkBonus}";
+            detail += "）";
+        }
 
         _resultValue.text = total.ToString();
-        _resultDetail.text = count > 1 ? $"（{string.Join(" ＋ ", rolls)}）" : "";
+        _resultDetail.text = detail;
 
         // 出目の強さ（0=全部1の最小値, 1=全部最大の出目）に応じたスキルエフェクト
-        // 形は職業、色は属性で決まる
+        // 形は職業、色は属性で決まる（演出はダイスの実際の出目基準）
         float denom = count * faces - count;
-        float intensity = denom > 0 ? (total - count) / denom : 1f;
+        float intensity = denom > 0 ? (rollTotal - count) / denom : 1f;
         _sim.PlayResultEffect(job, element, intensity);
 
-        Debug.Log($"[Dice] {label} → {total} ({string.Join(",", rolls)}) intensity={intensity:F2}");
+        Debug.Log($"[Dice] {label} → {total} ({string.Join(",", rolls)} +ATK{atkBonus}) intensity={intensity:F2}");
+
+        // 出目を履歴に記録（端末ローカル・最大50件）
+        LocalHistoryLog.Add("dice", $"{label} で {total} が出た{detail}");
+
+        // グループ参加中なら、出目をメンバーリストの名前の右側に共有表示する
+        GroupSession.AnnounceDiceResult(total);
+
         _rolling = false;
     }
 

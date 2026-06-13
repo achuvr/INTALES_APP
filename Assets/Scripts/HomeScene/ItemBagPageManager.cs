@@ -60,7 +60,134 @@ public class ItemBagPageManager : MonoBehaviour
     private void Start()
     {
         UpdateCouponDisplay();
+        RestyleCouponPanel();
+        RestyleBagPage();
         gameObject.SetActive(false);
+    }
+
+    /// <summary>
+    /// バッグページ本体（クーポン一覧）も羊皮紙スタイルに整える。
+    /// 各クーポンの行ボタンは角丸＋羊皮紙の行色＋こげ茶文字にする
+    /// （フレンド一覧・履歴の行と同じ配色。シーンは編集せず起動時にコードで差し替える。
+    /// 背景の古地図テクスチャは HomeSceneInitializer 側で全ページ一括適用）。
+    /// </summary>
+    private void RestyleBagPage()
+    {
+        var row       = new Color(0.90f, 0.84f, 0.68f, 1f);    // 行ボタン（一覧の行色）
+        var title     = new Color(0.38f, 0.16f, 0.04f, 1f);    // こげ茶
+        var close     = Color.white;                            // 閉じる（素材の色のまま）
+
+        Transform bagUi = null;
+        foreach (var t in GetComponentsInChildren<Transform>(true))
+        {
+            if (t.name == "BAG_UI") { bagUi = t; break; }
+        }
+        if (bagUi == null)
+        {
+            Debug.LogWarning("[Bag] BAG_UI が見つからないため、バッグ一覧の再スタイルをスキップします");
+            return;
+        }
+
+        foreach (var t in bagUi.GetComponentsInChildren<Transform>(true))
+        {
+            switch (t.name)
+            {
+                // Image_Background は HomeSceneInitializer が古地図テクスチャを貼るためここでは触らない
+                case "Image_Close":
+                {
+                    var img = t.GetComponent<Image>();
+                    if (img != null) img.color = close;
+                    break;
+                }
+                case "Text_ItemName":
+                {
+                    var tmp = t.GetComponent<TextMeshProUGUI>();
+                    if (tmp != null) tmp.color = title;
+                    break;
+                }
+                default:
+                {
+                    // クーポンの行ボタン（Button_0〜Button_4）
+                    if (t.name.StartsWith("Button_") && t.name.Length == 8 && char.IsDigit(t.name[7]))
+                    {
+                        var img = t.GetComponent<Image>();
+                        if (img != null)
+                        {
+                            RoundedRectSprite.Apply(img);
+                            // 行にはscale(5.41)が掛かっているため、角丸の見た目の半径を補正
+                            img.pixelsPerUnitMultiplier = Mathf.Max(1f, t.localScale.x);
+                            img.color = row;
+                        }
+                    }
+                    break;
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// クーポン使用ポップアップを羊皮紙スタイル（InfoModal・ダイス等と同じ配色）に整える。
+    /// シーン側はUnityデフォルト風の配色（白背景・ピンク／青ボタン）のため、
+    /// シーンを編集せずに起動時にコードで差し替える。
+    /// </summary>
+    private void RestyleCouponPanel()
+    {
+        if (_couponPanel == null) return;
+
+        var parchment = new Color(0.99f, 0.95f, 0.84f, 0.98f); // 羊皮紙
+        var title     = new Color(0.38f, 0.16f, 0.04f, 1f);    // こげ茶
+        var gold      = new Color(0.84f, 0.66f, 0.18f, 1f);    // 金
+        var brown     = new Color(0.48f, 0.26f, 0.06f, 1f);    // 濃茶
+        var accent    = new Color(0.55f, 0.30f, 0.02f, 1f);    // 強調茶
+
+        // 背景: 白の全画面シート → 羊皮紙色
+        var bg = _couponPanel.GetComponent<Image>();
+        if (bg != null) bg.color = parchment;
+
+        // テキスト類: 黒・グレー → こげ茶系
+        if (_nameText != null) _nameText.color = title;
+        if (_explanationText != null) _explanationText.color = title;
+        if (_numOfUsingCouponText != null) _numOfUsingCouponText.color = accent;
+
+        // ＋／−ボタン: ピンク・青 → 金（スプライトに記号が含まれるため色だけ変える）
+        TintChild("Button_Plus", gold, null, false);
+        TintChild("Button_Minus", gold, null, false);
+
+        // 使用・キャンセル: 角丸スプライトに差し替えて金／濃茶に
+        TintChild("Button_Use", gold, title, true);
+        TintChild("Button_Cancel", brown, Color.white, true);
+    }
+
+    /// <summary>ポップアップ内の子ボタンの色（と必要ならスプライト・文字色）を差し替える</summary>
+    private void TintChild(string childName, Color bgColor, Color? textColor, bool replaceSprite)
+    {
+        Transform target = null;
+        foreach (var t in _couponPanel.GetComponentsInChildren<Transform>(true))
+        {
+            if (t.name == childName) { target = t; break; }
+        }
+        if (target == null)
+        {
+            Debug.LogWarning($"[Bag] クーポンパネル内に {childName} が見つかりません");
+            return;
+        }
+
+        var img = target.GetComponent<Image>();
+        if (img != null)
+        {
+            if (replaceSprite)
+            {
+                RoundedRectSprite.Apply(img);
+                // ボタンにscaleが掛かっていても角丸の見た目の半径が揃うよう補正
+                img.pixelsPerUnitMultiplier = Mathf.Max(1f, target.localScale.x);
+            }
+            img.color = bgColor;
+        }
+        if (textColor.HasValue)
+        {
+            var tmp = target.GetComponentInChildren<TextMeshProUGUI>(true);
+            if (tmp != null) tmp.color = textColor.Value;
+        }
     }
 
     /// <summary>
@@ -170,6 +297,11 @@ public class ItemBagPageManager : MonoBehaviour
 
         applyLocal(UserDataManager.instance.UserData, usedCount);
         Debug.Log($"{couponDisplayName}を消費！");
+
+        // ATKクーポンは使った枚数ぶん、次のダイスロールの出目に+1される
+        if (_currentCouponName == "atk")
+            DiceAtkBonus.Add(usedCount);
+
         UpdateCouponDisplay();
         _numOfUsingCoupon = 0;
         _numOfUsingCouponText.text = "0";
@@ -180,9 +312,15 @@ public class ItemBagPageManager : MonoBehaviour
         // 割引クーポンは合計何%OFFかをモーダルで表示する（お店の人に見せる用）。
         // それ以外のクーポンは従来どおりのフェードするポップアップ。
         if (_currentCouponName == "5" || _currentCouponName == "7")
+        {
             ShowDiscountModal(couponDisplayName, usedCount, _currentCouponName == "5" ? 5 : 7);
+        }
         else
+        {
+            // 使用枚数を履歴に記録（割引クーポンは ShowDiscountModal 側で計算結果ごと記録する）
+            LocalHistoryLog.Add("coupon", $"{couponDisplayName} を{usedCount}枚 使用");
             ShowItemUsedPopup(couponDisplayName, usedCount).Forget();
+        }
     }
 
     /// <summary>割引上限（%）。チケット説明文の「最大100%オフまで可能」に対応</summary>
@@ -200,6 +338,9 @@ public class ItemBagPageManager : MonoBehaviour
 
         string sub = $"{couponDisplayName} × {usedCount}枚";
         if (capped) sub += $"\n※割引は最大{MAX_DISCOUNT_PERCENT}%までです";
+
+        // 使用枚数と計算結果を履歴に記録（端末ローカル・最大50件）
+        LocalHistoryLog.Add("coupon", $"{couponDisplayName} を{usedCount}枚 使用 → 合計{total}%OFF");
 
         InfoModal.Show("クーポン使用", $"合計 {total}% OFF", sub);
     }

@@ -49,12 +49,12 @@ public static class InfoModal
         var border = MakeRect("__Border", dim.transform, C_BORDER, 792, 616);
         var panel  = MakeRect("__Panel", border.transform, C_PARCHMENT, 776, 600);
 
-        MakeLabel(panel.transform, title, jp, 44, FontStyles.Bold, C_TITLE, 700, 80, new Vector2(0, 210));
+        MakeLabel(panel.transform, title, jp, 44, FontStyles.Bold, C_TITLE, 700, 80, new Vector2(0, 196));
 
         MakeRect("__Div", panel.transform, C_DIVIDER, 660, 4)
-            .GetComponent<RectTransform>().anchoredPosition = new Vector2(0, 150);
+            .GetComponent<RectTransform>().anchoredPosition = new Vector2(0, 144);
 
-        MakeLabel(panel.transform, strongText, jp, 52, FontStyles.Bold, C_STRONG, 720, 150, new Vector2(0, 50));
+        MakeLabel(panel.transform, strongText, jp, 52, FontStyles.Bold, C_STRONG, 720, 150, new Vector2(0, 10));
 
         if (!string.IsNullOrEmpty(subText))
             MakeLabel(panel.transform, subText, jp, 32, FontStyles.Normal, C_TITLE, 700, 90, new Vector2(0, -90));

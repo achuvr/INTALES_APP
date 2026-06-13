@@ -24,6 +24,9 @@ public class UserDataManager : SingletonBehaviour<UserDataManager>
     public void SetCurrentSelectCharacterNumber(int number)
     {
         _currentSelectCharacterNumber = number;
+
+        // グループ参加中なら、切り替え後のキャラ名をメンバーリストへ即時反映する
+        GroupSession.AnnounceSelfIfActive();
     }
 
     public void SetUID(string uid)

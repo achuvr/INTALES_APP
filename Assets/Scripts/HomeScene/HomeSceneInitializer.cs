@@ -59,13 +59,28 @@ public class HomeSceneInitializer : MonoBehaviour
         if (GetComponent<AccountDeletionController>() == null)
             gameObject.AddComponent<AccountDeletionController>();
 
-        // ダイスロール機能（戦闘ボタンから開く）
-        if (GetComponent<DiceRollController>() == null)
-            gameObject.AddComponent<DiceRollController>();
+        // ボス討伐バトル（戦闘ボタンから開く。内部で既存のダイス機能=Dice3DSimulatorを流用）
+        if (GetComponent<BossBattleController>() == null)
+            gameObject.AddComponent<BossBattleController>();
 
         // ガチャ機能（左上のガチャボタンから開く。イベントガチャはQR読み取りから）
         if (GetComponent<GachaController>() == null)
             gameObject.AddComponent<GachaController>();
+
+        // 履歴機能（キャラページ右上の履歴ボタンから開く）
+        if (GetComponent<HistoryController>() == null)
+            gameObject.AddComponent<HistoryController>();
+
+        // グループ機能（左上のグループボタンからA〜Dのルームに参加）
+        if (GetComponent<GroupController>() == null)
+            gameObject.AddComponent<GroupController>();
+
+        // 図鑑機能（右上の図鑑ボタンから装備一覧シーンを開く）
+        if (GetComponent<ZukanButton>() == null)
+            gameObject.AddComponent<ZukanButton>();
+
+        // 各ページの全画面背景を「古びた世界地図」風テクスチャに差し替える（冒険感）
+        ApplyOldMapBackgrounds();
 
         // チェックアウト忘れ（営業終了時刻を過ぎた来店）を自動クローズ
         // 自動クローズが発生した場合は、共有していた在店状態も解除する
@@ -129,6 +144,50 @@ public class HomeSceneInitializer : MonoBehaviour
         }
 
         _statusText.text += $"レベル　{UserDataManager.instance.UserData.Characters[UserDataManager.instance.CurrentSelectCharacterNumber].Level}";
+    }
+
+#if UNITY_EDITOR
+    /// <summary>
+    /// デバッグ用: Unity Editor 上で N キーを押すと入店処理（CheckIn）を実行する。
+    /// 実機ビルドには含まれない（#if UNITY_EDITOR で囲っているため）。
+    /// 新旧どちらの Input バックエンドでも拾えるよう両対応している。
+    /// </summary>
+    private void Update()
+    {
+        bool pressed = false;
+#if ENABLE_INPUT_SYSTEM
+        var kb = UnityEngine.InputSystem.Keyboard.current;
+        if (kb != null && kb.nKey.wasPressedThisFrame)
+            pressed = true;
+#endif
+#if ENABLE_LEGACY_INPUT_MANAGER
+        if (Input.GetKeyDown(KeyCode.N))
+            pressed = true;
+#endif
+        if (pressed)
+        {
+            Debug.Log("[Debug] N キー押下 → 入店処理を実行します");
+            var caller = GetComponent<CallMethodFromQR>() ?? gameObject.AddComponent<CallMethodFromQR>();
+            caller.CheckIn();
+        }
+    }
+#endif
+
+    /// <summary>
+    /// シーン内の全画面背景（Image_Background、各ページに1枚ずつ）へ
+    /// 古地図風のプロシージャルテクスチャを貼る。
+    /// CanvasFloat 内の小さな Image_Background は対象外（幅でフィルタ）。
+    /// </summary>
+    private static void ApplyOldMapBackgrounds()
+    {
+        foreach (var go in Resources.FindObjectsOfTypeAll<GameObject>())
+        {
+            if (go.name != "Image_Background" || !go.scene.IsValid()) continue;
+            var rt = go.transform as RectTransform;
+            if (rt == null || rt.sizeDelta.x < 1000f) continue; // 全画面背景のみ
+            var img = go.GetComponent<UnityEngine.UI.Image>();
+            if (img != null) OldMapBackground.Apply(img);
+        }
     }
 
     private async void FetchGoodDay()

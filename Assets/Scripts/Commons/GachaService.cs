@@ -170,6 +170,11 @@ public static class GachaService
             subText += $"\nレベルを{cost}消費（Lv{oldLevel} → Lv{chara.Level}）";
 
         Debug.Log($"[Gacha] {poolId}: {picked.Type}/{picked.Id} を入手（cost={cost}）");
+
+        // ガチャ結果を履歴に記録（端末ローカル・最大50件）
+        LocalHistoryLog.Add("gacha",
+            $"{(string.IsNullOrEmpty(pool.Name) ? "ガチャ" : pool.Name)}で {displayName} を入手");
+
         return new GachaResult
         {
             Success = true,
