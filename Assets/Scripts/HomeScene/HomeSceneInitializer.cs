@@ -79,6 +79,11 @@ public class HomeSceneInitializer : MonoBehaviour
         if (GetComponent<ZukanButton>() == null)
             gameObject.AddComponent<ZukanButton>();
 
+        // タブレット(横長比率)でフッターと重なる下部の6ボタンを
+        // 2行3列に組み替えてフッター上に収める（スマホは変更なし）
+        if (GetComponent<TabletFooterLayout>() == null)
+            gameObject.AddComponent<TabletFooterLayout>();
+
         // 各ページの全画面背景を「古びた世界地図」風テクスチャに差し替える（冒険感）
         ApplyOldMapBackgrounds();
 
