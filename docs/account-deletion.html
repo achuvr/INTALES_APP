@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="index,follow">
+<title>アカウントと関連データの削除 | INTALES</title>
+<style>
+:root{color-scheme:light dark}
+*{box-sizing:border-box}
+body{margin:0;background:#fafafa;color:#1a1a1a;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Hiragino Kaku Gothic ProN","Hiragino Sans","Noto Sans JP",Meiryo,sans-serif;line-height:1.85;font-size:16px}
+.container{max-width:840px;margin:0 auto;padding:40px 22px 96px;background:#fff}
+h1{font-size:1.85rem;border-bottom:3px solid #333;padding-bottom:.4em;margin:0 0 .6em}
+h2{font-size:1.3rem;margin:2.2em 0 .6em;border-left:6px solid #555;padding-left:.55em}
+hr{border:none;border-top:1px solid #e3e3e3;margin:2.2em 0}
+p{margin:.7em 0}
+ul,ol{padding-left:1.6em;margin:.6em 0}
+li{margin:.4em 0}
+a{color:#1a5fb4;word-break:break-all}
+table{border-collapse:collapse;width:100%;margin:1.2em 0;font-size:.92rem;display:block;overflow-x:auto}
+th,td{border:1px solid #cfcfcf;padding:.55em .75em;text-align:left;vertical-align:top}
+th{background:#f0f1f3;font-weight:600}
+.callout{margin:1.2em 0;padding:.9em 1.1em;background:#f4f7fa;border-left:4px solid #93a8bd;border-radius:3px}
+.steps li{margin:.6em 0}
+@media (prefers-color-scheme:dark){
+ body{background:#151515;color:#e6e6e6}.container{background:#1e1e1e}
+ h1,h2{border-color:#888}hr{border-color:#333}
+ th{background:#2a2a2a}td,th{border-color:#3a3a3a}
+ .callout{background:#202632;border-color:#5b7fa6}a{color:#7fb0f0}
+}
+</style>
+</head>
+<body>
+<main class="container">
+
+<h1>アカウントと関連データの削除について</h1>
+
+<p>このページは、モバイルアプリ「<strong>INTALES（intalescafe）</strong>」のアカウント、および当該アカウントに関連するデータの削除を希望される方のための案内です。以下のいずれかの方法で削除をリクエストできます。</p>
+
+<div class="callout">
+<strong>運営者：</strong>秋山真範（屋号：intalescafe）／<strong>お問い合わせ：</strong><a href="mailto:intaleslab@gmail.com">intaleslab@gmail.com</a>
+</div>
+
+<hr>
+
+<h2>方法1：アプリ内で削除する（推奨・即時）</h2>
+
+<p>アプリをご利用中の場合は、アプリ内からご自身で即時に削除できます。</p>
+
+<ol class="steps">
+<li>アプリを起動してログインします。</li>
+<li>ホーム画面の<strong>インフォメーション画面</strong>を開きます。</li>
+<li>画面下部の「<strong>アカウント削除</strong>」をタップします。</li>
+<li>確認画面で「<strong>削除をすすめる</strong>」→「<strong>完全に削除する</strong>」の順にタップすると、削除が実行されます。</li>
+</ol>
+
+<p>この操作は取り消せません。削除が完了すると自動的にログアウトし、スタート画面に戻ります。</p>
+
+<h2>方法2：メールで削除を依頼する（アプリを削除済みの場合など）</h2>
+
+<p>すでにアプリをアンインストールした、ログインできない等の理由でアプリから操作できない場合は、メールでご依頼ください。</p>
+
+<ul>
+<li>宛先：<a href="mailto:intaleslab@gmail.com">intaleslab@gmail.com</a></li>
+<li>件名：「アカウント削除希望」</li>
+<li>本文：アカウントに<strong>登録しているメールアドレス</strong>をご記入ください。</li>
+</ul>
+
+<p>なりすまし防止のため、ご本人からのご依頼であることを確認させていただく場合があります。本人確認のうえ、<strong>受領から30日以内</strong>を目安に削除を実施します。</p>
+
+<hr>
+
+<h2>削除されるデータ</h2>
+
+<p>アカウント削除により、以下のデータが削除されます。</p>
+
+<ul>
+<li>アカウント情報（メールアドレス、ニックネーム、利用者識別子（Firebase UID））</li>
+<li>キャラクター情報（名前・属性・ジョブ・レベル・装備）およびインベントリ</li>
+<li>ゲーム内資産（各種クーポン、GP、レベル等）</li>
+<li>フレンド情報（相互に登録されたフレンド関係の解除を含みます）</li>
+<li>来店状況の共有情報（プレゼンス）</li>
+<li>認証アカウント（Firebase Authentication 上のアカウント）</li>
+<li>端末内に保存されたデータ（暗号化された認証情報、来店記録、各種設定）</li>
+</ul>
+
+<h2>削除のタイミングと、残存し得る情報</h2>
+
+<table>
+<thead><tr><th>項目</th><th>内容</th></tr></thead>
+<tbody>
+<tr><td>アプリ内での削除</td><td>その場で即時に削除されます。</td></tr>
+<tr><td>メールでの依頼</td><td>本人確認のうえ、受領から30日以内を目安に削除します。</td></tr>
+<tr><td>残存し得る情報</td><td>フレンド機能の仕様上、過去にあなたをフレンド登録した他の利用者側に、あなたの識別子・表示名が残っている場合があります。その削除をご希望の場合は上記メール窓口までご連絡ください。</td></tr>
+<tr><td>法令上の保存</td><td>法令により保存が義務付けられている情報がある場合は、当該法令の定める期間に限り保存します。</td></tr>
+</tbody>
+</table>
+
+<hr>
+
+<p>個人情報の取扱いの詳細については、<a href="privacy-policy.html">プライバシーポリシー</a>をご確認ください。</p>
+
+<p>制定日：2026年6月30日</p>
+
+</main>
+</body>
+</html>

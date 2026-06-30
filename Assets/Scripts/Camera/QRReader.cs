@@ -63,6 +63,13 @@ public class QRReader : MonoBehaviour
             return;
         }
 
+        // バフカード山札QR（"deck:soft=10,beer=5,..."）
+        if (_result.StartsWith(BuffCard.QR_PREFIX))
+        {
+            _callMethodFromQR.DrawBuffCard(_result);
+            return;
+        }
+
         switch (_result)
         {
             case "Lv+1":

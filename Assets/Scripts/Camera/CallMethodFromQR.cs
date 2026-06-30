@@ -82,6 +82,28 @@ public class CallMethodFromQR : MonoBehaviour
     public const string FRIEND_QR_PREFIX = "friend:";
 
     /// <summary>
+    /// バフカード山札QR。形式: "deck:soft=10,beer=5,sweets=1,..."。
+    /// 読むと枚数を重みに1枚抽選して手札に保持し、次のボス戦で自動発動する。
+    /// </summary>
+    public void DrawBuffCard(string qrText)
+    {
+        var counts = BuffCard.DecodeDeck(qrText);
+        var drawn = BuffCard.DrawFrom(counts);
+        if (drawn == null)
+        {
+            FriendMenuController.ShowToast("山札が空、または無効なカードQRです");
+            EndFromButton();
+            return;
+        }
+
+        BuffCard.SetHeld(drawn.Value); // 1枚だけ保持（上書き）
+        Debug.Log($"[QR] バフカード「{BuffCard.DisplayName(drawn.Value)}」を引いた");
+        AssetsDatabase.instance?.PlayLevelUpSE();
+        End();
+        BuffCardModal.Show(drawn.Value);
+    }
+
+    /// <summary>
     /// イベントガチャQRのプレフィックス。
     /// "gacha_event" → master/gacha の event プール、
     /// "gacha_event:{プールID}" → 指定プール（イベントごとに変えたい場合用）。
@@ -321,6 +343,9 @@ public class CallMethodFromQR : MonoBehaviour
     /// </summary>
     public void CheckIn()
     {
+        // 新しい来店を記録する前に「前回の来店時刻」を取得（1か月以内の再来ボーナス判定用）
+        var lastVisit = LocalVisitLog.GetLastCheckInTime();
+
         var record = LocalVisitLog.Record();
         Debug.Log($"[CheckIn] 入店時間をローカルに記録しました: {record.checkedInAt}");
 
@@ -335,6 +360,100 @@ public class CallMethodFromQR : MonoBehaviour
         GroupController.RefreshVisibility();
 
         EndFromButton();
+
+        // 来店ボーナス（毎回）＋1か月以内の再来ボーナスをまとめて付与
+        GrantCheckInBonusesAsync(lastVisit).Forget();
+    }
+
+    /// <summary>1日1回ボーナスの判定キー（端末ローカルの今日の日付 "yyyy-MM-dd"）。</summary>
+    private static string TodayKey() => System.DateTime.Now.ToString("yyyy-MM-dd");
+
+    /// <summary>
+    /// 選択中キャラを1レベル上げ、指定のボーナス日付フィールドを今日に更新する（1回の書き込み）。
+    /// 成功したら (旧Lv, 新Lv, キャラ名)。キャラが取得できなければ null。書き込み失敗は例外を投げる。
+    /// </summary>
+    private async UniTask<(int oldLv, int newLv, string name)?> LevelUpWithBonusDateAsync(string bonusDateField, string today)
+    {
+        var manager = UserDataManager.instance;
+        var chars = manager?.UserData?.Characters;
+        int idx = manager != null ? manager.CurrentSelectCharacterNumber : 0;
+        if (chars == null || idx >= chars.Count) return null;
+
+        var chara = chars[idx];
+        int oldLv = chara.Level;
+        int newLv = oldLv + 1;
+
+        await UserDocRef.UpdateAsync(new Dictionary<FieldPath, object>
+        {
+            { new FieldPath("characters", idx.ToString(), "lv"), newLv },
+            { new FieldPath(bonusDateField), today },
+            { new FieldPath("lastDate"), Timestamp.GetCurrentTimestamp() },
+        }).AsUniTask();
+
+        chara.Level = newLv;
+        return (oldLv, newLv, chara.Name);
+    }
+
+    /// <summary>
+    /// 来店時のレベルアップボーナスをまとめて付与する。
+    ///  ・来店ボーナス（毎回）… +1（1日1回）
+    ///  ・1か月以内の再来ボーナス … 前回来店から1か月以内なら追加で +1（1日1回）
+    /// 競合（同じ旧レベルを二重に読む）を避けるため、合計レベルを1回の書き込みで反映する。
+    /// 結果は InfoModal で告知する。
+    /// </summary>
+    private async UniTaskVoid GrantCheckInBonusesAsync(System.DateTime? lastVisit)
+    {
+        var manager = UserDataManager.instance;
+        var chars = manager?.UserData?.Characters;
+        int idx = manager != null ? manager.CurrentSelectCharacterNumber : 0;
+        if (chars == null || idx >= chars.Count) return;
+
+        var chara = chars[idx];
+        string today = TodayKey();
+
+        // 本日まだ受け取っていないボーナスだけを対象にする（各ボーナス1日1回）
+        bool visitBonus = manager.UserData.VisitBonusDate != today;
+        bool revisitBonus = lastVisit.HasValue
+                            && System.DateTime.Now < lastVisit.Value.AddMonths(1)
+                            && manager.UserData.RevisitBonusDate != today;
+
+        int add = (visitBonus ? 1 : 0) + (revisitBonus ? 1 : 0);
+        if (add == 0) return; // 本日分は付与済み
+
+        int oldLv = chara.Level;
+        int newLv = oldLv + add;
+
+        var updates = new Dictionary<FieldPath, object>
+        {
+            { new FieldPath("characters", idx.ToString(), "lv"), newLv },
+            { new FieldPath("lastDate"), Timestamp.GetCurrentTimestamp() },
+        };
+        if (visitBonus)   updates[new FieldPath("visit_bonus_date")]   = today;
+        if (revisitBonus) updates[new FieldPath("revisit_bonus_date")] = today;
+
+        try
+        {
+            await UserDocRef.UpdateAsync(updates).AsUniTask();
+
+            chara.Level = newLv;
+            if (visitBonus)   manager.UserData.VisitBonusDate = today;
+            if (revisitBonus) manager.UserData.RevisitBonusDate = today;
+            AssetsDatabase.instance?.PlayLevelUpSE();
+
+            var parts = new List<string>();
+            if (visitBonus)   parts.Add("来店ボーナス +1");
+            if (revisitBonus) parts.Add("1か月以内の再来ボーナス +1");
+
+            LocalHistoryLog.Add("visit",
+                $"来店ボーナス: {chara.Name} Lv{oldLv}→Lv{newLv}（{string.Join("／", parts)}）");
+            InfoModal.Show("ご来店ありがとうございます！",
+                $"{chara.Name} がレベルアップ！\nLv{oldLv} → Lv{newLv}",
+                string.Join("\n", parts), strongYOffset: 40f);
+        }
+        catch (System.Exception ex)
+        {
+            Debug.LogError($"[CheckIn] 来店ボーナスのレベルアップ書き込みエラー: {ex.Message}");
+        }
     }
 
     /// <summary>
@@ -375,19 +494,56 @@ public class CallMethodFromQR : MonoBehaviour
         {
             Debug.LogWarning("[CheckOut] チェックイン記録が無いため、チェックアウトを記録できませんでした");
             FriendMenuController.ShowToast("チェックイン記録が見つかりませんでした");
+            return;
         }
+
+        Debug.Log($"[CheckOut] チェックアウトを記録しました: 滞在 {record.stayText}");
+
+        // 退店チャイム（下降音）
+        VisitChime.PlayCheckOut();
+
+        // 滞在時間を履歴に記録（端末ローカル・最大50件）
+        LocalHistoryLog.Add("visit", $"滞在時間 {record.stayText}");
+
+        // 5時間（300分）以上の滞在で選択中キャラを1レベルアップ。
+        // 書き込み完了後にレベルアップ込みのモーダルを出すため、ボーナス時のみ非同期処理に回す。
+        const long BONUS_STAY_MINUTES = 5 * 60;
+        if (record.stayMinutes >= BONUS_STAY_MINUTES)
+            GrantStayBonusAndShowAsync(record.stayText).Forget();
         else
-        {
-            Debug.Log($"[CheckOut] チェックアウトを記録しました: 滞在 {record.stayText}");
-
-            // 退店チャイム（下降音）
-            VisitChime.PlayCheckOut();
-
-            // 滞在時間を履歴に記録（端末ローカル・最大50件）
-            LocalHistoryLog.Add("visit", $"滞在時間 {record.stayText}");
-
-            // QRカメラを閉じてから滞在時間のモーダルを表示する
             CheckOutModal.Show(record.stayText);
+    }
+
+    /// <summary>
+    /// 5時間以上の滞在ボーナス: 選択中キャラを1レベル上げてからチェックアウトモーダルを表示する（1日1回）。
+    /// 本日すでに付与済み、または書き込みに失敗した場合はレベルアップを反映せず滞在時間のみ表示する。
+    /// </summary>
+    private async UniTaskVoid GrantStayBonusAndShowAsync(string stayText)
+    {
+        var manager = UserDataManager.instance;
+        string today = TodayKey();
+
+        // 1日1回（本日すでに滞在ボーナスを受け取っていれば付与しない）
+        if (manager?.UserData != null && manager.UserData.StayBonusDate == today)
+        {
+            CheckOutModal.Show(stayText);
+            return;
+        }
+
+        try
+        {
+            var r = await LevelUpWithBonusDateAsync("stay_bonus_date", today);
+            if (r == null) { CheckOutModal.Show(stayText); return; } // キャラが取れない場合は滞在時間のみ
+
+            manager.UserData.StayBonusDate = today;
+            AssetsDatabase.instance?.PlayLevelUpSE();
+            LocalHistoryLog.Add("visit", $"5時間以上の滞在ボーナス: {r.Value.name} Lv{r.Value.oldLv}→Lv{r.Value.newLv}");
+            CheckOutModal.Show(stayText, r.Value.name, r.Value.oldLv, r.Value.newLv);
+        }
+        catch (System.Exception ex)
+        {
+            Debug.LogError($"[CheckOut] 滞在ボーナスのレベルアップ書き込みエラー: {ex.Message}");
+            CheckOutModal.Show(stayText); // 失敗時はレベルアップ表示なし
         }
     }
 

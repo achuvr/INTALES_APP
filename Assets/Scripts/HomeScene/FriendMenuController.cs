@@ -283,6 +283,185 @@ public class FriendMenuController : MonoBehaviour
             new Vector2(170, -110), CloseModal);
     }
 
+    // ================================================================
+    // ユーザー名（アカウント名）の変更
+    // ================================================================
+    /// <summary>
+    /// ユーザー名を今変更できるか（前回変更から1か月経過しているか）を判定する。
+    /// 未変更（name_changed_at 未設定=既定の1970年）なら常に可。
+    /// nextAllowed には次に変更可能になるローカル日時を返す。
+    /// </summary>
+    private static bool CanRenameNow(UserData user, out System.DateTime nextAllowed)
+    {
+        System.DateTime last = user.NameChangedAt.ToDateTime();   // UTC
+        System.DateTime nextUtc = last.AddMonths(1);
+        nextAllowed = nextUtc.ToLocalTime();
+        return System.DateTime.UtcNow >= nextUtc;
+    }
+
+    /// <summary>ユーザー名を変更するダイアログ（現在の名前を入力欄に初期表示）。</summary>
+    private void OpenRenameDialog()
+    {
+        var manager = UserDataManager.instance;
+        if (manager == null || manager.UserData == null) return;
+        CloseModal();
+
+        var jp = GetJpFont();
+        _modal = BuildModalBase(out var panel, 760, 560);
+
+        var title = MakeLabel("__Title", panel.transform, "ユーザー名を変更", jp, 46, FontStyles.Bold, C_TITLE, 680, 80);
+        title.GetComponent<TextMeshProUGUI>().alignment = TextAlignmentOptions.Center;
+        title.GetComponent<RectTransform>().anchoredPosition = new Vector2(0, 200);
+
+        MakeRect("__Div", panel.transform, C_DIVIDER, 620, 4)
+            .GetComponent<RectTransform>().anchoredPosition = new Vector2(0, 145);
+
+        string hintText = CanRenameNow(manager.UserData, out var nextAllowed)
+            ? "フレンドに表示されるアカウントの名前です\n（キャラクター名とは別・変更は1か月に1回まで）"
+            : $"変更は1か月に1回までです\n次に変更できるのは {nextAllowed:yyyy/MM/dd} 以降です";
+        var hint = MakeLabel("__Hint", panel.transform, hintText,
+            jp, 28, FontStyles.Normal, C_MUTED, 680, 90);
+        hint.GetComponent<TextMeshProUGUI>().alignment = TextAlignmentOptions.Center;
+        hint.GetComponent<RectTransform>().anchoredPosition = new Vector2(0, 70);
+
+        var input = MakeInputField(panel.transform, jp, manager.UserData.Username ?? "",
+            "ユーザー名を入力", 600, 100, new Vector2(0, -25));
+
+        MakeButton("__OK", panel.transform, C_GOLD_BTN, "変更する", jp, 38, C_TITLE, 300, 110,
+            new Vector2(-160, -160), () => RenameAsync(input.text).Forget());
+        MakeButton("__Cancel", panel.transform, new Color(0.48f, 0.26f, 0.06f, 1f), "キャンセル", jp, 38, Color.white, 300, 110,
+            new Vector2(160, -160), CloseModal);
+    }
+
+    /// <summary>
+    /// ユーザー名を変更する。まず自分の users ドキュメントの name を更新し、
+    /// 続いて全フレンドのドキュメントの friends.{自分uid}.name へも反映する
+    /// （フレンド一覧に表示される名前は登録時のスナップショットのため伝播が必要）。
+    /// フレンドへの反映は各自独立のベストエフォート（退会済み等で一部失敗しても自分の変更は確定）。
+    /// </summary>
+    private async UniTask RenameAsync(string raw)
+    {
+        var manager = UserDataManager.instance;
+        if (manager == null || manager.UserData == null) return;
+
+        string name = (raw ?? "").Trim();
+        if (string.IsNullOrEmpty(name)) { ShowToast("ユーザー名を入力してください"); return; }
+        if (name.Length > 20) name = name.Substring(0, 20);
+        if (name == manager.UserData.Username) { CloseModal(); return; }
+
+        // 1か月に1回までの制限（ダイアログは開いたままにして理由を見せる）
+        if (!CanRenameNow(manager.UserData, out var nextAllowed))
+        {
+            ShowToast($"ユーザー名の変更は1か月に1回までです（次回 {nextAllowed:yyyy/MM/dd} 以降）");
+            return;
+        }
+
+        CloseModal();
+        var db = FirebaseFirestore.DefaultInstance;
+        var nowTs = Timestamp.GetCurrentTimestamp();
+
+        // 1) 自分のドキュメントを更新（名前＋最終変更日時。ここが失敗したら中断）
+        try
+        {
+            await db.Collection("users").Document(manager.UID)
+                .UpdateAsync(new Dictionary<FieldPath, object>
+                {
+                    { new FieldPath("name"), name },
+                    { new FieldPath("name_changed_at"), nowTs },
+                }).AsUniTask();
+        }
+        catch (System.Exception ex)
+        {
+            Debug.LogError($"[Friend] ユーザー名変更エラー: {ex.Message}");
+            ShowToast("ユーザー名の変更に失敗しました");
+            return;
+        }
+        manager.UserData.Username = name;
+        manager.UserData.NameChangedAt = nowTs;
+
+        // 2) 全フレンドの friends.{自分uid}.name を更新（since は壊さずサブフィールドのみ）
+        var friendUids = manager.UserData.Friends != null
+            ? manager.UserData.Friends.Keys.ToList()
+            : new List<string>();
+
+        int ok = 0, fail = 0;
+        foreach (var fuid in friendUids)
+        {
+            try
+            {
+                await db.Collection("users").Document(fuid)
+                    .UpdateAsync(new Dictionary<FieldPath, object>
+                    {
+                        { new FieldPath("friends", manager.UID, "name"), name }
+                    }).AsUniTask();
+                ok++;
+            }
+            catch (System.Exception ex)
+            {
+                fail++;
+                Debug.LogWarning($"[Friend] フレンド({fuid})への名前反映に失敗: {ex.Message}");
+            }
+        }
+
+        if (friendUids.Count == 0)
+            ShowToast($"ユーザー名を「{name}」に変更しました");
+        else if (fail == 0)
+            ShowToast($"ユーザー名を「{name}」に変更しました（フレンド{ok}人に反映）");
+        else
+            ShowToast($"ユーザー名を「{name}」に変更（{ok}/{friendUids.Count}人に反映・{fail}人は失敗）");
+    }
+
+    /// <summary>コード生成のTMP入力欄（背景・Text Area・プレースホルダ・本文を組み立てる）。</summary>
+    private static TMP_InputField MakeInputField(Transform parent, TMP_FontAsset font, string value,
+        string placeholder, float w, float h, Vector2 pos)
+    {
+        var go = MakeRect("__Input", parent, new Color(1f, 1f, 1f, 0.96f), w, h);
+        go.GetComponent<RectTransform>().anchoredPosition = pos;
+        var img = go.GetComponent<Image>();
+        var input = go.AddComponent<TMP_InputField>();
+        input.targetGraphic = img;
+
+        // 表示領域（マスク）
+        var area = new GameObject("Text Area");
+        area.transform.SetParent(go.transform, false);
+        var art = area.AddComponent<RectTransform>();
+        art.anchorMin = Vector2.zero; art.anchorMax = Vector2.one;
+        art.offsetMin = new Vector2(22, 8); art.offsetMax = new Vector2(-22, -8);
+        area.AddComponent<RectMask2D>();
+
+        // プレースホルダ
+        var ph = new GameObject("Placeholder");
+        ph.transform.SetParent(area.transform, false);
+        var phrt = ph.AddComponent<RectTransform>();
+        phrt.anchorMin = Vector2.zero; phrt.anchorMax = Vector2.one; phrt.offsetMin = phrt.offsetMax = Vector2.zero;
+        var phTmp = ph.AddComponent<TextMeshProUGUI>();
+        if (font != null) phTmp.font = font;
+        phTmp.text = placeholder; phTmp.fontSize = 40; phTmp.fontStyle = FontStyles.Italic;
+        phTmp.color = new Color(0.50f, 0.38f, 0.22f, 0.55f);
+        phTmp.alignment = TextAlignmentOptions.MidlineLeft;
+
+        // 本文
+        var txt = new GameObject("Text");
+        txt.transform.SetParent(area.transform, false);
+        var txrt = txt.AddComponent<RectTransform>();
+        txrt.anchorMin = Vector2.zero; txrt.anchorMax = Vector2.one; txrt.offsetMin = txrt.offsetMax = Vector2.zero;
+        var txTmp = txt.AddComponent<TextMeshProUGUI>();
+        if (font != null) txTmp.font = font;
+        txTmp.fontSize = 40; txTmp.color = C_TITLE;
+        txTmp.alignment = TextAlignmentOptions.MidlineLeft;
+
+        input.textViewport = art;
+        input.textComponent = txTmp;
+        input.placeholder = phTmp;
+        if (font != null) input.fontAsset = font;
+        input.pointSize = 40;
+        input.characterLimit = 20;
+        input.lineType = TMP_InputField.LineType.SingleLine;
+        input.onFocusSelectAll = true;
+        input.text = value;
+        return input;
+    }
+
     /// <summary>モーダルの共通土台（暗幕＋羊皮紙パネル）。暗幕タップで閉じる</summary>
     private GameObject BuildModalBase(out GameObject panel, float w, float h)
     {
@@ -513,9 +692,11 @@ public class FriendMenuController : MonoBehaviour
         // 「ログイン情報を公開する」チェックボックス
         BuildShareToggle(panel.transform, jp);
 
-        // 自分のQRを表示ボタン
-        MakeButton("__ShowQR", panel.transform, C_GOLD_BTN, "自分のQRを表示", jp, 44, C_TITLE, 600, 110,
-            new Vector2(0, -550), ShowMyQR);
+        // 自分のQRを表示ボタン（左）＋ ユーザー名を変更ボタン（右）
+        MakeButton("__ShowQR", panel.transform, C_GOLD_BTN, "自分のQRを表示", jp, 38, C_TITLE, 430, 110,
+            new Vector2(-235, -550), ShowMyQR);
+        MakeButton("__RenameUser", panel.transform, C_GOLD_BTN, "ユーザー名を変更", jp, 38, C_TITLE, 430, 110,
+            new Vector2(235, -550), OpenRenameDialog);
 
         return border;
     }

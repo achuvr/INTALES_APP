@@ -6,13 +6,14 @@ using UnityEngine;
 
 /// <summary>
 /// ガチャ機能の中核。master/gacha の排出テーブルを読み（セッション内キャッシュ）、
-/// 重み付き抽選 → レベル消費と景品付与を users/{uid} への1回の書き込みで行う。
+/// 重み付き抽選 → GP消費と景品付与を users/{uid} への1回の書き込みで行う。
 ///
 /// Firestore 構造（master/gacha）:
 ///   pools: {
-///     standard: { name, cost_lv: 5, entries: [ { type, id, weight }, ... ] },
-///     event:    { name, cost_lv: 0, entries: [...] },
+///     standard: { name, cost_gp: 5, entries: [ { type, id, weight }, ... ] },
+///     event:    { name, cost_gp: 0, entries: [...] },
 ///   }
+/// cost_gp … 1回引くのに消費するGP。未設定なら旧 cost_lv の値をGPコストとして扱う。
 /// entry.type:
 ///   "coupon" … id: atk / drink / coffee / five / seven
 ///   "item"   … id: master/items の item_id（選択中キャラのインベントリに追加）
@@ -72,9 +73,9 @@ public static class GachaService
 
     /// <summary>
     /// ガチャを1回引く。
-    /// free=false のときはプール定義の cost_lv 分だけ選択中キャラのレベルを消費する
-    /// （引いたあとのレベルが1未満になる場合は引けない）。
-    /// レベル消費と景品付与は users/{uid} への1回の UpdateAsync にまとめる。
+    /// free=false のときはプール定義の cost_gp 分だけ所持GPを消費する
+    /// （所持GPが足りない場合は引けない）。
+    /// GP消費と景品付与は users/{uid} への1回の UpdateAsync にまとめる。
     /// </summary>
     public static async UniTask<GachaResult> DrawAsync(string poolId, bool free)
     {
@@ -86,18 +87,12 @@ public static class GachaService
         if (manager == null || string.IsNullOrEmpty(manager.UID))
             return GachaResult.Fail("ユーザーデータが読み込まれていません");
 
-        int charIdx = manager.CurrentSelectCharacterNumber;
-        var characters = manager.UserData.Characters;
-        if (characters == null || charIdx >= characters.Count)
-            return GachaResult.Fail("キャラクターが見つかりません");
-        var chara = characters[charIdx];
+        int cost = free ? 0 : Mathf.Max(0, pool.Cost);
+        if (cost > 0 && manager.UserData.GP < cost)
+            return GachaResult.Fail($"GPが足りません（{cost}GP必要です）");
 
-        int cost = free ? 0 : Mathf.Max(0, pool.CostLv);
-        if (cost > 0 && chara.Level - cost < 1)
-            return GachaResult.Fail($"レベルが足りません（Lv{cost + 1}以上で引けます）");
-
-        // 既に持っている装備は候補から外す
-        var candidates = pool.Entries.Where(e => IsGrantable(e, chara)).ToList();
+        // 既にアカウントが持っている装備は候補から外す
+        var candidates = pool.Entries.Where(e => IsGrantable(e, manager.UserData)).ToList();
         if (candidates.Count == 0)
             return GachaResult.Fail("引ける景品がありません");
 
@@ -110,9 +105,9 @@ public static class GachaService
         {
             { new FieldPath("lastDate"), Timestamp.GetCurrentTimestamp() },
         };
-        int oldLevel = chara.Level;
+        int oldGp = manager.UserData.GP;
         if (cost > 0)
-            updates[new FieldPath("characters", charIdx.ToString(), "lv")] = oldLevel - cost;
+            updates[new FieldPath("gp")] = FieldValue.Increment(-cost);
 
         System.Action applyLocal;
         string displayName, subText;
@@ -132,7 +127,8 @@ public static class GachaService
             {
                 var entry = ItemSyncManager.instance.FindById(picked.Id);
                 var newRef = new InventoryRef { Job = entry.job, ItemId = entry.itemId };
-                var inventoryData = chara.Inventory
+                // 所持品はアカウント単位（users/{uid}.inventory）。全キャラ共有。
+                var inventoryData = manager.UserData.Inventory
                     .Concat(new[] { newRef })
                     .Select(r => (object)new Dictionary<string, object>
                     {
@@ -140,8 +136,8 @@ public static class GachaService
                         { "item_id", r.ItemId },
                     })
                     .ToList();
-                updates[new FieldPath("characters", charIdx.ToString(), "inventory")] = inventoryData;
-                applyLocal = () => chara.Inventory.Add(newRef);
+                updates[new FieldPath("inventory")] = inventoryData;
+                applyLocal = () => manager.UserData.Inventory.Add(newRef);
                 displayName = entry.name;
                 subText = "装備メニューから確認できます";
                 break;
@@ -163,11 +159,11 @@ public static class GachaService
         }
 
         // ローカルにも反映（再取得しない）
-        if (cost > 0) chara.Level = oldLevel - cost;
+        if (cost > 0) manager.UserData.GP = oldGp - cost;
         applyLocal();
 
         if (cost > 0)
-            subText += $"\nレベルを{cost}消費（Lv{oldLevel} → Lv{chara.Level}）";
+            subText += $"\nGPを{cost}消費（{oldGp} → {manager.UserData.GP}）";
 
         Debug.Log($"[Gacha] {poolId}: {picked.Type}/{picked.Id} を入手（cost={cost}）");
 
@@ -186,8 +182,8 @@ public static class GachaService
         };
     }
 
-    /// <summary>このエントリが現在の状態で付与可能か（所持済み・定義不明は除外）</summary>
-    private static bool IsGrantable(GachaEntry e, Character chara)
+    /// <summary>このエントリが現在の状態で付与可能か（アカウント所持済み・定義不明は除外）</summary>
+    private static bool IsGrantable(GachaEntry e, UserData user)
     {
         if (e == null || e.Weight <= 0 || string.IsNullOrEmpty(e.Id)) return false;
         switch (e.Type)
@@ -196,7 +192,7 @@ public static class GachaService
                 return CouponInfo(e.Id).field != null;
             case "item":
                 return ItemSyncManager.instance?.FindById(e.Id) != null
-                    && !chara.Inventory.Any(r => r.ItemId == e.Id);
+                    && !user.Inventory.Any(r => r.ItemId == e.Id);
             default:
                 return false;
         }
@@ -262,9 +258,16 @@ public class GachaPool
     [FirestoreProperty("name")]
     public string Name { get; set; }
 
-    /// <summary>1回引くのに消費するレベル数（0なら無料）</summary>
+    /// <summary>1回引くのに消費するGP（0なら無料）</summary>
+    [FirestoreProperty("cost_gp")]
+    public int CostGp { get; set; }
+
+    /// <summary>旧: 1回引くのに消費するレベル数。cost_gp 未設定時のGPコストとして流用する。</summary>
     [FirestoreProperty("cost_lv")]
     public int CostLv { get; set; }
+
+    /// <summary>実際に消費するGP。cost_gp があればそれ、無ければ旧 cost_lv の値を使う。</summary>
+    public int Cost => CostGp > 0 ? CostGp : CostLv;
 
     [FirestoreProperty("entries")]
     public List<GachaEntry> Entries { get; set; }

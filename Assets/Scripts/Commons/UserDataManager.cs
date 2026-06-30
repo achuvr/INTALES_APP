@@ -129,6 +129,22 @@ public class UserData
     [FirestoreProperty("name")]
     public string Username { get; set; }
 
+    /// <summary>ユーザー名を最後に変更した日時（未設定=未変更。変更は1か月に1回まで）。</summary>
+    [FirestoreProperty("name_changed_at")]
+    public Timestamp NameChangedAt { get; set; }
+
+    /// <summary>来店ボーナス（毎回）を最後に付与した日付（"yyyy-MM-dd"。1日1回判定用）。</summary>
+    [FirestoreProperty("visit_bonus_date")]
+    public string VisitBonusDate { get; set; }
+
+    /// <summary>1か月以内の再来ボーナスを最後に付与した日付（"yyyy-MM-dd"。1日1回判定用）。</summary>
+    [FirestoreProperty("revisit_bonus_date")]
+    public string RevisitBonusDate { get; set; }
+
+    /// <summary>5時間以上の滞在ボーナスを最後に付与した日付（"yyyy-MM-dd"。1日1回判定用）。</summary>
+    [FirestoreProperty("stay_bonus_date")]
+    public string StayBonusDate { get; set; }
+
     [FirestoreProperty("five_coupon")]
     public int FiveCoupon { get; set; }
 
@@ -177,6 +193,18 @@ public class UserData
     }
     private Dictionary<string, FriendEntry> _friends;
 
+    /// <summary>
+    /// アカウント（全キャラ共有）の所持品。Firestore の users/{uid}.inventory 配列に対応。
+    /// 所持品はキャラ単位ではなくアカウント単位で管理し、全キャラがアクセスできる。
+    /// </summary>
+    [FirestoreProperty("inventory")]
+    public List<InventoryRef> Inventory
+    {
+        get => _inventory ?? (_inventory = new List<InventoryRef>());
+        set => _inventory = value;
+    }
+    private List<InventoryRef> _inventory;
+
     /// <summary>スロット番号順に並べたキャラクター一覧（ローカル用）</summary>
     public List<Character> Characters { get; set; }
 
@@ -187,6 +215,31 @@ public class UserData
             .OrderBy(kv => int.TryParse(kv.Key, out var n) ? n : int.MaxValue)
             .Select(kv => kv.Value)
             .ToList();
+
+        MergeLegacyCharacterInventories();
+    }
+
+    /// <summary>
+    /// 旧構造（characters[*].inventory）の所持品をアカウント所持品(Inventory)へ統合する（item_idで重複除外）。
+    /// 所持品をキャラ単位からアカウント単位へ移したことによる後方互換。メモリ上のみで、
+    /// 永続化は次回の所持品書き込み（ガチャ/入手）時に users/{uid}.inventory へ反映される。
+    /// </summary>
+    private void MergeLegacyCharacterInventories()
+    {
+        var seen = new HashSet<string>();
+        foreach (var r in Inventory)
+            if (r != null && !string.IsNullOrEmpty(r.ItemId)) seen.Add(r.ItemId);
+
+        if (Characters == null) return;
+        foreach (var c in Characters)
+        {
+            if (c?.Inventory == null) continue;
+            foreach (var r in c.Inventory)
+            {
+                if (r == null || string.IsNullOrEmpty(r.ItemId)) continue;
+                if (seen.Add(r.ItemId)) Inventory.Add(r);
+            }
+        }
     }
 }
 
@@ -251,9 +304,8 @@ public class Character
     private Equipment _equipment;
 
     /// <summary>
-    /// このキャラクターが所持しているアイテムの参照一覧。
-    /// Firestore の "inventory" 配列に対応。
-    /// 各エントリは job + item_id だけを持ち、実データは ItemRepository で取得する。
+    /// 【旧構造・互換用】キャラ単位の所持品。所持品はアカウント単位（UserData.Inventory）へ移行済み。
+    /// 既存データの読み込み・アカウント所持品への統合（移行）のためだけに残している。新規書き込みはしない。
     /// </summary>
     [FirestoreProperty("inventory")]
     public System.Collections.Generic.List<InventoryRef> Inventory

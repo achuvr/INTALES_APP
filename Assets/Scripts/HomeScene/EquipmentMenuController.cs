@@ -83,9 +83,15 @@ public class EquipmentMenuController : MonoBehaviour
             var chara = characters[charIdx];
             if (chara == null) return;
 
-            chara.Equipment.SetItemId(item.SlotType, item.ItemId);
-            LocalEquipSave.Save(charIdx, item.SlotType, item.ItemId);
-            Debug.Log($"[Equip] {item.SlotType} = {item.ItemId} ({item.Name ?? "?"})");
+            // 装備中のアイテムを再度押したら脱ぐ（トグル）。違うアイテムなら付け替え。
+            bool alreadyEquipped = chara.Equipment.GetItemId(item.SlotType) == item.ItemId;
+            string newItemId = alreadyEquipped ? "" : item.ItemId;
+
+            chara.Equipment.SetItemId(item.SlotType, newItemId);
+            LocalEquipSave.Save(charIdx, item.SlotType, newItemId);
+            Debug.Log(alreadyEquipped
+                ? $"[Equip] {item.SlotType} を外した ({item.Name ?? "?"})"
+                : $"[Equip] {item.SlotType} = {item.ItemId} ({item.Name ?? "?"})");
 
             CheckSetEffect(charIdx);
             RecalcStats(chara, charIdx).Forget();
@@ -111,12 +117,13 @@ public class EquipmentMenuController : MonoBehaviour
     {
         if (ItemRepository.instance == null) return;
 
+        var inventory = UserDataManager.instance?.UserData?.Inventory;
         var refs = new List<InventoryRef>();
         foreach (EquipmentSlot slot in System.Enum.GetValues(typeof(EquipmentSlot)))
         {
             string itemId = LocalEquipSave.Load(charIdx, slot);
             if (string.IsNullOrEmpty(itemId)) continue;
-            var inv = chara.Inventory.FirstOrDefault(x => x.ItemId == itemId);
+            var inv = inventory?.FirstOrDefault(x => x.ItemId == itemId);
             if (inv != null) refs.Add(inv);
         }
 
@@ -360,9 +367,18 @@ public class EquipmentMenuController : MonoBehaviour
         var chara = UserDataManager.instance?.UserData?.Characters?
             .ElementAtOrDefault(UserDataManager.instance.CurrentSelectCharacterNumber);
 
+        // 所持品はアカウント単位（全キャラ共有）だが、装備できるのは選択中キャラの
+        // 職業（＋共通 "common"）に合うアイテムだけ。職業＋スロットで絞って表示する。
+        var inventory = UserDataManager.instance?.UserData?.Inventory;
         List<ItemData> items;
-        if (chara != null && chara.Inventory.Count > 0 && ItemRepository.instance != null)
-            items = await ItemRepository.instance.GetInventoryBySlotAsync(chara.Inventory, slot);
+        if (inventory != null && inventory.Count > 0 && ItemRepository.instance != null && chara != null)
+        {
+            string job = chara.Job ?? "";
+            var jobRefs = inventory
+                .Where(r => r != null && (r.Job == job || r.Job == "common"))
+                .ToList();
+            items = await ItemRepository.instance.GetInventoryBySlotAsync(jobRefs, slot);
+        }
         else
             items = new List<ItemData>();
 
@@ -507,10 +523,13 @@ public class EquipmentMenuController : MonoBehaviour
             descLE.preferredHeight = 60f; descLE.flexibleHeight = 1f;
             var dtxt = descGO.AddComponent<TextMeshProUGUI>();
             dtxt.text = item.Description;
-            dtxt.fontSize = 40f;
+            // 枠からはみ出しそうなら自動でフォントを縮小（最大40→最小22）。それでも入らなければ省略表示。
+            dtxt.enableAutoSizing = true;
+            dtxt.fontSizeMax = 40f;
+            dtxt.fontSizeMin = 22f;
             dtxt.alignment = TextAlignmentOptions.TopLeft;
             dtxt.color = new Color(0.40f, 0.22f, 0.06f, 1f);
-            dtxt.overflowMode = TextOverflowModes.Overflow;
+            dtxt.overflowMode = TextOverflowModes.Ellipsis;
             dtxt.enableWordWrapping = true;
             dtxt.raycastTarget = false;
             if (jp != null) dtxt.font = jp;

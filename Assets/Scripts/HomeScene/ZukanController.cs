@@ -54,18 +54,55 @@ public class ZukanController : MonoBehaviour
         ("共通",     "common",   null),
     };
 
+    // グリッドのレイアウト定数（仮想化スクロールで手動配置するために使う）
+    private const int   COLS     = 3;
+    private const float CELL_W   = 316f;
+    private const float CELL_H   = 392f;
+    private const float SPACING  = 16f;
+    private const float PAD_T    = 8f;
+    private const float PAD_B    = 8f;
+    private const float ROW_H    = CELL_H + SPACING;   // 1行ぶんの送り
+    private const float COL_STEP = CELL_W + SPACING;   // 1列ぶんの送り
+    private const int   BUFFER_ROWS = 1;               // 画面外に余分に出しておく行数
+    private const int   ICONS_PER_FRAME = 3;           // 1フレームに読むアイコン枚数
+
     private Canvas _canvas;
     private GameObject _overlay;
     private RectTransform _gridContent;
+    private ScrollRect _scrollRect;
+    private RectTransform _viewport;
     private GameObject _detailModal;
+    private GameObject _emptyLabel;
     private string _currentSlot = "";
     private string _currentJob = "";
     private readonly List<(Button btn, Image bg, string slot)> _tabButtons = new List<(Button, Image, string)>();
     private readonly List<(Button btn, Image bg, string job)> _jobButtons = new List<(Button, Image, string)>();
 
-    // アイコン遅延ロード用（カードのアイコンImageと item_id、世代カウンタ）
-    private readonly List<(Image img, string itemId)> _pendingIcons = new List<(Image, string)>();
+    /// <summary>現在のフィルタ結果（仮想化スクロールが参照する全件リスト）。</summary>
+    private readonly List<CachedItem> _items = new List<CachedItem>();
+
+    /// <summary>使い回すカードのプール（表示中＝_active、空き＝_free）。</summary>
+    private readonly Dictionary<int, CardView> _active = new Dictionary<int, CardView>();
+    private readonly Stack<CardView> _free = new Stack<CardView>();
+
+    // フィルタ切替・クローズで進行中のアイコンロードを無効化する世代カウンタ
     private int _gridGeneration;
+    private bool _iconLoaderRunning;
+
+    /// <summary>使い回す1枚のカード（GameObjectと差し替える子要素の参照を保持）。</summary>
+    private class CardView
+    {
+        public GameObject go;
+        public RectTransform rt;
+        public Image bg;
+        public Image icon;
+        public TextMeshProUGUI tag;
+        public TextMeshProUGUI name;
+        public Button button;
+        public CachedItem item;   // 現在表示中のアイテム
+        public int index = -1;    // 現在表示中の _items インデックス（-1=未使用）
+        public bool iconApplied;  // 実アイコンを差し込み済みか
+    }
 
     private void Start()
     {
@@ -243,34 +280,29 @@ public class ZukanController : MonoBehaviour
         var svrt = svGO.AddComponent<RectTransform>();
         svrt.anchorMin = new Vector2(0f, 0f); svrt.anchorMax = new Vector2(1f, 1f);
         svrt.offsetMin = new Vector2(28f, 28f); svrt.offsetMax = new Vector2(-28f, -452f);
-        var scroll = svGO.AddComponent<ScrollRect>();
-        scroll.horizontal = false; scroll.vertical = true; scroll.scrollSensitivity = 40f;
-        scroll.movementType = ScrollRect.MovementType.Clamped;
+        _scrollRect = svGO.AddComponent<ScrollRect>();
+        _scrollRect.horizontal = false; _scrollRect.vertical = true; _scrollRect.scrollSensitivity = 40f;
+        _scrollRect.movementType = ScrollRect.MovementType.Clamped;
 
         var vpGO = new GameObject("__VP");
         vpGO.transform.SetParent(svGO.transform, false);
-        var vprt = vpGO.AddComponent<RectTransform>();
-        vprt.anchorMin = Vector2.zero; vprt.anchorMax = Vector2.one;
-        vprt.offsetMin = vprt.offsetMax = Vector2.zero;
+        _viewport = vpGO.AddComponent<RectTransform>();
+        _viewport.anchorMin = Vector2.zero; _viewport.anchorMax = Vector2.one;
+        _viewport.offsetMin = _viewport.offsetMax = Vector2.zero;
         vpGO.AddComponent<RectMask2D>();
-        scroll.viewport = vprt;
+        _scrollRect.viewport = _viewport;
 
+        // コンテンツ（高さはアイテム数から手動計算。LayoutGroup/ContentSizeFitterは使わない）
         var ctGO = new GameObject("__Content");
         ctGO.transform.SetParent(vpGO.transform, false);
         _gridContent = ctGO.AddComponent<RectTransform>();
         _gridContent.anchorMin = new Vector2(0f, 1f); _gridContent.anchorMax = new Vector2(1f, 1f);
         _gridContent.pivot = new Vector2(0.5f, 1f);
         _gridContent.offsetMin = _gridContent.offsetMax = Vector2.zero;
+        _scrollRect.content = _gridContent;
 
-        var grid = ctGO.AddComponent<GridLayoutGroup>();
-        grid.cellSize = new Vector2(316, 392);
-        grid.spacing = new Vector2(16, 16);
-        grid.padding = new RectOffset(8, 8, 8, 8);
-        grid.constraint = GridLayoutGroup.Constraint.FixedColumnCount;
-        grid.constraintCount = 3;
-        grid.childAlignment = TextAnchor.UpperCenter;
-        ctGO.AddComponent<ContentSizeFitter>().verticalFit = ContentSizeFitter.FitMode.PreferredSize;
-        scroll.content = _gridContent;
+        // スクロールするたびに可視範囲だけカードを貼り替える（仮想化）
+        _scrollRect.onValueChanged.AddListener(_ => UpdateVisibleCards());
     }
 
     // ================================================================
@@ -295,125 +327,238 @@ public class ZukanController : MonoBehaviour
     private void RebuildGrid()
     {
         if (_gridContent == null) return;
-        _gridGeneration++;     // 進行中のアイコン遅延ロードを無効化
-        _pendingIcons.Clear();
-        for (int i = _gridContent.childCount - 1; i >= 0; i--)
-            Destroy(_gridContent.GetChild(i).gameObject);
+        _gridGeneration++; // 進行中のアイコン遅延ロードを無効化
 
-        var jp = GetJpFont();
-        var items = GetItems()
+        // 表示中のカードを全部プールへ戻す（破棄せず使い回す）
+        foreach (var kv in _active)
+            Recycle(kv.Value);
+        _active.Clear();
+
+        // フィルタ＆ソート（1回だけ。結果は _items に保持して仮想化スクロールが参照する）
+        _items.Clear();
+        _items.AddRange(GetItems()
             .Where(it => _currentSlot == "" || it.slot_type == _currentSlot)
             .Where(it => _currentJob == "" || it.job == _currentJob)
             .OrderBy(it => SlotOrder(it.slot_type))
             .ThenBy(it => JobOrder(it.job))
-            .ThenBy(it => it.name)
-            .ToList();
+            .ThenBy(it => it.name));
 
-        if (items.Count == 0)
+        // コンテンツ高さをアイテム数から手動算出（LayoutGroupは使わない）。
+        // 水平ストレッチ＋上端固定なので sizeDelta.y=高さ / anchoredPosition=(0,0)で上端へ。
+        int rows = (_items.Count + COLS - 1) / COLS;
+        float contentH = rows > 0 ? PAD_T + rows * CELL_H + (rows - 1) * SPACING + PAD_B : 0f;
+        _gridContent.sizeDelta = new Vector2(0f, contentH);
+        _gridContent.anchoredPosition = Vector2.zero; // 先頭へ戻す
+
+        // 空表示
+        SetEmptyVisible(_items.Count == 0);
+
+        // レイアウトを確定させてからビューポート高さを読む（初回フレームでも正しく出す）
+        Canvas.ForceUpdateCanvases();
+        UpdateVisibleCards();
+    }
+
+    private void SetEmptyVisible(bool show)
+    {
+        if (show && _emptyLabel == null)
         {
-            var em = new GameObject("__Empty");
-            em.transform.SetParent(_gridContent, false);
-            em.AddComponent<RectTransform>();
-            // グリッドの1セルとして中央に出す
-            var le = em.AddComponent<LayoutElement>();
-            le.ignoreLayout = false;
-            var tmp = em.AddComponent<TextMeshProUGUI>();
+            var jp = GetJpFont();
+            _emptyLabel = new GameObject("__Empty");
+            _emptyLabel.transform.SetParent(_viewport, false);
+            var rt = _emptyLabel.AddComponent<RectTransform>();
+            rt.anchorMin = Vector2.zero; rt.anchorMax = Vector2.one;
+            rt.offsetMin = rt.offsetMax = Vector2.zero;
+            var tmp = _emptyLabel.AddComponent<TextMeshProUGUI>();
             if (jp != null) tmp.font = jp;
             tmp.text = "図鑑データがありません\n（通信後にもう一度開いてください）";
             tmp.fontSize = 34; tmp.color = C_MUTED;
             tmp.alignment = TextAlignmentOptions.Center;
-            return;
+            tmp.raycastTarget = false;
         }
-
-        foreach (var item in items)
-            MakeCard(item, jp);
-
-        // アイコンを一度に読むと実機で重く落ちるため、数枚ずつ遅延読み込みする
-        LoadIconsAsync(_gridGeneration).Forget();
+        if (_emptyLabel != null) _emptyLabel.SetActive(show);
     }
 
-    /// <summary>カードのアイコンを数枚ずつ遅延読み込みする（フリーズと一括メモリ確保を避ける）。</summary>
-    private async UniTaskVoid LoadIconsAsync(int generation)
-    {
-        const int PER_FRAME = 3;
-        var cache = ItemCacheManager.instance;
-        if (cache == null) return;
+    // ================================================================
+    // 仮想化スクロール（可視範囲のカードだけ生成・配置する）
+    // ================================================================
 
-        var pending = _pendingIcons.ToList();
-        for (int i = 0; i < pending.Count; i++)
+    /// <summary>現在のスクロール位置から見える範囲を求め、その範囲のカードだけを表示する。</summary>
+    private void UpdateVisibleCards()
+    {
+        if (_gridContent == null || _items.Count == 0) return;
+
+        float viewH = _viewport.rect.height;
+        if (viewH < 1f) viewH = 1280f; // レイアウト未確定時のフォールバック
+        float scrollY = Mathf.Max(0f, _gridContent.anchoredPosition.y); // スクロール量（下方向＝正）
+
+        int firstRow = Mathf.Max(0, Mathf.FloorToInt((scrollY - PAD_T) / ROW_H) - BUFFER_ROWS);
+        int lastRow = Mathf.FloorToInt((scrollY + viewH - PAD_T) / ROW_H) + BUFFER_ROWS;
+        int firstIndex = firstRow * COLS;
+        int lastIndex = Mathf.Min(_items.Count - 1, (lastRow + 1) * COLS - 1);
+
+        // 範囲外になったカードをプールへ返す
+        _recycleScratch.Clear();
+        foreach (var kv in _active)
+            if (kv.Key < firstIndex || kv.Key > lastIndex)
+                _recycleScratch.Add(kv.Key);
+        foreach (int idx in _recycleScratch)
         {
-            if (generation != _gridGeneration) return; // 別フィルタに切り替わった/閉じた
-            var (img, id) = pending[i];
-            if (img == null) continue;                  // カードが破棄済み
-
-            var sprite = cache.GetIconSprite(id);
-            if (generation != _gridGeneration) return;
-            if (img != null && sprite != null)
-            {
-                img.sprite = sprite;
-                img.color = Color.white;
-            }
-
-            if (i % PER_FRAME == PER_FRAME - 1)
-                await UniTask.Yield();
+            Recycle(_active[idx]);
+            _active.Remove(idx);
         }
+
+        // 範囲内の未表示インデックスへカードを割り当てる
+        for (int i = firstIndex; i <= lastIndex; i++)
+            if (!_active.ContainsKey(i))
+                _active[i] = BindCard(i);
+
+        // 可視カードのアイコンを数枚ずつ遅延ロード
+        LoadIconsLoop(_gridGeneration).Forget();
     }
 
-    /// <summary>装備1件のカード（アイコン＋名前）。タップで詳細表示</summary>
-    private void MakeCard(CachedItem item, TMP_FontAsset jp)
+    private readonly List<int> _recycleScratch = new List<int>();
+
+    /// <summary>カードをプールへ返す（GameObjectは破棄せず非表示にする）。</summary>
+    private void Recycle(CardView card)
     {
-        var card = new GameObject("__Card_" + item.item_id);
-        card.transform.SetParent(_gridContent, false);
-        card.AddComponent<RectTransform>();
-        var bg = card.AddComponent<Image>();
-        RoundedRectSprite.Apply(bg);
-        bg.color = C_CARD;
-        var btn = card.AddComponent<Button>();
-        btn.targetGraphic = bg;
-        var captured = item;
-        btn.onClick.AddListener(() => ShowDetail(captured));
+        if (card == null) return;
+        card.index = -1;
+        card.item = null;
+        card.go.SetActive(false);
+        _free.Push(card);
+    }
+
+    /// <summary>指定インデックスのアイテムをカードに割り当てて配置する（プールから取り出すか新規生成）。</summary>
+    private CardView BindCard(int index)
+    {
+        var card = _free.Count > 0 ? _free.Pop() : CreateCard();
+        var item = _items[index];
+        card.index = index;
+        card.item = item;
+        card.iconApplied = false;
+
+        int col = index % COLS;
+        int row = index / COLS;
+        card.rt.anchoredPosition = new Vector2(
+            (col - (COLS - 1) / 2f) * COL_STEP,
+            -(PAD_T + CELL_H / 2f + row * ROW_H));
+
+        card.go.name = "__Card_" + item.item_id;
+        card.tag.text = SlotJp(item.slot_type);
+        card.name.text = !string.IsNullOrEmpty(item.name) ? item.name : item.item_id;
+
+        // アイコンはプレースホルダ（角丸タン色）に戻す（実アイコンは LoadIconsLoop で差し込む）
+        card.icon.sprite = RoundedRectSprite.Get();
+        card.icon.type = Image.Type.Sliced;
+        card.icon.color = new Color(0.80f, 0.72f, 0.52f);
+
+        card.go.SetActive(true);
+        return card;
+    }
+
+    /// <summary>使い回すカードの実体を1枚生成する（中身は BindCard で差し替える）。</summary>
+    private CardView CreateCard()
+    {
+        var jp = GetJpFont();
+        var card = new CardView();
+
+        var go = new GameObject("__Card");
+        go.transform.SetParent(_gridContent, false);
+        card.go = go;
+        card.rt = go.AddComponent<RectTransform>();
+        card.rt.anchorMin = card.rt.anchorMax = new Vector2(0.5f, 1f); // コンテンツ上端中央基準
+        card.rt.pivot = new Vector2(0.5f, 0.5f);
+        card.rt.sizeDelta = new Vector2(CELL_W, CELL_H);
+        card.bg = go.AddComponent<Image>();
+        RoundedRectSprite.Apply(card.bg);
+        card.bg.color = C_CARD;
+        card.button = go.AddComponent<Button>();
+        card.button.targetGraphic = card.bg;
+        // リスナーは1回だけ登録し、タップ時に現在の item を読む（再バインドで付け替えない）
+        card.button.onClick.AddListener(() => { if (card.item != null) ShowDetail(card.item); });
 
         // アイコン（上部・正方形）
         var iconGO = new GameObject("__Icon");
-        iconGO.transform.SetParent(card.transform, false);
+        iconGO.transform.SetParent(go.transform, false);
         var irt = iconGO.AddComponent<RectTransform>();
         irt.anchorMin = new Vector2(0.5f, 1f); irt.anchorMax = new Vector2(0.5f, 1f);
         irt.pivot = new Vector2(0.5f, 1f);
         irt.sizeDelta = new Vector2(250, 250);
         irt.anchoredPosition = new Vector2(0, -20);
-        var iimg = iconGO.AddComponent<Image>();
-        iimg.preserveAspect = true; iimg.raycastTarget = false;
-        // プレースホルダを置き、実アイコンは LoadIconsAsync で後から差し込む（フリーズ防止）
-        iimg.color = new Color(0.80f, 0.72f, 0.52f);
-        RoundedRectSprite.Apply(iimg);
-        if (ItemCacheManager.instance != null && ItemCacheManager.instance.HasIcon(item.item_id))
-            _pendingIcons.Add((iimg, item.item_id));
+        card.icon = iconGO.AddComponent<Image>();
+        card.icon.preserveAspect = true; card.icon.raycastTarget = false;
 
         // スロット種別の小タグ（右上）
-        var tag = MakeRect("__Tag", card.transform, C_TAB_ON, 96, 44);
+        var tag = MakeRect("__Tag", go.transform, C_TAB_ON, 96, 44);
         var tagrt = tag.GetComponent<RectTransform>();
         tagrt.anchorMin = tagrt.anchorMax = new Vector2(1f, 1f);
         tagrt.pivot = new Vector2(1f, 1f);
         tagrt.anchoredPosition = new Vector2(-8, -8);
         RoundedRectSprite.Apply(tag.GetComponent<Image>());
-        MakeLabel(tag.transform, SlotJp(item.slot_type), jp, 24, FontStyles.Bold, Color.white, 0, 0, stretch: true);
+        card.tag = MakeLabel(tag.transform, "", jp, 24, FontStyles.Bold, Color.white, 0, 0, stretch: true)
+            .GetComponent<TextMeshProUGUI>();
 
         // 名前（下部）
         var nameGO = new GameObject("__Name");
-        nameGO.transform.SetParent(card.transform, false);
+        nameGO.transform.SetParent(go.transform, false);
         var nrt = nameGO.AddComponent<RectTransform>();
         nrt.anchorMin = new Vector2(0f, 0f); nrt.anchorMax = new Vector2(1f, 0f);
         nrt.pivot = new Vector2(0.5f, 0f);
         nrt.offsetMin = new Vector2(10f, 12f); nrt.offsetMax = new Vector2(-10f, 120f);
-        var ntmp = nameGO.AddComponent<TextMeshProUGUI>();
-        if (jp != null) ntmp.font = jp;
-        ntmp.text = !string.IsNullOrEmpty(item.name) ? item.name : item.item_id;
-        ntmp.fontSize = 30; ntmp.fontStyle = FontStyles.Bold; ntmp.color = C_TITLE;
-        ntmp.alignment = TextAlignmentOptions.Top;
-        ntmp.enableWordWrapping = true;
-        ntmp.overflowMode = TextOverflowModes.Ellipsis;
-        ntmp.raycastTarget = false;
-        ntmp.enableAutoSizing = true; ntmp.fontSizeMax = 30; ntmp.fontSizeMin = 20;
+        card.name = nameGO.AddComponent<TextMeshProUGUI>();
+        if (jp != null) card.name.font = jp;
+        card.name.fontSize = 30; card.name.fontStyle = FontStyles.Bold; card.name.color = C_TITLE;
+        card.name.alignment = TextAlignmentOptions.Top;
+        card.name.enableWordWrapping = true;
+        card.name.overflowMode = TextOverflowModes.Ellipsis;
+        card.name.raycastTarget = false;
+        card.name.enableAutoSizing = true; card.name.fontSizeMax = 30; card.name.fontSizeMin = 20;
+
+        return card;
+    }
+
+    /// <summary>可視カードのアイコンを数枚ずつ遅延ロードする（フリーズと一括メモリ確保を避ける）。
+    /// 多重起動を防ぎ、走っている間にスクロールで増えた可視カードも拾う。</summary>
+    private async UniTaskVoid LoadIconsLoop(int generation)
+    {
+        if (_iconLoaderRunning) return;
+        _iconLoaderRunning = true;
+        var cache = ItemCacheManager.instance;
+        try
+        {
+            int processed = 0;
+            bool again = true;
+            while (again)
+            {
+                if (generation != _gridGeneration) return; // フィルタ切替/クローズ
+                again = false;
+                foreach (var kv in _active)
+                {
+                    var card = kv.Value;
+                    if (card.iconApplied || card.item == null) continue;
+                    string id = card.item.item_id;
+                    if (cache == null || !cache.HasIcon(id)) { card.iconApplied = true; continue; }
+
+                    var sprite = cache.GetIconSprite(id);
+                    if (generation != _gridGeneration) return;
+                    // ロード中にカードが別アイテムへ貼り替わっていないか確認
+                    if (card.item != null && card.item.item_id == id && sprite != null)
+                    {
+                        card.icon.sprite = sprite;
+                        card.icon.type = Image.Type.Simple; // preserveAspect を効かせる
+                        card.icon.color = Color.white;
+                    }
+                    card.iconApplied = true;
+                    again = true;
+                    if (++processed % ICONS_PER_FRAME == 0)
+                    {
+                        await UniTask.Yield();
+                        break; // _active を変更し得るので走査し直す
+                    }
+                }
+            }
+        }
+        finally { _iconLoaderRunning = false; }
     }
 
     // ================================================================

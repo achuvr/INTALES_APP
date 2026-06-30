@@ -54,6 +54,7 @@ public class IconUploaderManager : MonoBehaviour
     private TMP_InputField _gameNameInput;
     private TMP_InputField _filePathInput;   // 画像ファイルパス
     private TMP_InputField _descriptionInput; // 説明
+    private TMP_InputField _effectsInput;     // 装備効果（"Type:value" をカンマ/改行区切り）
     private RawImage       _previewImage;
 
     private TextMeshProUGUI _statusLabel;
@@ -232,7 +233,10 @@ public class IconUploaderManager : MonoBehaviour
                 { "storage_path", storagePath },
                 { "created_at", Timestamp.GetCurrentTimestamp() },
                 { "description", _descriptionInput?.text.Trim() ?? "" },
+                { "effects",    ParseEffects(_effectsInput?.text, out int badEffects) },
             };
+            if (badEffects > 0)
+                Debug.LogWarning($"[IconUploader] 解釈できなかった効果を{badEffects}件スキップしました");
 
             // master/items の items.{autoId} に保存（全アイテムを1ドキュメントに集約）
             string newId = db.Collection("master").Document().Id; // 自動ID生成
@@ -265,6 +269,40 @@ public class IconUploaderManager : MonoBehaviour
         {
             _uploading = false;
         }
+    }
+
+    /// <summary>
+    /// 効果入力テキストを Firestore 用の effects 配列へ変換する。
+    /// 書式: "Type:value" をカンマまたは改行で区切る（例: "CriticalRateUp:15, AtkUp:8"）。
+    /// Type は EffectType の名前と一致する必要があり、不正な行はスキップして badCount に数える。
+    /// </summary>
+    private static List<Dictionary<string, object>> ParseEffects(string raw, out int badCount)
+    {
+        badCount = 0;
+        var list = new List<Dictionary<string, object>>();
+        if (string.IsNullOrWhiteSpace(raw)) return list;
+
+        foreach (var token in raw.Split(',', '\n', '\r'))
+        {
+            string t = token.Trim();
+            if (t.Length == 0) continue;
+
+            var parts = t.Split(':');
+            if (parts.Length != 2
+                || !Enum.TryParse(parts[0].Trim(), out EffectType type)
+                || !int.TryParse(parts[1].Trim(), out int value))
+            {
+                badCount++;
+                continue;
+            }
+
+            list.Add(new Dictionary<string, object>
+            {
+                { "effect_type", type.ToString() }, // enum名で正規化して保存
+                { "value",       value },
+            });
+        }
+        return list;
     }
 
     private void CopyUrl()
@@ -324,6 +362,12 @@ public class IconUploaderManager : MonoBehaviour
         // ---- 説明 ----
         SectionLabel("説明", cGO.transform, y); y -= 52f;
         _descriptionInput = MakeInput(cGO.transform, "例: 防御力が上がる装備", y, ref y, true);
+
+        // ---- 効果 ----
+        SectionLabel("効果 (例: CriticalRateUp:15, AtkUp:8 ／ 空欄可)", cGO.transform, y); y -= 52f;
+        _effectsInput = MakeInput(cGO.transform,
+            "Type:value をカンマか改行で区切る。Type=AtkUp/DefUp/HpUp/SpeedUp/CriticalRateUp/CriticalDamageUp/BonusExp/GoldBonus/ProbUp 等",
+            y, ref y, true);
 
         // ---- 職業選択 ----
         SectionLabel("装備可能職業", cGO.transform, y); y -= 58f;

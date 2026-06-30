@@ -39,6 +39,21 @@ public static class LocalVisitLog
         return record;
     }
 
+    /// <summary>
+    /// 最後に記録された来店のチェックイン時刻を返す（記録が無ければ null）。
+    /// 1か月以内の再来ボーナス（前回来店からの経過）の判定に使う。新しい来店を記録する前に呼ぶこと。
+    /// </summary>
+    public static DateTime? GetLastCheckInTime()
+    {
+        var log = Load();
+        if (log.visits == null || log.visits.Count == 0) return null;
+        var last = log.visits[log.visits.Count - 1]; // Record() は時系列で追記するので末尾が直近
+        if (DateTime.TryParse(last.checkedInAt, null,
+                System.Globalization.DateTimeStyles.RoundtripKind, out var t))
+            return t;
+        return null;
+    }
+
     /// <summary>現在時刻でチェックアウトを記録（最新の未チェックアウト来店に滞在時間を計算して紐付ける）</summary>
     public static VisitRecord CheckOut() => CheckOut(DateTime.Now);
 

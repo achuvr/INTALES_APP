@@ -31,7 +31,7 @@ public class EquipInfoModal : MonoBehaviour
         { EffectType.CriticalRateUp, ("クリティカル率", "+{0}%") },
         { EffectType.GoldBonus,      ("獲得ゴールド",   "+{0}%") },
         { EffectType.SkillSlotUnlock,("スキルスロット", "Lv{0}") },
-        { EffectType.CriticalDamageUp,("クリティカルダメージ", "+{0}%") },
+        { EffectType.CriticalDamageUp,("クリティカルダメージ", "+{0}") },
         { EffectType.SpecialAbility, ("特殊能力",       "+{0}")  },
         { EffectType.ProbUp,         ("確率上昇",       "+{0}%") },
     };
@@ -119,10 +119,11 @@ public class EquipInfoModal : MonoBehaviour
 
         if (equippedItemIds.Count > 0 && ItemRepository.instance != null)
         {
+            var inventory = UserDataManager.instance?.UserData?.Inventory;
             var refs = new List<InventoryRef>();
             foreach (var itemId in equippedItemIds)
             {
-                var r = chara.Inventory.FirstOrDefault(x => x.ItemId == itemId);
+                var r = inventory?.FirstOrDefault(x => x.ItemId == itemId);
                 if (r != null) refs.Add(r);
                 else foreach (var job in JOB_KEYS)
                     refs.Add(new InventoryRef { Job = job, ItemId = itemId });
@@ -146,13 +147,14 @@ public class EquipInfoModal : MonoBehaviour
             }
         }
 
-        BuildModal(equippedIds, itemDataMap, statTotals);
+        BuildModal(chara, equippedIds, itemDataMap, statTotals);
     }
 
     // ================================================================
     // モーダル構築
     // ================================================================
     private void BuildModal(
+        Character chara,
         Dictionary<EquipmentSlot, string> equippedIds,
         Dictionary<string, ItemData> itemDataMap,
         Dictionary<EffectType, int> statTotals)
@@ -166,13 +168,39 @@ public class EquipInfoModal : MonoBehaviour
         const float STAT_GAP   = 6f;
         const float BOTTOM_PAD = 28f;
         const float DIV2_H     = 20f;
+        const float SUBHEAD_H  = 60f;   // 「キャラクター」「装備による上昇」の小見出し高さ
+        const float GROUP_GAP  = 14f;   // グループ間の余白
 
-        int   statCount = statTotals.Count;
+        // キャラ本体のパラメータ（レベル・職業ランク）
+        var charStats = new List<(string name, string val)>
+        {
+            ("レベル",     chara.Level.ToString()),
+            ("職業ランク", (chara.Level / 50 + 1).ToString()),
+        };
+
+        // 装備によって上昇するパラメータ（装備Effectsの合計。0件なら「なし」）
+        var equipStats = new List<(string name, string val)>();
+        var orderedStats = EFFECT_LABELS.Keys
+            .Where(k => statTotals.ContainsKey(k))
+            .Concat(statTotals.Keys.Except(EFFECT_LABELS.Keys))
+            .ToList();
+        foreach (var effectType in orderedStats)
+        {
+            if (!statTotals.TryGetValue(effectType, out int total)) continue;
+            EFFECT_LABELS.TryGetValue(effectType, out var lbl);
+            equipStats.Add((lbl.name ?? effectType.ToString(),
+                            string.Format(lbl.fmt ?? "+{0}", total)));
+        }
+
+        int charRows  = Mathf.CeilToInt(charStats.Count / 2f);
+        int equipRows = equipStats.Count > 0 ? Mathf.CeilToInt(equipStats.Count / 2f) : 1; // なし表示で1行
+
+        // グループ（小見出し＋行グリッド）の高さ
+        float GroupH(int rows) => SUBHEAD_H + rows * STAT_ROW_H + (rows - 1) * STAT_GAP;
+
         float equipArea = ROW_COUNT * ROW_H + (ROW_COUNT - 1) * ROW_GAP;
-
-        // ステータスが0件でも「なし」行1行分のスペースを確保
-        int   statRows  = statCount > 0 ? Mathf.CeilToInt(statCount / 2f) : 1;
-        float statArea  = DIV2_H + SEC2_TITLE + statRows * STAT_ROW_H + (statRows - 1) * STAT_GAP;
+        float statArea  = DIV2_H + SEC2_TITLE
+                        + GroupH(charRows) + GROUP_GAP + GroupH(equipRows);
         float panelH    = TITLE_AREA + equipArea + statArea + BOTTOM_PAD;
 
         // ---- オーバーレイ ----
@@ -250,57 +278,83 @@ public class EquipInfoModal : MonoBehaviour
         stTxt.color = C_TITLE; stTxt.raycastTarget = false;
         AF(stTxt);
 
-        float statStartY = sectionTop + DIV2_H + SEC2_TITLE;
+        float y = sectionTop + DIV2_H + SEC2_TITLE;
 
-        if (statCount == 0)
-        {
-            // effectsが1件もない場合は「なし」表示
-            var noneGO = MakeGO("__NoStat", panel.transform);
-            var nRT = noneGO.AddComponent<RectTransform>();
-            nRT.anchorMin = new Vector2(0f,1f); nRT.anchorMax = new Vector2(1f,1f);
-            nRT.pivot = new Vector2(0.5f,1f);
-            nRT.anchoredPosition = new Vector2(0f, -statStartY);
-            nRT.sizeDelta = new Vector2(0f, STAT_ROW_H);
-            noneGO.AddComponent<Image>().color = C_ROW_ODD;
-            var nTxtGO = MakeGO("__NoStatTxt", noneGO.transform);
-            var nTxtRT = nTxtGO.AddComponent<RectTransform>();
-            nTxtRT.anchorMin = Vector2.zero; nTxtRT.anchorMax = Vector2.one;
-            nTxtRT.offsetMin = nTxtRT.offsetMax = Vector2.zero;
-            var nTxt = nTxtGO.AddComponent<TextMeshProUGUI>();
-            nTxt.text = "装備中アイテムにステータス効果はありません";
-            nTxt.fontSize = 36f;
-            nTxt.alignment = TextAlignmentOptions.Center;
-            nTxt.color = C_NONE; nTxt.raycastTarget = false;
-            AF(nTxt);
-        }
+        // グループ1: キャラクター（レベル・職業ランク）
+        MakeStatSubHeader(panel.transform, "キャラクター", y, SUBHEAD_H);
+        RenderStatGrid(panel.transform, charStats, y + SUBHEAD_H, STAT_ROW_H, STAT_GAP);
+        y += GroupH(charRows) + GROUP_GAP;
+
+        // グループ2: 装備による上昇（装備Effectsの合計。0件なら「なし」）
+        MakeStatSubHeader(panel.transform, "装備による上昇", y, SUBHEAD_H);
+        if (equipStats.Count > 0)
+            RenderStatGrid(panel.transform, equipStats, y + SUBHEAD_H, STAT_ROW_H, STAT_GAP);
         else
+            MakeNoneRow(panel.transform, "装備による上昇はありません", y + SUBHEAD_H, STAT_ROW_H);
+    }
+
+    // ================================================================
+    // ステータスのグループ小見出し
+    // ================================================================
+    private void MakeStatSubHeader(Transform panel, string text, float yTop, float h)
+    {
+        var go = MakeGO("__StatSub", panel);
+        var rt = go.AddComponent<RectTransform>();
+        rt.anchorMin = new Vector2(0f,1f); rt.anchorMax = new Vector2(1f,1f);
+        rt.pivot = new Vector2(0.5f,1f);
+        rt.anchoredPosition = new Vector2(0f, -yTop);
+        rt.sizeDelta = new Vector2(0f, h);
+        var txt = go.AddComponent<TextMeshProUGUI>();
+        txt.text = $"［{text}］"; txt.fontSize = 34f; txt.fontStyle = FontStyles.Bold;
+        txt.alignment = TextAlignmentOptions.Center;
+        txt.color = C_LABEL; txt.raycastTarget = false;
+        AF(txt);
+    }
+
+    // ================================================================
+    // ステータス行を2列グリッドで描画する
+    // ================================================================
+    private void RenderStatGrid(Transform panel,
+        List<(string name, string val)> rows, float startY, float rowH, float gap)
+    {
+        int   col   = 0;
+        float rowY  = startY;
+        float halfW = 420f;
+
+        foreach (var (statName, statValue) in rows)
         {
-            // ステータス行（2列グリッド）
-            int   col    = 0;
-            float rowY   = statStartY;
-            float halfW  = 420f;
+            float xOffset = col == 0 ? -halfW * 0.5f : halfW * 0.5f;
 
-            var orderedStats = EFFECT_LABELS.Keys
-                .Where(k => statTotals.ContainsKey(k))
-                .Concat(statTotals.Keys.Except(EFFECT_LABELS.Keys))
-                .ToList();
+            MakeStatRow(panel, statName, statValue,
+                xOffset, -rowY, halfW, rowH,
+                col % 2 == 0 ? C_ROW_ODD : C_ROW_EVEN);
 
-            foreach (var effectType in orderedStats)
-            {
-                if (!statTotals.TryGetValue(effectType, out int total)) continue;
-                EFFECT_LABELS.TryGetValue(effectType, out var lbl);
-                string effectName  = lbl.name ?? effectType.ToString();
-                string effectValue = string.Format(lbl.fmt ?? "+{0}", total);
-                float  xOffset     = col == 0 ? -halfW * 0.5f : halfW * 0.5f;
-
-                MakeStatRow(panel.transform, effectName, effectValue,
-                    xOffset, -rowY, halfW, STAT_ROW_H,
-                    col % 2 == 0 ? C_ROW_ODD : C_ROW_EVEN);
-
-                col++;
-                if (col >= 2) { col = 0; rowY += STAT_ROW_H + STAT_GAP; }
-            }
+            col++;
+            if (col >= 2) { col = 0; rowY += rowH + gap; }
         }
+    }
+
+    // ================================================================
+    // 「なし」表示の1行（全幅）
+    // ================================================================
+    private void MakeNoneRow(Transform panel, string text, float yTop, float h)
+    {
+        var go = MakeGO("__NoStat", panel);
+        var rt = go.AddComponent<RectTransform>();
+        rt.anchorMin = new Vector2(0.5f,1f); rt.anchorMax = new Vector2(0.5f,1f);
+        rt.pivot = new Vector2(0.5f,1f);
+        rt.anchoredPosition = new Vector2(0f, -yTop);
+        rt.sizeDelta = new Vector2(830f, h);
+        go.AddComponent<Image>().color = C_ROW_ODD;
+        var txtGO = MakeGO("__NoStatTxt", go.transform);
+        var txtRT = txtGO.AddComponent<RectTransform>();
+        txtRT.anchorMin = Vector2.zero; txtRT.anchorMax = Vector2.one;
+        txtRT.offsetMin = txtRT.offsetMax = Vector2.zero;
+        var txt = txtGO.AddComponent<TextMeshProUGUI>();
+        txt.text = text; txt.fontSize = 34f;
+        txt.alignment = TextAlignmentOptions.Center;
+        txt.color = C_NONE; txt.raycastTarget = false;
+        AF(txt);
     }
 
     // ================================================================

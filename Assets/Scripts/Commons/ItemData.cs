@@ -20,7 +20,7 @@ public enum EffectType
     GoldBonus,      // 獲得ゴールド + Value%
     SkillSlotUnlock,// スキルスロットを解放 (Valueでスロット番号)
 
-    CriticalDamageUp, // クリティカルダメージ + Value%
+    CriticalDamageUp, // クリティカル時の与ダメージ + Value（加算）
     SpecialAbility,   // 特殊能力付与 (Valueで種類番号)
     ProbUp,           // 確率上昇 (Valueで対象種類・確率%など)
 }
@@ -54,8 +54,9 @@ public class ItemEffect
     {
         get
         {
-            if (_cachedType == null && !string.IsNullOrEmpty(_effectTypeName))
-                System.Enum.TryParse(_effectTypeName, out EffectType t);
+            if (_cachedType == null && !string.IsNullOrEmpty(_effectTypeName)
+                && System.Enum.TryParse(_effectTypeName, out EffectType t))
+                _cachedType = t;
             return _cachedType ?? EffectType.AtkUp;
         }
         set
@@ -75,8 +76,8 @@ public class ItemEffect
 
 // ============================================================
 // アイテム1つのデータ
-// Firestoreの users/{uid}/items/{itemId} に保存する
-// または Character.Inventory のリストに埋め込む
+// マスター(master/items)由来。所持はアカウント単位の UserData.Inventory
+// （InventoryRef: job + item_id）で参照する。
 // ============================================================
 [FirestoreData, System.Serializable]
 public class ItemData

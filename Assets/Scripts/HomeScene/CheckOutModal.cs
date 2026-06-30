@@ -16,9 +16,19 @@ public static class CheckOutModal
     private static readonly Color C_TIME      = new Color(0.55f, 0.30f, 0.02f, 1.00f);
     private static readonly Color C_BTN       = new Color(0.48f, 0.26f, 0.06f, 1.00f);
 
+    private static readonly Color C_BONUS = new Color(0.74f, 0.16f, 0.22f, 1.00f);
+
     /// <summary>滞在時間（"○時間○分"）を表示する</summary>
-    public static void Show(string stayText)
+    public static void Show(string stayText) => Show(stayText, null, 0, 0);
+
+    /// <summary>
+    /// 滞在時間に加えて、5時間以上滞在によるレベルアップ結果も表示する。
+    /// levelUpName が null/空なら滞在時間のみのレイアウトで表示する。
+    /// </summary>
+    public static void Show(string stayText, string levelUpName, int oldLevel, int newLevel)
     {
+        bool bonus = !string.IsNullOrEmpty(levelUpName);
+
         var canvasGO = GameObject.Find("Canvas");
         var canvas = canvasGO != null ? canvasGO.GetComponent<Canvas>()
                                       : Object.FindFirstObjectByType<Canvas>();
@@ -39,26 +49,51 @@ public static class CheckOutModal
         drt.offsetMin = drt.offsetMax = Vector2.zero;
         dim.AddComponent<Image>().color = new Color(0f, 0f, 0f, 0.55f);
 
-        // パネル（金枠＋羊皮紙）
-        var border = MakeRect("__Border", dim.transform, C_BORDER, 792, 596);
-        var panel  = MakeRect("__Panel", border.transform, C_PARCHMENT, 776, 580);
+        // パネル（金枠＋羊皮紙）。ボーナス表示があるぶん縦に広げる
+        float panelH = bonus ? 800f : 580f;
+        var border = MakeRect("__Border", dim.transform, C_BORDER, 792, panelH + 16);
+        var panel  = MakeRect("__Panel", border.transform, C_PARCHMENT, 776, panelH);
 
-        MakeLabel(panel.transform, "ご来店ありがとうございました！", jp, 44, FontStyles.Bold, C_TITLE,
-            700, 80, new Vector2(0, 195));
+        if (!bonus)
+        {
+            MakeLabel(panel.transform, "ご来店ありがとうございました！", jp, 44, FontStyles.Bold, C_TITLE,
+                700, 80, new Vector2(0, 195));
+            MakeRect("__Div", panel.transform, C_DIVIDER, 660, 4)
+                .GetComponent<RectTransform>().anchoredPosition = new Vector2(0, 135);
+            MakeLabel(panel.transform, "本日の滞在時間", jp, 36, FontStyles.Normal, C_TITLE,
+                600, 60, new Vector2(0, 70));
+            MakeLabel(panel.transform, stayText, jp, 76, FontStyles.Bold, C_TIME,
+                700, 110, new Vector2(0, -25));
+            AddCloseButton(dim, panel, jp, new Vector2(0, -185));
+        }
+        else
+        {
+            MakeLabel(panel.transform, "ご来店ありがとうございました！", jp, 42, FontStyles.Bold, C_TITLE,
+                700, 80, new Vector2(0, 320));
+            MakeRect("__Div", panel.transform, C_DIVIDER, 660, 4)
+                .GetComponent<RectTransform>().anchoredPosition = new Vector2(0, 262);
+            MakeLabel(panel.transform, "本日の滞在時間", jp, 34, FontStyles.Normal, C_TITLE,
+                600, 56, new Vector2(0, 205));
+            MakeLabel(panel.transform, stayText, jp, 64, FontStyles.Bold, C_TIME,
+                700, 96, new Vector2(0, 120));
 
-        MakeRect("__Div", panel.transform, C_DIVIDER, 660, 4)
-            .GetComponent<RectTransform>().anchoredPosition = new Vector2(0, 135);
+            // 5時間以上滞在のレベルアップ告知
+            MakeLabel(panel.transform, "★ 5時間以上のご滞在ボーナス ★", jp, 32, FontStyles.Bold, C_BONUS,
+                720, 56, new Vector2(0, 20));
+            MakeLabel(panel.transform, $"{levelUpName} がレベルアップ！", jp, 38, FontStyles.Bold, C_TITLE,
+                720, 64, new Vector2(0, -55));
+            MakeLabel(panel.transform, $"Lv{oldLevel} → Lv{newLevel}", jp, 68, FontStyles.Bold, C_TIME,
+                700, 100, new Vector2(0, -150));
 
-        MakeLabel(panel.transform, "本日の滞在時間", jp, 36, FontStyles.Normal, C_TITLE,
-            600, 60, new Vector2(0, 70));
+            AddCloseButton(dim, panel, jp, new Vector2(0, -310));
+        }
+    }
 
-        // 滞在時間（太字・大きめで強調）
-        MakeLabel(panel.transform, stayText, jp, 76, FontStyles.Bold, C_TIME,
-            700, 110, new Vector2(0, -25));
-
-        // とじるボタン（暗幕タップでも閉じられる）
+    /// <summary>「とじる」ボタン＋暗幕タップで閉じる挙動を付ける</summary>
+    private static void AddCloseButton(GameObject dim, GameObject panel, TMP_FontAsset jp, Vector2 pos)
+    {
         var btnGO = MakeRect("__Close", panel.transform, C_BTN, 360, 100);
-        btnGO.GetComponent<RectTransform>().anchoredPosition = new Vector2(0, -185);
+        btnGO.GetComponent<RectTransform>().anchoredPosition = pos;
         MakeLabel(btnGO.transform, "とじる", jp, 40, FontStyles.Bold, Color.white,
             360, 100, Vector2.zero);
         btnGO.AddComponent<Button>().onClick.AddListener(() => Object.Destroy(dim));

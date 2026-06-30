@@ -23,7 +23,8 @@ public static class InfoModal
     /// <param name="title">上部タイトル</param>
     /// <param name="strongText">太字・大きめで強調する本文</param>
     /// <param name="subText">補足テキスト（null/空なら非表示）</param>
-    public static void Show(string title, string strongText, string subText = null)
+    /// <param name="strongYOffset">強調本文の縦位置オフセット（＋で上・−で下）</param>
+    public static void Show(string title, string strongText, string subText = null, float strongYOffset = 0f)
     {
         var canvasGO = GameObject.Find("Canvas");
         var canvas = canvasGO != null ? canvasGO.GetComponent<Canvas>()
@@ -54,7 +55,7 @@ public static class InfoModal
         MakeRect("__Div", panel.transform, C_DIVIDER, 660, 4)
             .GetComponent<RectTransform>().anchoredPosition = new Vector2(0, 144);
 
-        MakeLabel(panel.transform, strongText, jp, 52, FontStyles.Bold, C_STRONG, 720, 150, new Vector2(0, 10));
+        MakeLabel(panel.transform, strongText, jp, 52, FontStyles.Bold, C_STRONG, 720, 150, new Vector2(0, 10 + strongYOffset));
 
         if (!string.IsNullOrEmpty(subText))
             MakeLabel(panel.transform, subText, jp, 32, FontStyles.Normal, C_TITLE, 700, 90, new Vector2(0, -90));

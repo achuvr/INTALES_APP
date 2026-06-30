@@ -80,8 +80,8 @@ public class ItemSyncManager : SingletonBehaviour<ItemSyncManager>
     }
 
     /// <summary>
-    /// アイテムを入手し、キャラクターのインベントリに追加して Firestore に保存する。
-    /// users/{uid} の characters.{i}.inventory フィールドを1回の書き込みで更新する。
+    /// アイテムを入手し、アカウントの所持品に追加して Firestore に保存する。
+    /// 所持品はアカウント単位（users/{uid}.inventory）なので全キャラで共有される。
     /// </summary>
     public async UniTask<bool> AcquireItemAsync(LocalItemEntry entry)
     {
@@ -92,40 +92,39 @@ public class ItemSyncManager : SingletonBehaviour<ItemSyncManager>
             return false;
         }
 
-        int charIdx = manager.CurrentSelectCharacterNumber;
-        var chara = manager.UserData.Characters[charIdx];
+        var inventory = manager.UserData.Inventory;
 
-        // 既に所持していたら追加しない
-        if (chara.Inventory.Any(r => r.ItemId == entry.itemId))
+        // 既にアカウントが所持していたら追加しない
+        if (inventory.Any(r => r.ItemId == entry.itemId))
         {
             Debug.LogWarning($"[ItemSync] 既に所持しています: {entry.name} ({entry.itemId})");
             return false;
         }
 
-        // ローカルのインベントリに追加
+        // ローカルの所持品に追加
         var inventoryRef = new InventoryRef { Job = entry.job, ItemId = entry.itemId };
-        chara.Inventory.Add(inventoryRef);
+        inventory.Add(inventoryRef);
 
         // Firestore に保存
         try
         {
-            await SaveInventoryAsync(manager.UID, charIdx, chara.Inventory);
+            await SaveInventoryAsync(manager.UID, inventory);
             Debug.Log($"[ItemSync] アイテム入手: {entry.name} ({entry.job}/{entry.itemId})");
             return true;
         }
         catch (Exception ex)
         {
             // 失敗したらローカルからも戻す
-            chara.Inventory.Remove(inventoryRef);
+            inventory.Remove(inventoryRef);
             Debug.LogError($"[ItemSync] アイテム入手エラー: {ex.Message}");
             return false;
         }
     }
 
     /// <summary>
-    /// インベントリ一覧を users/{uid} の characters.{charIdx}.inventory に書き込む。
+    /// アカウントの所持品一覧を users/{uid}.inventory に書き込む（全キャラ共有）。
     /// </summary>
-    public static async UniTask SaveInventoryAsync(string uid, int charIdx, List<InventoryRef> inventory)
+    public static async UniTask SaveInventoryAsync(string uid, List<InventoryRef> inventory)
     {
         var db = FirebaseFirestore.DefaultInstance;
         var docRef = db.Collection("users").Document(uid);
@@ -142,7 +141,7 @@ public class ItemSyncManager : SingletonBehaviour<ItemSyncManager>
 
         await docRef.UpdateAsync(new Dictionary<FieldPath, object>
         {
-            { new FieldPath("characters", charIdx.ToString(), "inventory"), inventoryData }
+            { new FieldPath("inventory"), inventoryData }
         }).AsUniTask();
     }
 

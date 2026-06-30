@@ -239,6 +239,56 @@ public class GroupSession : MonoBehaviour, INetworkRunnerCallbacks
     // ボスダメージ共有メッセージの識別子（"dmg"）
     private const int DMG_0 = 100, DMG_1 = 109, DMG_2 = 103;
 
+    // 協力スキルのバフ共有メッセージ（"cop"）
+    private const int COP_0 = 99, COP_1 = 111, COP_2 = 112;
+
+    /// <summary>協力スキルで全員に乗っている成功確率バフ(%)。ボス戦開始/終了時にリセットする。</summary>
+    public static int CoopProbBonus { get; private set; }
+
+    /// <summary>協力バフを付与した発動者の名前（複数なら「・」連結）。</summary>
+    public static string CoopGranter { get; private set; }
+
+    /// <summary>協力バフが変化したとき（戦闘UIの確率表示更新用）</summary>
+    public static event System.Action CoopChanged;
+
+    /// <summary>協力バフをリセットする（ボス戦の開始・終了時に各自で呼ぶ）。</summary>
+    public static void ResetCoopBuff()
+    {
+        CoopProbBonus = 0;
+        CoopGranter = null;
+        CoopChanged?.Invoke();
+    }
+
+    /// <summary>
+    /// 協力スキル発動: 全員（自分含む）に成功確率バフを配る。
+    /// ローカルへ即適用し、グループ参加中なら他メンバーへも送信する。
+    /// </summary>
+    public static void BroadcastCoopBuff(int bonus, string granterName)
+    {
+        AddCoopBuffLocal(bonus, granterName);
+        if (Active != null) Active.SendCoopBuff(bonus, granterName);
+    }
+
+    private static void AddCoopBuffLocal(int bonus, string granterName)
+    {
+        CoopProbBonus += bonus;
+        if (string.IsNullOrEmpty(CoopGranter)) CoopGranter = granterName;
+        else if (!CoopGranter.Contains(granterName)) CoopGranter += $"・{granterName}";
+        CoopChanged?.Invoke();
+    }
+
+    private void SendCoopBuff(int bonus, string granterName)
+    {
+        if (_runner == null || !_runner.IsRunning) return;
+        var data = System.Text.Encoding.UTF8.GetBytes($"{bonus}\n{granterName}");
+        var key = ReliableKey.FromInts(COP_0, COP_1, COP_2, _runner.LocalPlayer.PlayerId);
+        foreach (var player in _runner.ActivePlayers)
+        {
+            if (player == _runner.LocalPlayer) continue;
+            _runner.SendReliableDataToPlayer(player, key, data);
+        }
+    }
+
     /// <summary>グループの誰かがボスに与えたダメージを受信したとき（みんなで1体を削る用）</summary>
     public static event System.Action<int> BossDamaged;
 
@@ -366,6 +416,16 @@ public class GroupSession : MonoBehaviour, INetworkRunnerCallbacks
         {
             string ds = System.Text.Encoding.UTF8.GetString(data.Array, data.Offset, data.Count);
             if (int.TryParse(ds, out int dmg)) BossDamaged?.Invoke(dmg);
+            return;
+        }
+
+        // 協力バフ共有メッセージ
+        if (k0 == COP_0 && k1 == COP_1 && k2 == COP_2)
+        {
+            string cs = System.Text.Encoding.UTF8.GetString(data.Array, data.Offset, data.Count);
+            var cp = cs.Split('\n');
+            if (cp.Length >= 2 && int.TryParse(cp[0], out int bonus))
+                AddCoopBuffLocal(bonus, cp[1]);
             return;
         }
 

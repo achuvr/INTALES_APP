@@ -64,6 +64,23 @@ public static class DevAddTestItem
         });
     }
 
+    [MenuItem("Tools/[Dev] Add Test Item/武器: 暗殺者の短剣 (AtkUp+8 CriticalRateUp+15 CriticalDamageUp+3)")]
+    public static async void AddAssassinDagger()
+    {
+        await AddItem("warrior", new ItemData
+        {
+            ItemId   = "weapon_test_003",
+            Name     = "暗殺者の短剣",
+            SlotType = EquipmentSlot.Weapon,
+            Effects  = new List<ItemEffect>
+            {
+                ItemEffect.Make(EffectType.AtkUp,            8),
+                ItemEffect.Make(EffectType.CriticalRateUp,  15),
+                ItemEffect.Make(EffectType.CriticalDamageUp, 3),
+            }
+        });
+    }
+
     [MenuItem("Tools/[Dev] Add Test Item/体: 革のよろい (DefUp+8 HpUp+20)")]
     public static async void AddLeatherArmor()
     {
@@ -157,6 +174,7 @@ public static class DevAddTestItem
             new ItemData { ItemId="helm_test_001",   Name="革のヘルム",       SlotType=EquipmentSlot.Head,       Effects=new List<ItemEffect>{ ItemEffect.Make(EffectType.DefUp,5), ItemEffect.Make(EffectType.HpUp,10) } },
             new ItemData { ItemId="weapon_test_001", Name="ブロンズソード",   SlotType=EquipmentSlot.Weapon,     Effects=new List<ItemEffect>{ ItemEffect.Make(EffectType.AtkUp,12) } },
             new ItemData { ItemId="weapon_test_002", Name="鉄の剣",           SlotType=EquipmentSlot.Weapon,     Effects=new List<ItemEffect>{ ItemEffect.Make(EffectType.AtkUp,25), ItemEffect.Make(EffectType.SpeedUp,3) } },
+            new ItemData { ItemId="weapon_test_003", Name="暗殺者の短剣",     SlotType=EquipmentSlot.Weapon,     Effects=new List<ItemEffect>{ ItemEffect.Make(EffectType.AtkUp,8), ItemEffect.Make(EffectType.CriticalRateUp,15), ItemEffect.Make(EffectType.CriticalDamageUp,3) } },
             new ItemData { ItemId="body_test_001",   Name="革のよろい",       SlotType=EquipmentSlot.Body,       Effects=new List<ItemEffect>{ ItemEffect.Make(EffectType.DefUp,8), ItemEffect.Make(EffectType.HpUp,20) } },
             new ItemData { ItemId="body_test_002",   Name="鎖帷子",           SlotType=EquipmentSlot.Body,       Effects=new List<ItemEffect>{ ItemEffect.Make(EffectType.DefUp,18), ItemEffect.Make(EffectType.CriticalRateUp,5) } },
             new ItemData { ItemId="feet_test_001",   Name="革のブーツ",       SlotType=EquipmentSlot.Feet,       Effects=new List<ItemEffect>{ ItemEffect.Make(EffectType.SpeedUp,5), ItemEffect.Make(EffectType.DefUp,3) } },
@@ -170,7 +188,7 @@ public static class DevAddTestItem
             AddInventoryRef(job, item.ItemId);
         }
         await SaveInventoryToFirestore();
-        EditorUtility.DisplayDialog("完了", "全8アイテムを追加しました！", "OK");
+        EditorUtility.DisplayDialog("完了", "全9アイテムを追加しました！", "OK");
     }
 
     // ================================================================
@@ -314,29 +332,26 @@ public static class DevAddTestItem
         Debug.Log($"[DevAddTestItem] マスターに保存: master/items items.{item.ItemId}");
     }
 
-    /// <summary>キャラクターのインベントリに InventoryRef を追加（ローカルのみ）</summary>
+    /// <summary>アカウントの所持品に InventoryRef を追加（ローカルのみ・全キャラ共有）</summary>
     private static void AddInventoryRef(string job, string itemId)
     {
-        var manager = UserDataManager.instance;
-        int charIdx = manager.CurrentSelectCharacterNumber;
-        var chara   = manager.UserData.Characters[charIdx];
+        var inventory = UserDataManager.instance.UserData.Inventory;
 
-        if (!chara.Inventory.Any(r => r.ItemId == itemId))
+        if (!inventory.Any(r => r.ItemId == itemId))
         {
-            chara.Inventory.Add(new InventoryRef { Job = job, ItemId = itemId });
+            inventory.Add(new InventoryRef { Job = job, ItemId = itemId });
         }
         Debug.Log($"[DevAddTestItem] ローカルに追加: {job}/{itemId}");
     }
 
-    /// <summary>インベントリ参照をFirestoreに保存（users/{uid}.characters.{idx}.inventory）</summary>
+    /// <summary>アカウントの所持品をFirestoreに保存（users/{uid}.inventory）</summary>
     private static async System.Threading.Tasks.Task SaveInventoryToFirestore()
     {
         var manager = UserDataManager.instance;
-        int charIdx = manager.CurrentSelectCharacterNumber;
-        var chara   = manager.UserData.Characters[charIdx];
+        var inventory = manager.UserData.Inventory;
 
-        await ItemSyncManager.SaveInventoryAsync(manager.UID, charIdx, chara.Inventory);
-        Debug.Log($"[DevAddTestItem] Firestore保存完了（{chara.Inventory.Count}件の参照）");
+        await ItemSyncManager.SaveInventoryAsync(manager.UID, inventory);
+        Debug.Log($"[DevAddTestItem] Firestore保存完了（{inventory.Count}件の参照）");
     }
 }
 #endif

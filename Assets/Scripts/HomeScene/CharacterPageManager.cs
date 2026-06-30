@@ -11,6 +11,9 @@ public class CharacterPageManager : MonoBehaviour
     [SerializeField] private TextMeshProUGUI _statusText;
     [SerializeField] private TextMeshProUGUI _todayText;
 
+    // ATKクーポン使用中（次のロールに加算される分）をアイコン右下に出すバッジ
+    private TextMeshProUGUI _atkBonusBadge;
+
     private void Start()
     {
         _currentPage = UserDataManager.instance.CurrentSelectCharacterNumber;
@@ -99,6 +102,53 @@ public class CharacterPageManager : MonoBehaviour
         // 属性エフェクト再生
         if (ElementEffectController.instance != null)
             ElementEffectController.instance.PlayEffect(chara.Element);
+
+        RefreshAtkBonusBadge();
+    }
+
+    /// <summary>
+    /// ATKクーポン使用中の加算値（DiceAtkBonus.Pending）をアイコン右下にバッジ表示する。
+    /// 0 のときは非表示。クーポン使用直後・ページ更新時に呼ぶ。
+    /// </summary>
+    public void RefreshAtkBonusBadge()
+    {
+        EnsureAtkBonusBadge();
+        if (_atkBonusBadge == null) return;
+
+        int bonus = DiceAtkBonus.Pending;
+        _atkBonusBadge.transform.parent.gameObject.SetActive(bonus > 0);
+        if (bonus > 0) _atkBonusBadge.text = $"ATK+{bonus}";
+    }
+
+    /// <summary>アイコン右下のATKバッジUIを一度だけ生成する。</summary>
+    private void EnsureAtkBonusBadge()
+    {
+        if (_atkBonusBadge != null || _jobImage == null) return;
+
+        // 背景ピル（暗色・半透明）をアイコンの右下隅にアンカー
+        var bg = new GameObject("__AtkBonusBadge");
+        bg.transform.SetParent(_jobImage.transform, false);
+        var bgRt = bg.AddComponent<RectTransform>();
+        bgRt.anchorMin = bgRt.anchorMax = bgRt.pivot = new Vector2(1f, 0f);
+        bgRt.sizeDelta = new Vector2(150f, 56f);
+        bgRt.anchoredPosition = new Vector2(-6f, 120f);
+        bg.AddComponent<UnityEngine.UI.Image>().color = new Color(0f, 0f, 0f, 0.6f);
+
+        var go = new GameObject("__Label");
+        go.transform.SetParent(bg.transform, false);
+        var rt = go.AddComponent<RectTransform>();
+        rt.anchorMin = Vector2.zero; rt.anchorMax = Vector2.one;
+        rt.offsetMin = rt.offsetMax = Vector2.zero;
+        var tmp = go.AddComponent<TextMeshProUGUI>();
+        if (_nameText != null && _nameText.font != null) tmp.font = _nameText.font;
+        tmp.fontSize = 34;
+        tmp.fontStyle = FontStyles.Bold;
+        tmp.color = new Color(1f, 0.85f, 0.3f);
+        tmp.alignment = TextAlignmentOptions.Center;
+        tmp.raycastTarget = false;
+        _atkBonusBadge = tmp;
+
+        bg.SetActive(false);
     }
 
     /// <summary>

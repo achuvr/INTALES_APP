@@ -9,7 +9,8 @@ using UnityEngine.UI;
 /// <summary>
 /// 常用ガチャのUI（コード生成・ポップなガチャマシン風）。
 /// キャラクターページ下部の「ガチャ」ボタン（バッグ等と同じグリッド）から開き、
-/// 選択中キャラクターのレベルを消費して1回引く（消費量は master/gacha の standard.cost_lv）。
+/// 所持GPを消費して1回引く（消費量は master/gacha の standard.cost_gp）。
+/// ガチャウィンドウを開くと現在の所持GPが表示される。
 ///
 /// 演出: カプセルが詰まったドーム → ダイヤル回転＆本体シェイク →
 /// カプセル排出 → ぶるぶる → パカッと開いて景品＋集中線＋紙吹雪。
@@ -54,7 +55,7 @@ public class GachaController : MonoBehaviour
         = new List<(RectTransform, Vector2, float)>();
 
     private TextMeshProUGUI _costText;
-    private TextMeshProUGUI _charaText;
+    private TextMeshProUGUI _gpText;
     private TextMeshProUGUI _drawBtnText;
     private Button _drawButton;
 
@@ -73,7 +74,7 @@ public class GachaController : MonoBehaviour
     private TextMeshProUGUI _prizeSubText;
 
     private bool _drawing;
-    private int _costLv = 5;
+    private int _cost = 5; // 1回引くのに消費するGP（master/gacha から読み込む）
 
     // 円スプライト（コード生成。カプセル・ドーム・ダイヤルに使う）
     private static Texture2D _circleTex;
@@ -150,19 +151,16 @@ public class GachaController : MonoBehaviour
             _costText.text = "設定なし";
             return;
         }
-        _costLv = pool.CostLv;
-        _costText.text = $"1回 レベル{pool.CostLv}";
-        _drawBtnText.text = $"レベル{pool.CostLv}で まわす！";
+        _cost = pool.Cost;
+        _costText.text = $"1回 {pool.Cost}GP";
+        _drawBtnText.text = $"{pool.Cost}GPで まわす！";
     }
 
     private void RefreshLabels()
     {
         var manager = UserDataManager.instance;
-        var characters = manager?.UserData?.Characters;
-        int idx = manager != null ? manager.CurrentSelectCharacterNumber : 0;
-        _charaText.text = (characters != null && idx < characters.Count)
-            ? $"{characters[idx].Name}（Lv{characters[idx].Level}）"
-            : "";
+        if (_gpText != null)
+            _gpText.text = $"所持GP：{(manager?.UserData != null ? manager.UserData.GP : 0)}";
     }
 
     // ================================================================
@@ -178,12 +176,11 @@ public class GachaController : MonoBehaviour
 
         try
         {
-            // レベル不足は回す前に弾く（ダイヤルだけ回って何も出ないのを防ぐ）
+            // GP不足は回す前に弾く（ダイヤルだけ回って何も出ないのを防ぐ）
             var manager = UserDataManager.instance;
-            var chara = manager.UserData.Characters[manager.CurrentSelectCharacterNumber];
-            if (chara.Level - _costLv < 1)
+            if (manager.UserData.GP < _cost)
             {
-                FriendMenuController.ShowToast($"レベルが足りません（Lv{_costLv + 1}以上で引けます）");
+                FriendMenuController.ShowToast($"GPが足りません（{_cost}GP必要です）");
                 return;
             }
 
@@ -530,12 +527,13 @@ public class GachaController : MonoBehaviour
         // コスト・キャラのバッジ（ピル風）
         var costPill = MakeRect("__CostPill", _machineView.transform, POP_COLORS[1], 320, 70);
         costPill.GetComponent<RectTransform>().anchoredPosition = new Vector2(-190, 488);
-        _costText = MakeLabel(costPill.transform, "1回 レベル5", jp, 32, FontStyles.Bold, Color.white,
+        _costText = MakeLabel(costPill.transform, "1回 5GP", jp, 32, FontStyles.Bold, Color.white,
             320, 70, Vector2.zero).GetComponent<TextMeshProUGUI>();
 
-        var charaPill = MakeRect("__CharaPill", _machineView.transform, POP_COLORS[4], 420, 70);
-        charaPill.GetComponent<RectTransform>().anchoredPosition = new Vector2(200, 488);
-        _charaText = MakeLabel(charaPill.transform, "", jp, 30, FontStyles.Bold, Color.white,
+        // 所持GP表示（「1回 5GP」の横。ガチャを開くたびに RefreshLabels で更新する）
+        var gpPill = MakeRect("__GpPill", _machineView.transform, POP_COLORS[3], 420, 70);
+        gpPill.GetComponent<RectTransform>().anchoredPosition = new Vector2(200, 488);
+        _gpText = MakeLabel(gpPill.transform, "所持GP：0", jp, 30, FontStyles.Bold, Color.white,
             420, 70, Vector2.zero).GetComponent<TextMeshProUGUI>();
 
         // ---- マシン本体（シェイク用に1つの親へ）----
@@ -592,12 +590,12 @@ public class GachaController : MonoBehaviour
         MakeRect("__SlotInner", slot.transform, new Color(0.10f, 0.06f, 0.08f, 1f), 150, 52);
 
         // まわすボタン
-        var drawBtn = MakeButton("__Draw", _machineView.transform, C_BTN, "レベル5で まわす！", jp, 42, C_TEXT,
+        var drawBtn = MakeButton("__Draw", _machineView.transform, C_BTN, "5GPで まわす！", jp, 42, C_TEXT,
             640, 140, new Vector2(0, -480), () => DrawAsync().Forget());
         _drawBtnText = drawBtn.GetComponentInChildren<TextMeshProUGUI>();
         _drawButton = drawBtn.GetComponent<Button>();
 
-        MakeLabel(_machineView.transform, "※引いたあとのレベルが1未満になる場合は引けません",
+        MakeLabel(_machineView.transform, "※所持GPが足りない場合は引けません",
             jp, 23, FontStyles.Normal, C_MUTED, 840, 36, new Vector2(0, -585));
         MakeLabel(_machineView.transform, "イベントガチャは来店時のイベントQRで無料で引けます",
             jp, 23, FontStyles.Normal, C_MUTED, 840, 36, new Vector2(0, -622));

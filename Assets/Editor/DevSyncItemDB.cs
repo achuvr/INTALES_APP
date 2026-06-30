@@ -124,7 +124,9 @@ public static class DevSyncItemDB
             return;
         }
 
-        var alreadyOwned = new HashSet<string>(chara.Inventory.Select(r => r.ItemId));
+        // 所持品はアカウント単位（全キャラ共有）
+        var inventory = userManager.UserData.Inventory;
+        var alreadyOwned = new HashSet<string>(inventory.Select(r => r.ItemId));
         var toAdd = allItems.Where(x => !alreadyOwned.Contains(x.item_id)).OrderBy(x => x.item_id).ToList();
 
         var sb = new System.Text.StringBuilder();
@@ -141,19 +143,19 @@ public static class DevSyncItemDB
         if (toAdd.Count == 0) { EditorUtility.DisplayDialog("情報", "追加すべき新規アイテムはありません（全て所持済み）", "OK"); return; }
 
         foreach (var item in toAdd)
-            chara.Inventory.Add(new InventoryRef { Job = item.job, ItemId = item.item_id });
+            inventory.Add(new InventoryRef { Job = item.job, ItemId = item.item_id });
 
         Debug.Log($"[DevEquip] {chara.Name}({job}) にインベントリ追加: {toAdd.Count}件");
 
         EditorUtility.DisplayProgressBar("Firestore 保存", "inventory を書き込み中...", 0.5f);
         try
         {
-            // users/{uid}.characters.{idx}.inventory に書き込む（サブコレクション廃止後の新構造）
-            await ItemSyncManager.SaveInventoryAsync(userManager.UID, charIdx, chara.Inventory);
+            // users/{uid}.inventory に書き込む（アカウント単位の所持品）
+            await ItemSyncManager.SaveInventoryAsync(userManager.UID, inventory);
             EditorUtility.ClearProgressBar();
             EditorUtility.DisplayDialog("取得完了",
-                $"{toAdd.Count}件をインベントリに追加し Firestore に保存しました。\n合計所持数: {chara.Inventory.Count}件", "OK");
-            Debug.Log($"[DevEquip] Firestore 保存完了 ({toAdd.Count}件追加 / 合計{chara.Inventory.Count}件)");
+                $"{toAdd.Count}件をインベントリに追加し Firestore に保存しました。\n合計所持数: {inventory.Count}件", "OK");
+            Debug.Log($"[DevEquip] Firestore 保存完了 ({toAdd.Count}件追加 / 合計{inventory.Count}件)");
         }
         catch (Exception ex)
         {

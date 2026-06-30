@@ -300,7 +300,11 @@ public class ItemBagPageManager : MonoBehaviour
 
         // ATKクーポンは使った枚数ぶん、次のダイスロールの出目に+1される
         if (_currentCouponName == "atk")
+        {
             DiceAtkBonus.Add(usedCount);
+            var cpm = FindObjectOfType<CharacterPageManager>();
+            if (cpm != null) cpm.RefreshAtkBonusBadge();
+        }
 
         UpdateCouponDisplay();
         _numOfUsingCoupon = 0;

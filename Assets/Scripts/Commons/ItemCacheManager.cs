@@ -171,6 +171,7 @@ public class ItemCacheManager : SingletonBehaviour<ItemCacheManager>
         item.description  = GetString(d, "description");
         item.game         = GetString(d, "game");
         item.storage_path = GetString(d, "storage_path");
+        item.skill_id     = GetString(d, "skill_id");
 
         if (d.TryGetValue("created_at", out var tsObj) && tsObj is Timestamp ts)
             item.created_at = ts.ToDateTime().ToString("o");
@@ -435,6 +436,7 @@ public class CachedItem
     public string game;
     public string storage_path;
     public string created_at;
+    public string skill_id; // スキルブックの任意発動スキルID（BattleSkillRegistry のキー）
     public List<LocalItemEffect> effects = new List<LocalItemEffect>();
 }
 

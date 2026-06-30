@@ -39,7 +39,21 @@
       "Bash(awk '/m_Name: Canvas$/,0' Assets/Scenes/Home.unity)",
       "Bash(awk '{o+=gsub\\(/{/,\"{\"\\); c+=gsub\\(/}/,\"}\"\\)} END{print \"open=\"o\" close=\"c}' Assets/Scripts/HomeScene/ZukanController.cs)",
       "PowerShell($f = \"C:\\\\Users\\\\intal\\\\.claude\\\\user_requests_log.md\"; $h = Select-String -Path $f -Pattern '^## \\\\[' ; $h | Select-Object -Last 8 | ForEach-Object { $_.LineNumber }; \"TOTAL_LINES:\"; \\(Get-Content $f | Measure-Object -Line\\).Lines)",
-      "PowerShell($f = \"C:\\\\Users\\\\intal\\\\.claude\\\\user_requests_log.md\"; $h = Select-String -Path $f -Pattern '^## \\\\[' ; $start = \\($h | Select-Object -Last 21 | Select-Object -First 1\\).LineNumber; \"START:$start\")"
+      "PowerShell($f = \"C:\\\\Users\\\\intal\\\\.claude\\\\user_requests_log.md\"; $h = Select-String -Path $f -Pattern '^## \\\\[' ; $start = \\($h | Select-Object -Last 21 | Select-Object -First 1\\).LineNumber; \"START:$start\")",
+      "Bash(xargs grep -l RoundedRectSprite)",
+      "Bash(node inspect-item-effects.js)",
+      "Bash(node set-item-effects.js)",
+      "Bash(node set-item-effects.js --apply)",
+      "Bash(node set-item-effects.js --clear-all)",
+      "Bash(node -e ' *)",
+      "Bash(find Assets -type d -iname \"*card*\")",
+      "Bash(ls Assets/Textures)",
+      "Bash(find Assets -type d -iname \"Textures\")",
+      "Bash(mkdir -p Assets/Resources/Cards)",
+      "Bash(git mv *)",
+      "Bash(mv Assets/Textures/Cards/* Assets/Resources/Cards/)",
+      "Bash(cp \"Assets/Scenes/dev/IconUploader.unity\" \"Assets/Scenes/dev/BuffCardDeckBuilder.unity\")",
+      "Bash(sed -i 's/9cc72a13e740fa944ba825aac84f3317/b0ffca2d1e2f3a4b5c6d7e8f90a1b2c3/; s/m_Name: IconUploaderManager/m_Name: BuffCardDeckBuilderManager/' \"Assets/Scenes/dev/BuffCardDeckBuilder.unity\")"
     ],
     "deny": []
   },
