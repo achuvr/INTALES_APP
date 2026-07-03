@@ -53,7 +53,16 @@
       "Bash(git mv *)",
       "Bash(mv Assets/Textures/Cards/* Assets/Resources/Cards/)",
       "Bash(cp \"Assets/Scenes/dev/IconUploader.unity\" \"Assets/Scenes/dev/BuffCardDeckBuilder.unity\")",
-      "Bash(sed -i 's/9cc72a13e740fa944ba825aac84f3317/b0ffca2d1e2f3a4b5c6d7e8f90a1b2c3/; s/m_Name: IconUploaderManager/m_Name: BuffCardDeckBuilderManager/' \"Assets/Scenes/dev/BuffCardDeckBuilder.unity\")"
+      "Bash(sed -i 's/9cc72a13e740fa944ba825aac84f3317/b0ffca2d1e2f3a4b5c6d7e8f90a1b2c3/; s/m_Name: IconUploaderManager/m_Name: BuffCardDeckBuilderManager/' \"Assets/Scenes/dev/BuffCardDeckBuilder.unity\")",
+      "Bash([ -f \"$f\" ])",
+      "Bash(grep -nE 'compileSdk|targetSdk|minSdk' C:/Users/intal/works/Personal/Unity/INTALES_APP/Library/Bee/Android/Prj/IL2CPP/Gradle/launcher/build.gradle)",
+      "Bash(echo \"NO launcher/build.gradle\")",
+      "Bash(tasklist)",
+      "Read(//c/Program Files/Unity/Hub/Editor/6000.0.63f1/Editor/Data/PlaybackEngines/AndroidPlayer/SDK/**)",
+      "Bash(ls gradlew*)",
+      "Bash(ls -d 'C:\\\\Users\\\\intal/.gradle')",
+      "Read(//c/Users/intal/AppData/Local/Android/Sdk/platforms/**)",
+      "Read(//c/Program Files/Android/Android Studio/**)"
     ],
     "deny": []
   },

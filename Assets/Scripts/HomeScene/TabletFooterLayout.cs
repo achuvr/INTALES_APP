@@ -50,6 +50,8 @@ public class TabletFooterLayout : MonoBehaviour
         while (frames++ < 120 && CountFound() < GridOrder.Length) yield return null;
         Canvas.ForceUpdateCanvases();
 
+        FixReloadButton();
+
         int placed = 0;
         for (int i = 0; i < GridOrder.Length; i++)
         {
@@ -62,6 +64,30 @@ public class TabletFooterLayout : MonoBehaviour
             placed++;
         }
         Debug.Log($"{TAG} タブレット用に下部ボタンを2行3列へ再配置 ({placed}/{GridOrder.Length})");
+    }
+
+    /// <summary>
+    /// 右上のリロードボタン(Image_Reload)を画面の右上に追従させる。
+    /// このボタンは Page_Characters(100x100の中央パネル)の右上アンカー＋固定座標(354,978.6)で
+    /// 配置されているため、実効位置が画面中央から +1028.6 と高く、画面高の低いiPad(参照高1920・
+    /// 上端+960)では上にはみ出て見えなくなる。Canvasの実寸から右上隅基準で座標を再計算し、
+    /// iPhoneと同じ「右端から61px・上端から65px」(ボタン150x150)に合わせる。
+    /// </summary>
+    private static void FixReloadButton()
+    {
+        var rt = FindInScene("Image_Reload");
+        if (rt == null) { Debug.LogWarning($"{TAG} Image_Reload 未検出"); return; }
+        var canvas = rt.GetComponentInParent<Canvas>(true);
+        var canvasRt = canvas != null ? canvas.rootCanvas.transform as RectTransform : null;
+        if (canvasRt == null) { Debug.LogWarning($"{TAG} Reload: Canvas未検出"); return; }
+
+        float halfW = canvasRt.rect.width * 0.5f;
+        float halfH = canvasRt.rect.height * 0.5f;
+        // 親(Page_Characters)右上アンカー=画面中央+50。そこから見て
+        // 画面右端-61px(=halfW-136が中心) / 上端-65px(=halfH-140が中心) になるよう逆算。
+        Vector2 old = rt.anchoredPosition;
+        rt.anchoredPosition = new Vector2(halfW - 186f, halfH - 190f);
+        Debug.Log($"{TAG} Image_Reload {old} -> {rt.anchoredPosition} (canvas {canvasRt.rect.width}x{canvasRt.rect.height})");
     }
 
     private static int CountFound()
