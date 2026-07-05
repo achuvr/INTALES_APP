@@ -62,7 +62,12 @@
       "Bash(ls gradlew*)",
       "Bash(ls -d 'C:\\\\Users\\\\intal/.gradle')",
       "Read(//c/Users/intal/AppData/Local/Android/Sdk/platforms/**)",
-      "Read(//c/Program Files/Android/Android Studio/**)"
+      "Read(//c/Program Files/Android/Android Studio/**)",
+      "Bash(/bin/zsh -c 'export PATH=\"$HOME/.rbenv/bin:$PATH\" && eval \"$\\(rbenv init - zsh\\)\" && cd \"/Users/masanoriakiyama/Main/Work/Cafe/UnityProjects/INTALES_APP/Builds/iOS\" && rbenv shell 2.7.3 && rbenv version && which pod && pod --version')",
+      "Read(//opt/homebrew/Cellar/rbenv/1.3.2/libexec/**)",
+      "Read(//usr/local/bin/**)",
+      "Bash(/bin/zsh -l -c 'which rbenv; echo PATH=$PATH')",
+      "Bash(/bin/zsh *)"
     ],
     "deny": []
   },
