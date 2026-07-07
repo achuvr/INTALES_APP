@@ -3,6 +3,7 @@ using System.Linq;
 using System.Text.RegularExpressions;
 using TMPro;
 using UnityEngine;
+using UnityEngine.EventSystems;
 using UnityEngine.UI;
 
 /// <summary>
@@ -16,7 +17,9 @@ using UnityEngine.UI;
 /// 人数・プレイ時間の絞り込みと並び替え（五十音順/時間が短い順/人気順=当店お気に入り数）ができる。
 /// さらにその下のチェックで「遊んだのみ」「お気に入りのみ」に絞り込める。
 /// 各行の✓（遊んだ）・★（お気に入り）は BoardGameMarks 経由で Firestore に保存される。
-/// 行をタップすると詳細を表示。詳細下部の「遊んだ記録」ではカメラで撮影した写真を
+/// 行をタップすると詳細を表示。詳細のデザイナー名・ジャンルタグはリンクになっていて、
+/// タップするとそのデザイナー/ジャンルで一覧を絞り込む（チェック行の下に解除チップを表示）。
+/// 詳細下部の「遊んだ記録」ではカメラで撮影した写真を
 /// 貼り付けられる（BoardGamePhotoStore。端末ローカル保存のみでFirestoreには送らない）。
 /// 右上の×ボタンで閉じてHomeに戻る（自分が作ったUIと BoardGameListRoot を破棄する）。
 ///
@@ -47,6 +50,10 @@ public class BoardGameListController : MonoBehaviour
     private const float SEARCH_H = 96f;
     private const float FILTER_H = 96f;
     private const float CHECKS_H = 84f;    // 「遊んだのみ」「お気に入りのみ」チェック行
+    private const float TAG_H    = 84f;    // デザイナー/ジャンルの絞り込みチップ行（絞り込み中のみ）
+
+    /// <summary>詳細モーダル内のリンク（デザイナー・ジャンル）の文字色。</summary>
+    private const string LINK_HEX = "#1d5c8a";
 
     // 詳細モーダルの縦サイズ。情報量（デザイナー・ジャンルの折り返し行数）に応じて
     // BASE〜MAX の間で自動調整する。MAX は Canvas 基準解像度 1080x1920 に収まる上限
@@ -79,6 +86,12 @@ public class BoardGameListController : MonoBehaviour
     // 「遊んだのみ」「お気に入りのみ」チェック
     private bool _playedOnly = false;
     private bool _favOnly = false;
+    // デザイナー/ジャンルのリンクタップによる絞り込み（null=なし。同時に1つだけ）
+    private string _tagFilter = null;
+    private bool _tagIsDesigner = false;
+    private GameObject _tagBar;
+    private RectTransform _scrollRootRt;
+    private TMP_InputField _searchInput;
     // 並び順（0=五十音順（データの標準順）、1=プレイ時間が短い順、2=人気順=当店お気に入り数）
     private int _sortMode = 0;
     private TextMeshProUGUI _playersBtnLabel, _timeBtnLabel, _sortBtnLabel;
@@ -201,6 +214,7 @@ public class BoardGameListController : MonoBehaviour
                 if (g.genre != null) foreach (var t in g.genre) Collect(t);
                 if (g.designer != null) foreach (var d in g.designer) Collect(d);
             }
+            Collect("_"); // リンクの下線グリフ（TMPは'_'のSDFデータで<u>の下線を描く）
 
             string allChars = sb.ToString();
             for (int i = 0; i < allChars.Length; i += 40)
@@ -346,6 +360,7 @@ public class BoardGameListController : MonoBehaviour
         input.selectionColor = new Color(0.84f, 0.66f, 0.18f, 0.4f);
         input.lineType = TMP_InputField.LineType.SingleLine;
         input.onValueChanged.AddListener(OnSearchChanged);
+        _searchInput = input;
 
         // 件数ラベル（右側）
         var cntGO = new GameObject("__Count");
@@ -556,10 +571,19 @@ public class BoardGameListController : MonoBehaviour
                 : r.tMax <= _timeFilter;                    // 〜分以内
             if (!ok) return false;
         }
+        if (_tagFilter != null)
+        {
+            var tags = _tagIsDesigner ? g.designer : g.genre;
+            if (tags == null || System.Array.IndexOf(tags, _tagFilter) < 0) return false;
+        }
         if (_playedOnly && !BoardGameMarks.IsPlayed(g)) return false;
         if (_favOnly && !BoardGameMarks.IsFavorite(g)) return false;
         return true;
     }
+
+    /// <summary>一覧スクロール領域の上端オフセット（絞り込みチップが出ている間はそのぶん下げる）。</summary>
+    private float ListTopOffset()
+        => TITLE_H + SEARCH_H + FILTER_H + CHECKS_H + 36f + (_tagFilter == null ? 0f : TAG_H + 8f);
 
     /// <summary>時間ソート用キー（最大プレイ時間。不明は最後に回す）。</summary>
     private int SortTimeKey(BoardGameEntry g)
@@ -595,9 +619,10 @@ public class BoardGameListController : MonoBehaviour
         var svGO = new GameObject("__Scroll");
         svGO.transform.SetParent(_overlay.transform, false);
         var svrt = svGO.AddComponent<RectTransform>();
+        _scrollRootRt = svrt;
         svrt.anchorMin = new Vector2(0f, 0f); svrt.anchorMax = new Vector2(1f, 1f);
         svrt.offsetMin = new Vector2(24f, 24f);
-        svrt.offsetMax = new Vector2(-24f, -(TITLE_H + SEARCH_H + FILTER_H + CHECKS_H + 36f));
+        svrt.offsetMax = new Vector2(-24f, -ListTopOffset());
         _scrollRect = svGO.AddComponent<ScrollRect>();
         _scrollRect.horizontal = false; _scrollRect.vertical = true; _scrollRect.scrollSensitivity = 40f;
         _scrollRect.movementType = ScrollRect.MovementType.Clamped;
@@ -708,6 +733,69 @@ public class BoardGameListController : MonoBehaviour
             tmp.raycastTarget = false;
         }
         if (_emptyLabel != null) _emptyLabel.SetActive(show);
+    }
+
+    // ================================================================
+    // デザイナー/ジャンルの絞り込み（詳細モーダルのリンクタップで有効化）
+    // ================================================================
+
+    /// <summary>詳細モーダルのデザイナー名/ジャンルタグのタップで一覧を絞り込む。</summary>
+    private void ApplyTagFilter(bool isDesigner, string value)
+    {
+        if (string.IsNullOrEmpty(value)) return;
+        _tagIsDesigner = isDesigner;
+        _tagFilter = value;
+        // テキスト検索は「特定のゲームを探す」操作なので、リンクからのジャンプでは白紙に戻す
+        // （検索語とのANDでほぼ0件になるのを防ぐ。人数・時間・✓★の絞り込みは維持する）
+        if (_searchInput != null) _searchInput.SetTextWithoutNotify("");
+        _query = "";
+        CloseDetail();
+        UpdateTagFilterBar();
+        RebuildList();
+    }
+
+    private void ClearTagFilter()
+    {
+        _tagFilter = null;
+        UpdateTagFilterBar();
+        RebuildList();
+    }
+
+    /// <summary>絞り込みチップ（チェック行と一覧の間）を状態に合わせて作り直し、一覧の上端も詰め直す。</summary>
+    private void UpdateTagFilterBar()
+    {
+        if (_tagBar != null) { Destroy(_tagBar); _tagBar = null; }
+        if (_scrollRootRt != null)
+            _scrollRootRt.offsetMax = new Vector2(-24f, -ListTopOffset());
+        if (_tagFilter == null) return;
+
+        _tagBar = new GameObject("__TagFilterBar");
+        _tagBar.transform.SetParent(_overlay.transform, false);
+        var rt = _tagBar.AddComponent<RectTransform>();
+        rt.anchorMin = new Vector2(0f, 1f); rt.anchorMax = new Vector2(1f, 1f);
+        rt.pivot = new Vector2(0.5f, 1f);
+        float top = TITLE_H + SEARCH_H + 12f + FILTER_H + 8f + CHECKS_H + 8f;
+        rt.offsetMin = new Vector2(28f, -(top + TAG_H));
+        rt.offsetMax = new Vector2(-28f, -top);
+        var img = _tagBar.AddComponent<Image>();
+        RoundedRectSprite.Apply(img);
+        img.color = C_CHIP;
+        var btn = _tagBar.AddComponent<Button>();
+        btn.targetGraphic = img;
+        btn.onClick.AddListener(ClearTagFilter); // チップのどこを押しても解除
+
+        var label = MakeChildLabel(_tagBar.transform, 30, FontStyles.Bold, C_TITLE,
+            Vector2.zero, Vector2.one, new Vector2(28f, 0f), new Vector2(-92f, 0f),
+            TextAlignmentOptions.MidlineLeft);
+        label.text = SafeText($"{(_tagIsDesigner ? "デザイナー" : "ジャンル")}: {_tagFilter}");
+        label.enableAutoSizing = true; label.fontSizeMax = 30; label.fontSizeMin = 20;
+        label.overflowMode = TextOverflowModes.Ellipsis;
+        label.enableWordWrapping = false;
+
+        var x = MakeChildLabel(_tagBar.transform, 36, FontStyles.Bold, C_TITLE,
+            new Vector2(1f, 0f), new Vector2(1f, 1f), new Vector2(-88f, 0f), new Vector2(-24f, 0f),
+            TextAlignmentOptions.Center);
+        x.text = "✕";
     }
 
     // ================================================================
@@ -1006,13 +1094,16 @@ public class BoardGameListController : MonoBehaviour
         if (!string.IsNullOrEmpty(g.year))
             AddInfoRow(stack.transform, "発売年", SafeText(g.year));
         if (g.designer != null && g.designer.Length > 0)
-            AddInfoRow(stack.transform, "デザイナー", SafeText(string.Join("、", g.designer)));
+            AddInfoRow(stack.transform, "デザイナー", LinkedValues(g.designer, "、"),
+                PlainLength(g.designer, "、"), i => ApplyTagFilter(true, g.designer[i]));
         if (g.popularity > 0)
             AddInfoRow(stack.transform, "人気度", $"★ {g.popularity}人がお気に入り");
 
-        string genreText = (g.genre != null && g.genre.Length > 0)
-            ? string.Join("　/　", g.genre) : "—";
-        AddInfoBlock(stack.transform, "ジャンル", SafeText(genreText));
+        if (g.genre != null && g.genre.Length > 0)
+            AddInfoBlock(stack.transform, "ジャンル", LinkedValues(g.genre, "　/　"),
+                i => ApplyTagFilter(false, g.genre[i]));
+        else
+            AddInfoBlock(stack.transform, "ジャンル", "—", null);
 
         // 情報量に応じてパネルを縦長に伸ばす（スタックの必要高さ＋上下の固定領域）。
         // MAX でも収まらない極端な場合は各行が minHeight まで縮み、あふれは省略記号で切れる
@@ -1360,6 +1451,15 @@ public class BoardGameListController : MonoBehaviour
     /// （高さは preferredHeight 任せなので、隣の行に重ならない）。
     /// </summary>
     private void AddInfoRow(Transform parent, string label, string value)
+        => AddInfoRow(parent, label, value, value.Length, null);
+
+    /// <summary>
+    /// リンク入りの値も受けられる本体。plainValueLen はマークアップ抜きの値の文字数
+    /// （縮小判定はタグを数えると誤るため別で受ける）。onLinkTap が非null のときは
+    /// タップを受け、押された &lt;link="{i}"&gt; のインデックスを通知する。
+    /// </summary>
+    private void AddInfoRow(Transform parent, string label, string value, int plainValueLen,
+        System.Action<int> onLinkTap)
     {
         var go = new GameObject("__InfoRow");
         go.transform.SetParent(parent, false);
@@ -1369,7 +1469,7 @@ public class BoardGameListController : MonoBehaviour
         var tmp = go.AddComponent<TextMeshProUGUI>();
         if (_jp != null) tmp.font = _jp;
         tmp.richText = true;
-        int len = label.Length + value.Length;
+        int len = label.Length + plainValueLen;
         string v = len <= 26 ? value
             : len <= 60 ? $"<size=32>{value}</size>"
             : $"<size=28>{value}</size>";
@@ -1378,11 +1478,12 @@ public class BoardGameListController : MonoBehaviour
         tmp.alignment = TextAlignmentOptions.Left;
         tmp.enableWordWrapping = true;
         tmp.overflowMode = TextOverflowModes.Ellipsis;
-        tmp.raycastTarget = false;
+        tmp.raycastTarget = onLinkTap != null;
+        if (onLinkTap != null) go.AddComponent<TmpLinkTapHandler>().onTap = onLinkTap;
     }
 
-    /// <summary>「見出し」＋折り返し値のブロック（ジャンル用）。</summary>
-    private void AddInfoBlock(Transform parent, string label, string value)
+    /// <summary>「見出し」＋折り返し値のブロック（ジャンル用）。onLinkTap は AddInfoRow と同様。</summary>
+    private void AddInfoBlock(Transform parent, string label, string value, System.Action<int> onLinkTap)
     {
         var go = new GameObject("__InfoBlock");
         go.transform.SetParent(parent, false);
@@ -1398,7 +1499,53 @@ public class BoardGameListController : MonoBehaviour
         tmp.alignment = TextAlignmentOptions.TopLeft;
         tmp.enableWordWrapping = true;
         tmp.overflowMode = TextOverflowModes.Ellipsis;
-        tmp.raycastTarget = false;
+        tmp.raycastTarget = onLinkTap != null;
+        if (onLinkTap != null) go.AddComponent<TmpLinkTapHandler>().onTap = onLinkTap;
+    }
+
+    /// <summary>各値を下線＋リンク色の &lt;link="{i}"&gt; にして sep で連結する（詳細モーダル用）。</summary>
+    private static string LinkedValues(string[] values, string sep)
+    {
+        // 下線グリフ（'_'）が無いフォントでは色だけでリンクを表す
+        // （欠落グリフはTMPの再レイアウト無限ループ→OOMの引き金。emoji-tmp-oom-crash と同根）
+        bool underline = !_missingGlyphs.Contains('_');
+        var sb = new System.Text.StringBuilder();
+        for (int i = 0; i < values.Length; i++)
+        {
+            if (i > 0) sb.Append(sep);
+            sb.Append("<link=\"").Append(i).Append("\">");
+            if (underline) sb.Append("<u>");
+            sb.Append("<color=").Append(LINK_HEX).Append(">").Append(SafeText(values[i])).Append("</color>");
+            if (underline) sb.Append("</u>");
+            sb.Append("</link>");
+        }
+        return sb.ToString();
+    }
+
+    /// <summary>マークアップ抜きでの連結後の文字数（AddInfoRow の縮小判定用）。</summary>
+    private static int PlainLength(string[] values, string sep)
+    {
+        int n = sep.Length * Mathf.Max(0, values.Length - 1);
+        foreach (var v in values) n += v == null ? 0 : v.Length;
+        return n;
+    }
+
+    /// <summary>TMPテキスト内の &lt;link&gt; 領域のタップを拾い、リンクID（=インデックス）を通知する。</summary>
+    private class TmpLinkTapHandler : MonoBehaviour, IPointerClickHandler
+    {
+        public System.Action<int> onTap;
+
+        public void OnPointerClick(PointerEventData e)
+        {
+            var tmp = GetComponent<TextMeshProUGUI>();
+            if (tmp == null || onTap == null) return;
+            var canvas = tmp.canvas;
+            var cam = canvas != null && canvas.renderMode != RenderMode.ScreenSpaceOverlay
+                ? canvas.worldCamera : null;
+            int i = TMP_TextUtilities.FindIntersectingLink(tmp, e.position, cam);
+            if (i >= 0 && int.TryParse(tmp.textInfo.linkInfo[i].GetLinkID(), out int idx))
+                onTap(idx);
+        }
     }
 
     private void CloseDetail()
