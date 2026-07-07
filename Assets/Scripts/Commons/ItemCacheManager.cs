@@ -60,6 +60,8 @@ public class ItemCacheManager : SingletonBehaviour<ItemCacheManager>
     {
         await SyncAsync(msg => Debug.Log($"[ItemCache] {msg}"));
         await SyncIconsAsync(msg => Debug.Log($"[ItemCache] {msg}"));
+        // ボードゲーム在庫も同じバージョン比較方式で同期（未更新なら読み取りゼロ）
+        await BoardGameCatalog.SyncAsync(msg => Debug.Log($"[BoardGame] {msg}"));
     }
 
     // ================================================================

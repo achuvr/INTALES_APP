@@ -69,6 +69,10 @@ public class MasterConfig
     [FirestoreProperty("items_version")]
     public int ItemsVersion { get; set; }
 
+    /// <summary>ボードゲーム在庫（master/boardgames）のバージョン。上がっていたら再同期する</summary>
+    [FirestoreProperty("boardgames_version")]
+    public int BoardgamesVersion { get; set; }
+
     /// <summary>本日のラッキー職業・属性</summary>
     [FirestoreProperty("today")]
     public Today Today { get; set; }

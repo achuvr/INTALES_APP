@@ -1,0 +1,39 @@
+# ボードゲーム在庫の日次同期。
+# bodoge.hoobby.net をスクレイプし、在庫が変わっていた場合のみ
+# Firestore (master/boardgames + master/config.boardgames_version) を更新する。
+# 詳細: tools/firestore/sync-boardgames.js
+#
+# 必要なシークレット:
+#   FIREBASE_SERVICE_ACCOUNT … サービスアカウント鍵JSONの中身そのもの
+name: Sync boardgames stock
+
+on:
+  schedule:
+    - cron: "0 19 * * *" # 毎日 04:00 JST（店の営業時間外）
+  workflow_dispatch: # 手動実行も可
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30 # 詳細ページ約740件×0.5秒間隔で通常10分弱
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm ci
+        working-directory: tools/firestore
+
+      - name: Write service account key
+        run: printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$RUNNER_TEMP/sa.json"
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+
+      - name: Sync boardgames
+        run: node sync-boardgames.js
+        working-directory: tools/firestore
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/sa.json
