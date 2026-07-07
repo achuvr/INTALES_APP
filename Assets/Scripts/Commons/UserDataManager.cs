@@ -205,6 +205,30 @@ public class UserData
     }
     private List<InventoryRef> _inventory;
 
+    /// <summary>
+    /// 遊んだことのあるボードゲーム（キー: ボドゲーマURL末尾のスラッグ）。
+    /// 図鑑リストのチェックマークに対応。操作は BoardGameMarks 経由で行う。
+    /// </summary>
+    [FirestoreProperty("played_boardgames")]
+    public List<string> PlayedBoardgames
+    {
+        get => _playedBoardgames ?? (_playedBoardgames = new List<string>());
+        set => _playedBoardgames = value;
+    }
+    private List<string> _playedBoardgames;
+
+    /// <summary>
+    /// お気に入りのボードゲーム（キー: ボドゲーマURL末尾のスラッグ）。
+    /// 図鑑リストの★マークに対応。操作は BoardGameMarks 経由で行う。
+    /// </summary>
+    [FirestoreProperty("favorite_boardgames")]
+    public List<string> FavoriteBoardgames
+    {
+        get => _favoriteBoardgames ?? (_favoriteBoardgames = new List<string>());
+        set => _favoriteBoardgames = value;
+    }
+    private List<string> _favoriteBoardgames;
+
     /// <summary>スロット番号順に並べたキャラクター一覧（ローカル用）</summary>
     public List<Character> Characters { get; set; }
 

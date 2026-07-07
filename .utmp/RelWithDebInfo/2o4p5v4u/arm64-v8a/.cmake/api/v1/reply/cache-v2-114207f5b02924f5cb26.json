@@ -223,7 +223,7 @@
 				}
 			],
 			"type" : "INTERNAL",
-			"value" : "D:/Android/Sdk/cmake/3.22.1/bin/cmake.exe"
+			"value" : "C:/Users/intal/AppData/Local/Android/Sdk/cmake/3.22.1/bin/cmake.exe"
 		},
 		{
 			"name" : "CMAKE_CPACK_COMMAND",
@@ -235,7 +235,7 @@
 				}
 			],
 			"type" : "INTERNAL",
-			"value" : "D:/Android/Sdk/cmake/3.22.1/bin/cpack.exe"
+			"value" : "C:/Users/intal/AppData/Local/Android/Sdk/cmake/3.22.1/bin/cpack.exe"
 		},
 		{
 			"name" : "CMAKE_CTEST_COMMAND",
@@ -247,7 +247,7 @@
 				}
 			],
 			"type" : "INTERNAL",
-			"value" : "D:/Android/Sdk/cmake/3.22.1/bin/ctest.exe"
+			"value" : "C:/Users/intal/AppData/Local/Android/Sdk/cmake/3.22.1/bin/ctest.exe"
 		},
 		{
 			"name" : "CMAKE_CXX_COMPILER_AR",
@@ -771,7 +771,7 @@
 				}
 			],
 			"type" : "UNINITIALIZED",
-			"value" : "D:\\Android\\Sdk\\cmake\\3.22.1\\bin\\ninja.exe"
+			"value" : "C:\\Users\\intal\\AppData\\Local\\Android\\Sdk\\cmake\\3.22.1\\bin\\ninja.exe"
 		},
 		{
 			"name" : "CMAKE_MODULE_LINKER_FLAGS",
@@ -1003,7 +1003,7 @@
 				}
 			],
 			"type" : "INTERNAL",
-			"value" : "D:/Android/Sdk/cmake/3.22.1/share/cmake-3.22"
+			"value" : "C:/Users/intal/AppData/Local/Android/Sdk/cmake/3.22.1/share/cmake-3.22"
 		},
 		{
 			"name" : "CMAKE_RUNTIME_OUTPUT_DIRECTORY",

@@ -18,6 +18,8 @@ public class BoardGameEntry
     public string time;       // プレイ時間（例: 15分～30分）
     public string year;       // 発売年（例: 2023年）
     public string[] genre;    // ジャンル（テーマ/フレーバー＋メカニクスのタグ）
+    public string[] designer; // ゲームデザイナー（クレジット欄の「ゲームデザイン」。複数の場合あり）
+    public int popularity;    // 当店アプリユーザーの「お気に入り」数（人気順ソート用。日次同期で更新）
     public string url;        // ボドゲーマの詳細ページURL
 }
 

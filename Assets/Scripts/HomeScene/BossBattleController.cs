@@ -489,9 +489,10 @@ public class BossBattleController : MonoBehaviour
         ResetBoss();
         _bossName.text = $"{ElementJp(_bossElement)}のボスモンスター";
         _weakText.text = $"弱点属性 → {ElementJp(_weakness)}（その属性で攻撃するとダメージ＋1）";
+        // 絵文字は使わない（実機のjpフォントに無く、TMPの再レイアウトループでOOMクラッシュする）
         ShowSelectPhase(string.IsNullOrEmpty(_cardName)
             ? "どのダイスで挑む？"
-            : $"🍴 {_cardName}カード発動中！ どのダイスで挑む？");
+            : $"★ {_cardName}カード発動中！ どのダイスで挑む？");
     }
 
     /// <summary>今日お得な属性に対し、プレイヤーが相性有利になる属性をボスへ割り当てる。</summary>
@@ -626,7 +627,7 @@ public class BossBattleController : MonoBehaviour
         if (_skillButton == null) return;
         var next = NextUnusedSkill();
         if (next == null || _busy) { _skillButton.SetActive(false); return; }
-        _skillLabel.text = $"📖 {next.Name}（{next.ShortHint}）";
+        _skillLabel.text = $"★ {next.Name}（{next.ShortHint}）"; // 絵文字は使わない（OOMクラッシュ対策）
         _skillButton.SetActive(true);
     }
 

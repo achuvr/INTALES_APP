@@ -67,11 +67,15 @@
       "Read(//opt/homebrew/Cellar/rbenv/1.3.2/libexec/**)",
       "Read(//usr/local/bin/**)",
       "Bash(/bin/zsh -l -c 'which rbenv; echo PATH=$PATH')",
-      "Bash(/bin/zsh *)",
       "WebFetch(domain:bodoge.hoobby.net)",
       "WebSearch",
       "Bash(curl -sL -A \"Mozilla/5.0 \\(compatible; bodoge-space-scraper/1.1\\)\" \"https://bodoge.hoobby.net/games/point-city\" -o detail.html)",
-      "Bash(curl -sL -A \"Mozilla/5.0 \\(compatible; bodoge-space-scraper/1.1\\)\" \"https://bodoge.hoobby.net/spaces/intales-cafe/games?page=1\" -o list1.html)"
+      "Bash(curl -sL -A \"Mozilla/5.0 \\(compatible; bodoge-space-scraper/1.1\\)\" \"https://bodoge.hoobby.net/spaces/intales-cafe/games?page=1\" -o list1.html)",
+      "PowerShell(Get-Content *)",
+      "PowerShell(git push origin master)",
+      "Bash(git push origin master)",
+      "PowerShell(node sync-boardgames.js)",
+      "Bash(node sync-boardgames.js)"
     ],
     "deny": []
   },

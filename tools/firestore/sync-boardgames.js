@@ -2,7 +2,8 @@
  * ボードゲーム在庫の日次同期スクリプト。
  *
  * bodoge.hoobby.net のスペースページから全ゲームを取得し（BodogeSpaceJsonExporter の
- * Node 移植）、内容ハッシュが前回と変わっていた場合のみ
+ * Node 移植）、当店アプリユーザーの「お気に入り」数を人気度として合成した上で、
+ * 内容ハッシュが前回と変わっていた場合のみ
  *   - master/boardgames … JSON本文（クライアントがそのまま保存して使う）・version・hash
  *   - master/config.boardgames_version … クライアントの差分同期判定用
  * を更新する。変わっていなければ Firestore への書き込みは行わない
@@ -14,8 +15,9 @@
  * 使い方:
  *   node sync-boardgames.js                 # スクレイプして同期（GitHub Actions が毎日実行）
  *   node sync-boardgames.js --dry-run       # 書き込まず差分の有無だけ表示
- *   node sync-boardgames.js --no-genre      # 詳細ページを見ない高速モード（ジャンル無し）
+ *   node sync-boardgames.js --no-genre      # 詳細ページを見ない高速モード（ジャンル・デザイナー無し）
  *   node sync-boardgames.js --file <path>   # スクレイプせずローカルJSON（Unityエクスポート）を投入
+ *   node sync-boardgames.js --out <path>    # 配信と同じJSONをローカルにも書き出す（同梱Resources更新用）
  *
  * 認証: GOOGLE_APPLICATION_CREDENTIALS にサービスアカウント鍵のパスを設定しておく。
  */
@@ -37,6 +39,8 @@ const DRY_RUN = args.includes("--dry-run");
 const NO_GENRE = args.includes("--no-genre");
 const fileIdx = args.indexOf("--file");
 const FROM_FILE = fileIdx >= 0 ? args[fileIdx + 1] : null;
+const outIdx = args.indexOf("--out");
+const OUT_PATH = outIdx >= 0 ? args[outIdx + 1] : null;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const clean = (s) => (s || "").replace(/\s+/g, " ").trim();
@@ -79,6 +83,7 @@ async function scrapeList() {
         time: match(data, /([0-9]+分(?:～[0-9]+分)?|[0-9]+分前後|分前後)/),
         year: match(data, /([0-9]{4}年)/),
         genre: [],
+        designer: [],
         url: gameUrl,
       });
       added++;
@@ -94,13 +99,12 @@ async function scrapeList() {
   return games;
 }
 
-/** 詳細ページの「テーマ/フレーバー」「メカニクス」配下のタグを集める。 */
-function parseGenre(html) {
-  const $ = cheerio.load(html);
+/** 詳細ページのクレジット欄から、見出しラベルが re に一致する項目のリンクテキストを集める。 */
+function parseCredit($, re) {
   const result = [];
   $('ul[class*="credit"] li').each((_, li) => {
     const label = clean($(li).find('span[class*="headline"]').first().text());
-    if (!/テーマ|フレーバー|メカニクス/.test(label)) return;
+    if (!re.test(label)) return;
     $(li)
       .find("a")
       .each((_, a) => {
@@ -111,13 +115,20 @@ function parseGenre(html) {
   return result;
 }
 
+/** 「テーマ/フレーバー」「メカニクス」配下のタグ（ジャンル）。 */
+const parseGenre = ($) => parseCredit($, /テーマ|フレーバー|メカニクス/);
+/** 「ゲームデザイン」のクレジット（ゲームデザイナー。複数の場合あり）。 */
+const parseDesigner = ($) => parseCredit($, /ゲームデザイン|デザイナー/);
+
 async function scrape() {
   const games = await scrapeList();
 
   if (!NO_GENRE) {
     for (let i = 0; i < games.length; i++) {
       try {
-        games[i].genre = parseGenre(await fetchHtml(games[i].url));
+        const $ = cheerio.load(await fetchHtml(games[i].url));
+        games[i].genre = parseGenre($);
+        games[i].designer = parseDesigner($);
       } catch (e) {
         console.warn(`[genre] 取得失敗（空のまま続行）: ${games[i].url} (${e.message})`);
       }
@@ -139,8 +150,36 @@ function canonicalize(games) {
     time: g.time || "",
     year: g.year || "",
     genre: Array.isArray(g.genre) ? g.genre : [],
+    designer: Array.isArray(g.designer) ? g.designer : [],
+    popularity: Number.isFinite(g.popularity) ? g.popularity : 0, // 当店ユーザーの「お気に入り」数（人気順ソート用）
     url: g.url || "",
   }));
+}
+
+/** クライアント（BoardGameMarks.KeyOf）と同じゲーム識別キー（URL末尾スラッグ）。 */
+function keyOf(g) {
+  if (g.url) {
+    const t = g.url.replace(/\/+$/, "");
+    const i = t.lastIndexOf("/");
+    if (i >= 0 && i < t.length - 1) return t.slice(i + 1);
+  }
+  return g.title || "";
+}
+
+/**
+ * 当店ユーザーの「お気に入り」数をゲームキーごとに集計する（人気順の源泉）。
+ * users 全ドキュメントの favorite_boardgames 配列を数える。
+ * select() で必要フィールドだけ取るため通信は最小限（読み取り数=ユーザー数/日）。
+ */
+async function fetchFavoriteCounts(db) {
+  const counts = new Map();
+  const snap = await db.collection("users").select("favorite_boardgames").get();
+  snap.forEach((doc) => {
+    const arr = doc.get("favorite_boardgames");
+    if (!Array.isArray(arr)) return;
+    for (const key of arr) counts.set(key, (counts.get(key) || 0) + 1);
+  });
+  return counts;
 }
 
 /** 表示順・updated 日付に依存しない内容ハッシュ。 */
@@ -150,6 +189,9 @@ function contentHash(canon) {
 }
 
 async function main() {
+  initializeApp({ credential: applicationDefault() });
+  const db = getFirestore();
+
   let games;
   if (FROM_FILE) {
     console.log(`ローカルJSONを読み込み: ${FROM_FILE}`);
@@ -166,29 +208,42 @@ async function main() {
     process.exit(1);
   }
 
+  // 人気度 = 当店アプリユーザーの「お気に入り」数（世間の人気ではなく店内人気）。
+  // お気に入りが増減した日はハッシュが変わり、翌朝の同期でユーザーへ再配信される。
+  const favCounts = await fetchFavoriteCounts(db);
+  for (const g of games) g.popularity = favCounts.get(keyOf(g)) || 0;
+  const favTotal = [...favCounts.values()].reduce((a, b) => a + b, 0);
+  console.log(`お気に入り集計: ${favCounts.size}タイトル / 計${favTotal}件`);
+
   const canon = canonicalize(games);
   const hash = contentHash(canon);
   console.log(`取得完了: ${canon.length}件, hash=${hash.slice(0, 12)}…`);
 
-  initializeApp({ credential: applicationDefault() });
-  const db = getFirestore();
   const bgRef = db.doc("master/boardgames");
   const snap = await bgRef.get();
 
-  if (snap.exists && snap.get("hash") === hash) {
-    console.log(`変更なし (v${snap.get("version")}) → 書き込みスキップ`);
-    return;
-  }
-
-  const newVersion = (snap.exists ? snap.get("version") || 0 : 0) + 1;
+  const changed = !(snap.exists && snap.get("hash") === hash);
+  const version = (snap.exists ? snap.get("version") || 0 : 0) + (changed ? 1 : 0);
   const updated = new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Tokyo" });
   const json = JSON.stringify({
     count: canon.length,
     source: SPACE_URL,
     updated,
-    version: newVersion,
+    version,
     games: canon,
   });
+
+  if (OUT_PATH) {
+    // アプリ同梱のResources JSONを更新する用途。配信されるものと同一の内容を書く
+    fs.writeFileSync(OUT_PATH, json);
+    console.log(`ローカルにも書き出し: ${OUT_PATH} (v${version})`);
+  }
+
+  if (!changed) {
+    console.log(`変更なし (v${version}) → 書き込みスキップ`);
+    return;
+  }
+  const newVersion = version;
 
   const bytes = Buffer.byteLength(json, "utf8");
   console.log(`変更あり → v${newVersion} を配信 (${canon.length}件, ${(bytes / 1024).toFixed(0)}KB)`);

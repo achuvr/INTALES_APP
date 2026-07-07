@@ -238,6 +238,20 @@
       },
       "url": "https://packages.unity.com"
     },
+    "com.yasirkula.nativecamera": {
+      "version": "https://github.com/yasirkula/UnityNativeCamera.git",
+      "depth": 0,
+      "source": "git",
+      "dependencies": {},
+      "hash": "beb6cec17b9fb3ee324a337222b76a314321d3b6"
+    },
+    "com.yasirkula.nativegallery": {
+      "version": "https://github.com/yasirkula/UnityNativeGallery.git",
+      "depth": 0,
+      "source": "git",
+      "dependencies": {},
+      "hash": "ec8832b1cc0f4deee62c759c56eb7126aa8a46b5"
+    },
     "com.unity.modules.accessibility": {
       "version": "1.0.0",
       "depth": 0,
