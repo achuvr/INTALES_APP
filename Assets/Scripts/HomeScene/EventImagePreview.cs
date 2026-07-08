@@ -52,6 +52,9 @@ public class EventImagePreview : MonoBehaviour
 
     private void Build()
     {
+        // 生成済みなら何もしない（Start前にShow()が呼ばれた場合、Show内のBuildと
+        // 翌フレームのStartのBuildで二重生成され、古いオーバーレイが閉じられなくなるのを防ぐ）
+        if (_overlay != null) return;
         if (_canvas == null) _canvas = GetMainCanvas();
         if (_canvas == null) return;
 

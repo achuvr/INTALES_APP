@@ -17,8 +17,23 @@ public static class BoardGamePhotoStore
     private const string ROOT_DIR = "boardgame_photos";
     private const string THUMB_SUFFIX = "_thumb";
     private const int THUMB_MAX = 256;
+    private const string SORT_PREF_KEY = "BoardGamePhotoNewestFirst";
 
-    /// <summary>このゲームの写真（フルサイズ）のパス一覧（撮影順）。</summary>
+    /// <summary>
+    /// 写真一覧を新しい順で返すか（既定は古い順=撮影順）。
+    /// 詳細モーダルの並び替えボタンで切り替え、端末に保存される（全ゲーム共通）。
+    /// </summary>
+    public static bool NewestFirst
+    {
+        get => PlayerPrefs.GetInt(SORT_PREF_KEY, 0) == 1;
+        set
+        {
+            PlayerPrefs.SetInt(SORT_PREF_KEY, value ? 1 : 0);
+            PlayerPrefs.Save();
+        }
+    }
+
+    /// <summary>このゲームの写真（フルサイズ）のパス一覧（NewestFirst に応じた並び）。</summary>
     public static List<string> PhotosOf(BoardGameEntry g)
     {
         var result = new List<string>();
@@ -28,6 +43,7 @@ public static class BoardGamePhotoStore
             if (!Path.GetFileNameWithoutExtension(f).EndsWith(THUMB_SUFFIX))
                 result.Add(f);
         result.Sort(StringComparer.Ordinal); // ファイル名がタイムスタンプなので撮影順になる
+        if (NewestFirst) result.Reverse();
         return result;
     }
 

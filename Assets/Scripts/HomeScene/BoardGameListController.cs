@@ -60,7 +60,7 @@ public class BoardGameListController : MonoBehaviour
     private const float DETAIL_PANEL_BASE_H = 1276f;
     private const float DETAIL_PANEL_MAX_H  = 1560f;
     private const float DETAIL_STACK_TOP    = 232f;   // パネル上端〜情報スタック（和名・英名・区切り線）
-    private const float DETAIL_STACK_BOTTOM = 440f;   // 情報スタック下端〜パネル下端（写真行・ボタン類）
+    private const float DETAIL_STACK_BOTTOM = 500f;   // 情報スタック下端〜パネル下端（写真見出し帯・写真行・ボタン類）
 
     private Canvas _canvas;
     private GameObject _overlay;
@@ -140,6 +140,7 @@ public class BoardGameListController : MonoBehaviour
     private TextMeshProUGUI _detailFavLabel;
     // 「遊んだ記録」写真行（開いている間だけ保持。テクスチャは閉じる時に破棄する）
     private RectTransform _detailPhotoContent;
+    private TextMeshProUGUI _photoSortLabel; // 写真の並び替えボタンの表記（新しい順/古い順）
     private readonly List<Texture2D> _detailThumbTextures = new List<Texture2D>();
 
     private void Start()
@@ -1280,9 +1281,37 @@ public class BoardGameListController : MonoBehaviour
     // 「遊んだ記録」写真（端末ローカル保存のみ。BoardGamePhotoStore 参照）
     // ================================================================
 
-    /// <summary>写真行の枠（横スクロール）を作る。中身は RefreshDetailPhotos が入れる。</summary>
+    /// <summary>写真行の枠（見出し帯＋横スクロール）を作る。中身は RefreshDetailPhotos が入れる。</summary>
     private void BuildDetailPhotoRow(Transform panel)
     {
+        // 見出しと並び替えボタンの帯（写真行のすぐ上）
+        var headGO = new GameObject("__PhotoHead");
+        headGO.transform.SetParent(panel, false);
+        var hrt = headGO.AddComponent<RectTransform>();
+        hrt.anchorMin = new Vector2(0f, 0f); hrt.anchorMax = new Vector2(1f, 0f);
+        hrt.offsetMin = new Vector2(48f, 424f); hrt.offsetMax = new Vector2(-48f, 480f);
+
+        var head = MakeChildLabel(headGO.transform, 30, FontStyles.Bold, C_MUTED,
+            Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero, TextAlignmentOptions.MidlineLeft);
+        head.text = "遊んだ記録";
+
+        // 並び替えボタン（新しい順⇔古い順のトグル。設定は端末保存・全ゲーム共通）
+        var sortGO = new GameObject("__PhotoSort");
+        sortGO.transform.SetParent(headGO.transform, false);
+        var srt = sortGO.AddComponent<RectTransform>();
+        srt.anchorMin = new Vector2(1f, 0f); srt.anchorMax = new Vector2(1f, 1f);
+        srt.pivot = new Vector2(1f, 0.5f);
+        srt.offsetMin = new Vector2(-240f, 0f); srt.offsetMax = new Vector2(0f, 0f);
+        var simg = sortGO.AddComponent<Image>();
+        RoundedRectSprite.Apply(simg);
+        simg.color = C_SEARCHBG;
+        var sbtn = sortGO.AddComponent<Button>();
+        sbtn.targetGraphic = simg;
+        sbtn.onClick.AddListener(TogglePhotoSort);
+        _photoSortLabel = MakeChildLabel(sortGO.transform, 28, FontStyles.Bold, C_INK,
+            Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero, TextAlignmentOptions.Center);
+        UpdatePhotoSortLabel();
+
         var rowGO = new GameObject("__PhotoRow");
         rowGO.transform.SetParent(panel, false);
         var rrt = rowGO.AddComponent<RectTransform>();
@@ -1311,6 +1340,24 @@ public class BoardGameListController : MonoBehaviour
 
         _detailPhotoContent = ct;
         RefreshDetailPhotos();
+    }
+
+    /// <summary>写真の並び（新しい順⇔古い順）を切り替える。</summary>
+    private void TogglePhotoSort()
+    {
+        BoardGamePhotoStore.NewestFirst = !BoardGamePhotoStore.NewestFirst;
+        UpdatePhotoSortLabel();
+        RefreshDetailPhotos();
+        // 一覧の行サムネイル（1枚目の写真）も新しい並びに追随させる
+        _firstPhoto.Clear();
+        foreach (var kv in _active) UpdateRowThumb(kv.Value);
+    }
+
+    /// <summary>並び替えボタンの表記を現在の設定に合わせる。</summary>
+    private void UpdatePhotoSortLabel()
+    {
+        if (_photoSortLabel != null)
+            _photoSortLabel.text = BoardGamePhotoStore.NewestFirst ? "新しい順" : "古い順";
     }
 
     /// <summary>写真行の中身（カメラボタン + サムネイル一覧）を作り直す。</summary>
@@ -1558,6 +1605,7 @@ public class BoardGameListController : MonoBehaviour
         _detailFavBg = null;
         _detailFavLabel = null;
         _detailPhotoContent = null;
+        _photoSortLabel = null;
         foreach (var t in _detailThumbTextures) Destroy(t);
         _detailThumbTextures.Clear();
     }

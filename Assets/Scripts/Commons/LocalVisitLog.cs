@@ -161,6 +161,24 @@ public static class LocalVisitLog
         return false;
     }
 
+    /// <summary>
+    /// 現在オープン中（未チェックアウト）の来店のチェックイン時刻を返す（無ければ null）。
+    /// 入店中バッジの滞在時間表示（PresenceIndicator）に使う。
+    /// </summary>
+    public static DateTime? GetOpenCheckInTime()
+    {
+        var log = Load();
+        for (int i = log.visits.Count - 1; i >= 0; i--)
+        {
+            if (log.visits[i].IsCheckedOut) continue;
+            if (DateTime.TryParse(log.visits[i].checkedInAt, null,
+                    System.Globalization.DateTimeStyles.RoundtripKind, out var t))
+                return t;
+            return null; // 記録が壊れている場合は表示しない
+        }
+        return null;
+    }
+
     /// <summary>保存済みの全来店記録を読み込む（古い順）</summary>
     public static VisitLog Load()
     {

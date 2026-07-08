@@ -79,9 +79,13 @@ public class HomeSceneInitializer : MonoBehaviour
         if (GetComponent<ZukanButton>() == null)
             gameObject.AddComponent<ZukanButton>();
 
-        // ボードゲーム一覧（右上のゲーム一覧ボタンから店舗の全ゲームを閲覧）
+        // ボードゲーム一覧（お知らせページ下部のゲーム一覧ボタンから店舗の全ゲームを閲覧）
         if (GetComponent<BoardGameListButton>() == null)
             gameObject.AddComponent<BoardGameListButton>();
+
+        // 食事・ドリンクのメニュー（お知らせページ下部のメニューボタンから開く）
+        if (GetComponent<MenuButton>() == null)
+            gameObject.AddComponent<MenuButton>();
 
         // タブレット(横長比率)でフッターと重なる下部の6ボタンを
         // 2行3列に組み替えてフッター上に収める（スマホは変更なし）

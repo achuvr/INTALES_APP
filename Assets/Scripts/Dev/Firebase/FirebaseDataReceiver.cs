@@ -179,6 +179,10 @@ public class FirebaseDataReceiver : SingletonBehaviour<FirebaseDataReceiver>
 
         Debug.Log("イベント画像が更新されています → 再ダウンロードします");
         ClearImageCache();
+        // 旧署名もここで消す。部分DLのまま中断し、その後 event_images が旧リストに
+        // 戻されたとき、「旧署名＋部分キャッシュ」が完全なキャッシュ扱いされるのを防ぐ
+        PlayerPrefs.DeleteKey(CACHED_EVENT_URLS_KEY);
+        PlayerPrefs.Save();
         await FetchAndCacheImagesFromFirebase();
     }
 

@@ -63,6 +63,7 @@ public class MasterConfig
     {
         Achievements = new List<Achievement>();
         EventImages = new List<string>();
+        MenuImages = new List<string>();
     }
 
     /// <summary>アイテムマスター（master/items）のバージョン。上がっていたら再同期する</summary>
@@ -84,4 +85,8 @@ public class MasterConfig
     /// <summary>イベント告知画像のURL一覧（表示順）</summary>
     [FirestoreProperty("event_images")]
     public List<string> EventImages { get; set; }
+
+    /// <summary>食事・ドリンクメニュー画像のURL一覧（表示順。お知らせページのメニューボタンから見る）</summary>
+    [FirestoreProperty("menu_images")]
+    public List<string> MenuImages { get; set; }
 }

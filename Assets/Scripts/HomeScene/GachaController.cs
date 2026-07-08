@@ -9,11 +9,13 @@ using UnityEngine.UI;
 /// <summary>
 /// 常用ガチャのUI（コード生成・ポップなガチャマシン風）。
 /// キャラクターページ下部の「ガチャ」ボタン（バッグ等と同じグリッド）から開き、
-/// 所持GPを消費して1回引く（消費量は master/gacha の standard.cost_gp）。
+/// 所持GPを消費して1回または5連で引く（1回の消費量は master/gacha の standard.cost_gp。
+/// 5連は単価×5で、抽選と付与は GachaService.DrawManyAsync が1回の書き込みにまとめる）。
 /// ガチャウィンドウを開くと現在の所持GPが表示される。
 ///
 /// 演出: カプセルが詰まったドーム → ダイヤル回転＆本体シェイク →
 /// カプセル排出 → ぶるぶる → パカッと開いて景品＋集中線＋紙吹雪。
+/// 5連は1個ずつ「つぎへ！」で開封する（右上に n/5 の進行表示）。
 /// イベントガチャはここからは引けず、店内のイベントQR読み取りで引く。
 /// </summary>
 public class GachaController : MonoBehaviour
@@ -58,6 +60,8 @@ public class GachaController : MonoBehaviour
     private TextMeshProUGUI _gpText;
     private TextMeshProUGUI _drawBtnText;
     private Button _drawButton;
+    private TextMeshProUGUI _drawFiveBtnText;
+    private Button _drawFiveButton;
 
     // 結果ビュー
     private RectTransform _burst;
@@ -72,9 +76,16 @@ public class GachaController : MonoBehaviour
     private GameObject _prizeIconShine;
     private TextMeshProUGUI _prizeText;
     private TextMeshProUGUI _prizeSubText;
+    private TextMeshProUGUI _multiProgressText; // 5連の進行表示（例: 2 / 5）
+    private GameObject _nextBtn;                // 5連の途中で次のカプセルへ進むボタン
+    private GameObject _againBtn;
+    private TextMeshProUGUI _againBtnText;
+    private GameObject _backBtn;
+    private bool _nextTapped;
 
     private bool _drawing;
-    private int _cost = 5; // 1回引くのに消費するGP（master/gacha から読み込む）
+    private int _cost = 5;      // 1回引くのに消費するGP（master/gacha から読み込む）
+    private int _lastCount = 1; // 「もういちど」で同じ連数を引くために覚えておく
 
     // 円スプライト（コード生成。カプセル・ドーム・ダイヤルに使う）
     private static Texture2D _circleTex;
@@ -153,7 +164,8 @@ public class GachaController : MonoBehaviour
         }
         _cost = pool.Cost;
         _costText.text = $"1回 {pool.Cost}GP";
-        _drawBtnText.text = $"{pool.Cost}GPで まわす！";
+        _drawBtnText.text = $"{pool.Cost}GPで 1回";
+        _drawFiveBtnText.text = $"{pool.Cost * 5}GPで 5連";
     }
 
     private void RefreshLabels()
@@ -166,11 +178,12 @@ public class GachaController : MonoBehaviour
     // ================================================================
     // 抽選＋演出
     // ================================================================
-    private async UniTask DrawAsync()
+    /// <summary>ガチャを count 回引いて、カプセルを1個ずつ開封する（1=単発、5=5連）。</summary>
+    private async UniTask DrawFlowAsync(int count)
     {
         if (_drawing) return;
         _drawing = true;
-        _drawButton.interactable = false;
+        SetDrawButtons(false);
         var ct = this.GetCancellationTokenOnDestroy();
         GameObject droppedCap = null;
 
@@ -178,14 +191,14 @@ public class GachaController : MonoBehaviour
         {
             // GP不足は回す前に弾く（ダイヤルだけ回って何も出ないのを防ぐ）
             var manager = UserDataManager.instance;
-            if (manager.UserData.GP < _cost)
+            if (manager.UserData.GP < _cost * count)
             {
-                FriendMenuController.ShowToast($"GPが足りません（{_cost}GP必要です）");
+                FriendMenuController.ShowToast($"GPが足りません（{_cost * count}GP必要です）");
                 return;
             }
 
-            // 抽選はダイヤル回転と並行して進める
-            var drawTask = GachaService.DrawAsync(GachaService.STANDARD_POOL, free: false);
+            // 抽選はダイヤル回転と並行して進める（count回分まとめて1回の書き込み）
+            var drawTask = GachaService.DrawManyAsync(GachaService.STANDARD_POOL, count, free: false);
 
             // ダイヤル2回転＋本体ガタガタ
             await Tween(1.1f, t =>
@@ -196,16 +209,18 @@ public class GachaController : MonoBehaviour
             }, ct);
             _machineRoot.anchoredPosition = Vector2.zero;
 
-            var result = await drawTask;
-            if (!result.Success)
+            var multi = await drawTask;
+            if (!multi.Success)
             {
-                FriendMenuController.ShowToast(result.Error);
+                FriendMenuController.ShowToast(multi.Error);
                 return;
             }
+            _lastCount = count;
+            int n = multi.Results.Count;
 
             // 出口からカプセルがコロン！（手前に拡大しながら落ちる）
-            var capColor = POP_COLORS[Random.Range(0, POP_COLORS.Length)];
-            droppedCap = MakeCapsule("__Drop", _machineView.transform, capColor, 130);
+            var firstColor = POP_COLORS[Random.Range(0, POP_COLORS.Length)];
+            droppedCap = MakeCapsule("__Drop", _machineView.transform, firstColor, 130);
             var crt = droppedCap.GetComponent<RectTransform>();
             await Tween(0.55f, t =>
             {
@@ -214,43 +229,78 @@ public class GachaController : MonoBehaviour
                 crt.localScale = Vector3.one * Mathf.Lerp(0.45f, 1.5f, t * t);
             }, ct);
 
-            // 結果ビューへ（大きなカプセルにバトンタッチ）
-            PrepareResultView(capColor, result);
-            Destroy(droppedCap);
-            droppedCap = null;
-            _machineView.SetActive(false);
-            _resultView.SetActive(true);
-
-            // ぶるぶる…
-            await Tween(0.5f, t =>
+            // 結果ビューで1個ずつ開封（5連は「つぎへ！」で送る）
+            for (int i = 0; i < n; i++)
             {
-                float shake = 12f * Mathf.Sin(t * 70f) * Mathf.SmoothStep(0.3f, 1f, t);
-                _resCapRoot.anchoredPosition = new Vector2(shake, 100);
-                _resCapRoot.localRotation = Quaternion.Euler(0, 0, shake * 0.6f);
-            }, ct);
-            _resCapRoot.localRotation = Quaternion.identity;
+                var result = multi.Results[i];
+                bool last = i == n - 1;
+                // GP消費の内訳は最後のカプセルの補足にだけ出す
+                if (last && multi.TotalCost > 0)
+                    result.SubText += $"\nGPを{multi.TotalCost}消費（{multi.OldGp} → {multi.NewGp}）";
 
-            // パカッ！（集中線＋景品＋紙吹雪）
-            AssetsDatabase.instance?.PlayLevelUpSE();
-            _burst.gameObject.SetActive(true);
-            ConfettiAsync(ct).Forget();
-            await Tween(0.45f, t =>
-            {
-                float e = 1f - (1f - t) * (1f - t) * (1f - t);
-                // 殻は大きく飛んでいきながらフェードアウトし、中の景品画像を見せる
-                _resCapTop.anchoredPosition = new Vector2(-70f * e, 4 + 430f * e);
-                _resCapTop.localRotation = Quaternion.Euler(0, 0, 45f * e);
-                _resCapBottom.anchoredPosition = new Vector2(50f * e, -4 - 380f * e);
-                _resCapBottom.localRotation = Quaternion.Euler(0, 0, -30f * e);
-                float fade = 1f - Mathf.Clamp01((t - 0.35f) / 0.65f);
-                SetAlpha(_resCapTopImg, fade);
-                SetAlpha(_resCapBottomImg, fade);
-                SetAlpha(_resCapShineImg, 0.55f * fade);
-                _burst.localScale = Vector3.one * e;
-                // 景品はポンッと飛び出す（少し行き過ぎて戻る）
-                float p = t < 0.7f ? Mathf.Lerp(0f, 1.15f, t / 0.7f) : Mathf.Lerp(1.15f, 1f, (t - 0.7f) / 0.3f);
-                _prizeRoot.localScale = Vector3.one * p;
-            }, ct);
+                var capColor = i == 0 ? firstColor : POP_COLORS[Random.Range(0, POP_COLORS.Length)];
+                PrepareResultView(capColor, result);
+                _multiProgressText.text = n > 1 ? $"{i + 1} / {n}" : "";
+                _nextBtn.SetActive(false);
+                _againBtn.SetActive(false);
+                _backBtn.SetActive(false);
+
+                if (i == 0)
+                {
+                    // 結果ビューへ（大きなカプセルにバトンタッチ）
+                    Destroy(droppedCap);
+                    droppedCap = null;
+                    _machineView.SetActive(false);
+                    _resultView.SetActive(true);
+                }
+
+                // ぶるぶる…
+                await Tween(0.5f, t =>
+                {
+                    float shake = 12f * Mathf.Sin(t * 70f) * Mathf.SmoothStep(0.3f, 1f, t);
+                    _resCapRoot.anchoredPosition = new Vector2(shake, 100);
+                    _resCapRoot.localRotation = Quaternion.Euler(0, 0, shake * 0.6f);
+                }, ct);
+                _resCapRoot.localRotation = Quaternion.identity;
+
+                // パカッ！（集中線＋景品＋紙吹雪）
+                AssetsDatabase.instance?.PlayLevelUpSE();
+                _burst.gameObject.SetActive(true);
+                ConfettiAsync(ct).Forget();
+                await Tween(0.45f, t =>
+                {
+                    float e = 1f - (1f - t) * (1f - t) * (1f - t);
+                    // 殻は大きく飛んでいきながらフェードアウトし、中の景品画像を見せる
+                    _resCapTop.anchoredPosition = new Vector2(-70f * e, 4 + 430f * e);
+                    _resCapTop.localRotation = Quaternion.Euler(0, 0, 45f * e);
+                    _resCapBottom.anchoredPosition = new Vector2(50f * e, -4 - 380f * e);
+                    _resCapBottom.localRotation = Quaternion.Euler(0, 0, -30f * e);
+                    float fade = 1f - Mathf.Clamp01((t - 0.35f) / 0.65f);
+                    SetAlpha(_resCapTopImg, fade);
+                    SetAlpha(_resCapBottomImg, fade);
+                    SetAlpha(_resCapShineImg, 0.55f * fade);
+                    _burst.localScale = Vector3.one * e;
+                    // 景品はポンッと飛び出す（少し行き過ぎて戻る）
+                    float p = t < 0.7f ? Mathf.Lerp(0f, 1.15f, t / 0.7f) : Mathf.Lerp(1.15f, 1f, (t - 0.7f) / 0.3f);
+                    _prizeRoot.localScale = Vector3.one * p;
+                }, ct);
+
+                if (!last)
+                {
+                    // 「つぎへ！」のタップを待って次のカプセルへ
+                    _nextTapped = false;
+                    _nextBtn.SetActive(true);
+                    while (!_nextTapped)
+                        await UniTask.Yield(PlayerLoopTiming.Update, ct);
+                    _nextBtn.SetActive(false);
+                }
+                else
+                {
+                    _againBtnText.text = count > 1 ? $"もういちど {count}連！" : "もういちど まわす！";
+                    _againBtn.SetActive(true);
+                    _backBtn.SetActive(true);
+                }
+            }
 
             // ホーム画面のレベル表示を更新する
             RefreshLabels();
@@ -265,8 +315,14 @@ public class GachaController : MonoBehaviour
         {
             if (droppedCap != null) Destroy(droppedCap);
             _drawing = false;
-            if (_drawButton != null) _drawButton.interactable = true;
+            SetDrawButtons(true);
         }
+    }
+
+    private void SetDrawButtons(bool interactable)
+    {
+        if (_drawButton != null) _drawButton.interactable = interactable;
+        if (_drawFiveButton != null) _drawFiveButton.interactable = interactable;
     }
 
     /// <summary>結果ビューの初期状態（閉じたカプセル）をセットする</summary>
@@ -589,11 +645,20 @@ public class GachaController : MonoBehaviour
         slot.GetComponent<RectTransform>().anchoredPosition = new Vector2(0, -362);
         MakeRect("__SlotInner", slot.transform, new Color(0.10f, 0.06f, 0.08f, 1f), 150, 52);
 
-        // まわすボタン
-        var drawBtn = MakeButton("__Draw", _machineView.transform, C_BTN, "5GPで まわす！", jp, 42, C_TEXT,
-            640, 140, new Vector2(0, -480), () => DrawAsync().Forget());
+        // まわすボタン（左=1回、右=5連）
+        var drawBtn = MakeButton("__Draw", _machineView.transform, C_BTN, "5GPで 1回", jp, 36, C_TEXT,
+            310, 140, new Vector2(-165, -480), () => DrawFlowAsync(1).Forget());
         _drawBtnText = drawBtn.GetComponentInChildren<TextMeshProUGUI>();
+        _drawBtnText.enableAutoSizing = true;
+        _drawBtnText.fontSizeMax = 36; _drawBtnText.fontSizeMin = 24;
         _drawButton = drawBtn.GetComponent<Button>();
+
+        var drawFiveBtn = MakeButton("__DrawFive", _machineView.transform, POP_COLORS[1], "25GPで 5連", jp, 36, Color.white,
+            310, 140, new Vector2(165, -480), () => DrawFlowAsync(5).Forget());
+        _drawFiveBtnText = drawFiveBtn.GetComponentInChildren<TextMeshProUGUI>();
+        _drawFiveBtnText.enableAutoSizing = true;
+        _drawFiveBtnText.fontSizeMax = 36; _drawFiveBtnText.fontSizeMin = 24;
+        _drawFiveButton = drawFiveBtn.GetComponent<Button>();
 
         MakeLabel(_machineView.transform, "※所持GPが足りない場合は引けません",
             jp, 23, FontStyles.Normal, C_MUTED, 840, 36, new Vector2(0, -585));
@@ -606,6 +671,10 @@ public class GachaController : MonoBehaviour
     {
         MakeLabel(_resultView.transform, "おめでとう！", jp, 56, FontStyles.Bold, C_FRAME,
             700, 90, new Vector2(0, 450));
+
+        // 5連の進行表示（例: 2 / 5。単発のときは空文字で見えない）
+        _multiProgressText = MakeLabel(_resultView.transform, "", jp, 34, FontStyles.Bold, C_MUTED,
+            300, 50, new Vector2(0, 385)).GetComponent<TextMeshProUGUI>();
 
         // 集中線（パカッの瞬間に出て回り続ける）
         var burstGO = new GameObject("__Burst");
@@ -676,20 +745,24 @@ public class GachaController : MonoBehaviour
         _prizeSubText = MakeLabel(prizeGO.transform, "", jp, 30, FontStyles.Normal, C_MUTED,
             800, 110, new Vector2(0, -350)).GetComponent<TextMeshProUGUI>();
 
-        // もう一回 ＆ もどる
-        MakeButton("__Again", _resultView.transform, C_BTN, "もういちど まわす！", jp, 40, C_TEXT,
+        // もう一回 ＆ もどる ＆ つぎへ（5連の開封送り。普段は非表示）
+        _againBtn = MakeButton("__Again", _resultView.transform, C_BTN, "もういちど まわす！", jp, 40, C_TEXT,
             600, 140, new Vector2(0, -460), () =>
             {
                 if (_drawing) return;
                 BackToMachine();
-                DrawAsync().Forget();
+                DrawFlowAsync(_lastCount).Forget(); // 直前と同じ連数で引き直す
             });
-        MakeButton("__Back", _resultView.transform, new Color(1f, 1f, 1f, 0.95f), "マシンにもどる", jp, 30, C_FRAME,
+        _againBtnText = _againBtn.GetComponentInChildren<TextMeshProUGUI>();
+        _backBtn = MakeButton("__Back", _resultView.transform, new Color(1f, 1f, 1f, 0.95f), "マシンにもどる", jp, 30, C_FRAME,
             360, 84, new Vector2(0, -590), () =>
             {
                 if (_drawing) return;
                 BackToMachine();
             });
+        _nextBtn = MakeButton("__Next", _resultView.transform, C_BTN, "つぎへ！", jp, 40, C_TEXT,
+            600, 140, new Vector2(0, -460), () => _nextTapped = true);
+        _nextBtn.SetActive(false);
     }
 
     /// <summary>1文字ずつカラフルにするリッチテキスト</summary>

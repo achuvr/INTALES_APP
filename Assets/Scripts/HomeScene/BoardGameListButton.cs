@@ -4,15 +4,26 @@ using UnityEngine;
 using UnityEngine.UI;
 
 /// <summary>
-/// Home画面に「ゲーム一覧」ボタンを追加する（コード生成）。
-/// キャラクターページ右上、図鑑ボタンのすぐ下に置き、押すと店舗のボードゲーム一覧
-/// （BoardGameListController）を開く。図鑑ボタンと同じ白角丸スタイルで統一する。
+/// お知らせページ（Page_Info）に「ゲーム一覧」ボタンを追加する（コード生成）。
+/// メニューボタン（MenuButton）と横並びの左側・下部フッターの上に置き、押すと店舗の
+/// ボードゲーム一覧（BoardGameListController）を開く。白角丸スタイル＋赤いミープルのアイコン。
 ///
 /// HomeSceneInitializer から gameObject.AddComponent&lt;BoardGameListButton&gt;() で追加される
-/// （シーン編集不要）。ZukanButton と同じ流儀。
+/// （シーン編集不要）。AccountDeletionController と同じ流儀で Page_Info の子へ移す。
 /// </summary>
 public class BoardGameListButton : MonoBehaviour
 {
+    // お知らせページ下部に横並びで置く2ボタン（ゲーム一覧/メニュー）の共通レイアウト。
+    // 画面下端アンカー基準。フッター(上端~237)とアカウント削除リンク(260〜330)の上に載せる。
+    // MenuButton も同じ値を使って右側に並べる
+    public const float INFO_BTN_W = 400f;
+    public const float INFO_BTN_H = 130f;
+    public const float INFO_BTN_X = 215f;  // 中央からの左右オフセット
+    public const float INFO_BTN_Y = 350f;  // 下端からボタン下辺までの高さ
+
+    /// <summary>ミープルの赤（ボードゲームの定番コマ色）。</summary>
+    public static readonly Color MEEPLE_RED = new Color(0.85f, 0.20f, 0.17f, 1f);
+
     private Canvas _canvas;
 
     private void Start()
@@ -31,25 +42,37 @@ public class BoardGameListButton : MonoBehaviour
         var btnGO = new GameObject("__BoardGameListButton");
         btnGO.transform.SetParent(_canvas.transform, false);
         var rt = btnGO.AddComponent<RectTransform>();
-        rt.anchorMin = rt.anchorMax = new Vector2(1f, 1f);
-        rt.pivot = new Vector2(1f, 1f);
-        rt.anchoredPosition = new Vector2(-30, -476); // 図鑑ボタン(-380)の下
-        rt.sizeDelta = new Vector2(232, 86);
+        rt.anchorMin = rt.anchorMax = new Vector2(0.5f, 0f);
+        rt.pivot = new Vector2(0.5f, 0.5f);
+        rt.anchoredPosition = new Vector2(-INFO_BTN_X, INFO_BTN_Y + INFO_BTN_H / 2f);
+        rt.sizeDelta = new Vector2(INFO_BTN_W, INFO_BTN_H);
         var bg = btnGO.AddComponent<Image>();
         GachaController.ApplyGridButtonStyle(bg);
 
-        // キャラクターページ表示中のみ出す（図鑑・履歴・フレンドと同様）
-        var page = _canvas.transform.Find("Page_Characters");
+        // お知らせページ表示中のみ出す（画面基準で位置を決めてから Page_Info の子へ移動）
+        var page = _canvas.transform.Find("Page_Info");
         if (page != null)
         {
             btnGO.transform.SetParent(page, true);
             btnGO.transform.SetAsLastSibling();
         }
+        else
+        {
+            Debug.LogWarning("[BoardGameList] Page_Info が見つからないため、Canvas直下にボタンを置きます");
+        }
 
-        // サイコロ風アイコン（左側）
-        BuildDiceIcon(btnGO.transform, ink, new Vector2(-78, 0));
+        // 赤いミープルのアイコン（左側）
+        var icon = new GameObject("__MeepleIcon");
+        icon.transform.SetParent(btnGO.transform, false);
+        var irt = icon.AddComponent<RectTransform>();
+        irt.sizeDelta = new Vector2(92, 92);
+        irt.anchoredPosition = new Vector2(-130, 0);
+        var iimg = icon.AddComponent<Image>();
+        MeepleSprite.Apply(iimg);
+        iimg.color = MEEPLE_RED;
+        iimg.raycastTarget = false;
 
-        MakeLabel(btnGO.transform, "ゲーム一覧", jp, 36, FontStyles.Bold, ink, 160, 86, new Vector2(24, 0));
+        MakeLabel(btnGO.transform, "ゲーム一覧", jp, 44, FontStyles.Bold, ink, 250, INFO_BTN_H, new Vector2(40, 0));
 
         var btn = btnGO.AddComponent<Button>();
         btn.targetGraphic = bg;
@@ -59,52 +82,8 @@ public class BoardGameListButton : MonoBehaviour
     /// <summary>ボードゲーム一覧を開く（多重オープン防止つき）。</summary>
     private void OpenList()
     {
-        if (FindObjectOfType<BoardGameListController>() != null) return; // 既に開いている
+        if (FindFirstObjectByType<BoardGameListController>() != null) return; // 既に開いている
         new GameObject("BoardGameListRoot").AddComponent<BoardGameListController>();
-    }
-
-    /// <summary>簡易のサイコロアイコン（角丸の白い面＋こげ茶のピップ5つ）。</summary>
-    private static void BuildDiceIcon(Transform parent, Color ink, Vector2 pos)
-    {
-        var die = new GameObject("__DiceIcon");
-        die.transform.SetParent(parent, false);
-        var drt = die.AddComponent<RectTransform>();
-        drt.sizeDelta = new Vector2(56, 56);
-        drt.anchoredPosition = pos;
-        var dimg = die.AddComponent<Image>();
-        RoundedRectSprite.Apply(dimg);
-        dimg.color = ink;
-        dimg.raycastTarget = false;
-
-        // 面（少し内側の明色）
-        var face = new GameObject("__Face");
-        face.transform.SetParent(die.transform, false);
-        var frt = face.AddComponent<RectTransform>();
-        frt.sizeDelta = new Vector2(44, 44);
-        var fimg = face.AddComponent<Image>();
-        RoundedRectSprite.Apply(fimg);
-        fimg.color = new Color(0.98f, 0.94f, 0.82f);
-        fimg.raycastTarget = false;
-
-        // 5の目（四隅＋中央）
-        Vector2[] pips =
-        {
-            new Vector2(-11, 11), new Vector2(11, 11),
-            new Vector2(0, 0),
-            new Vector2(-11, -11), new Vector2(11, -11),
-        };
-        foreach (var p in pips)
-        {
-            var pip = new GameObject("__Pip");
-            pip.transform.SetParent(face.transform, false);
-            var prt = pip.AddComponent<RectTransform>();
-            prt.sizeDelta = new Vector2(9, 9);
-            prt.anchoredPosition = p;
-            var pimg = pip.AddComponent<Image>();
-            RoundedRectSprite.Apply(pimg);
-            pimg.color = ink;
-            pimg.raycastTarget = false;
-        }
     }
 
     private static TMP_FontAsset GetJpFont()
