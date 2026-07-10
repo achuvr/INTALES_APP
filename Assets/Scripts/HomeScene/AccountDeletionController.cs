@@ -14,7 +14,7 @@ using YokeijoAssets;
 /// 退会（アカウント削除）機能。Google Playの「アカウント作成があるアプリは
 /// アプリ内に削除手段を提供すること」という要件に対応する。
 ///
-/// 入口: Page_Info 下部の「アカウント削除」ボタン（コード生成）
+/// 入口: アカウントモーダル（AccountButton）内の「アカウント削除」リンク
 /// 流れ: 警告モーダル → 最終確認モーダル → 削除実行
 ///
 /// 削除内容:
@@ -43,41 +43,19 @@ public class AccountDeletionController : MonoBehaviour
     {
         var canvasGO = GameObject.Find("Canvas");
         _canvas = canvasGO != null ? canvasGO.GetComponent<Canvas>() : FindFirstObjectByType<Canvas>();
-        if (_canvas == null) return;
-        BuildEntryButton();
+        // 入口ボタンは置かない（アカウントモーダル内の「アカウント削除」リンクから開く）
     }
 
-    // ================================================================
-    // 入口ボタン（Page_Info の下部）
-    // ================================================================
-    private void BuildEntryButton()
+    /// <summary>アカウント削除フローを開く（アカウントモーダルの「アカウント削除」リンクから呼ばれる）</summary>
+    public void OpenDeletionFlow()
     {
-        // 画面基準で位置を決めてから Page_Info の子へ移動（表示中のみ見える）
-        var go = MakeRect("__DeleteAccountBtn", _canvas.transform, new Color(0, 0, 0, 0f), 360, 70);
-        var rt = go.GetComponent<RectTransform>();
-        rt.anchorMin = rt.anchorMax = new Vector2(0.5f, 0f);
-        rt.pivot = new Vector2(0.5f, 0f);
-        rt.anchoredPosition = new Vector2(0, 260); // 下部UIと被らない位置
-
-        var jp = GetJpFont();
-        var label = MakeLabel(go.transform, "アカウント削除", jp, 32, FontStyles.Underline,
-            new Color(0.75f, 0.30f, 0.30f, 0.9f), 360, 70, Vector2.zero);
-
-        var btn = go.AddComponent<Button>();
-        btn.transition = Selectable.Transition.None;
-        btn.onClick.AddListener(ShowWarningModal);
-        label.GetComponent<TextMeshProUGUI>().raycastTarget = true;
-
-        var page = _canvas.transform.Find("Page_Info");
-        if (page != null)
+        if (_canvas == null)
         {
-            go.transform.SetParent(page, true);
-            go.transform.SetAsLastSibling();
+            var canvasGO = GameObject.Find("Canvas");
+            _canvas = canvasGO != null ? canvasGO.GetComponent<Canvas>() : FindFirstObjectByType<Canvas>();
+            if (_canvas == null) return;
         }
-        else
-        {
-            Debug.LogWarning("[AccountDeletion] Page_Info が見つからないため、Canvas直下にボタンを置きます");
-        }
+        ShowWarningModal();
     }
 
     // ================================================================

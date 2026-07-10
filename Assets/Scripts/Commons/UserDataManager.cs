@@ -36,8 +36,10 @@ public class UserDataManager : SingletonBehaviour<UserDataManager>
 
     public void FetchUserDataByUID(char init)
     {
-        Debug.Log("FetchUserDataByUID.CreateNewCharacter()");
-        _createNewCharacterPanel.SetActive(true);
+        // 新規アカウントの初期化完了。キャラクター作成画面は直接開かず、
+        // FirebaseAuth 側の「キャラクターを作成しますか？」モーダルの選択に委ねる
+        // （いいえ＝キャラクターチケットを受け取ってHomeへ）
+        Debug.Log("FetchUserDataByUID: 新規アカウント初期化完了");
         _loadingPanel.SetActive(false);
     }
 
@@ -129,6 +131,10 @@ public class UserData
     [FirestoreProperty("name")]
     public string Username { get; set; }
 
+    /// <summary>ユーザー名を最後に編集した日時（編集は1週間に1回まで。未編集なら1970年=編集可）</summary>
+    [FirestoreProperty("name_edited_at")]
+    public Timestamp NameEditedAt { get; set; }
+
     /// <summary>ユーザー名を最後に変更した日時（未設定=未変更。変更は1か月に1回まで）。</summary>
     [FirestoreProperty("name_changed_at")]
     public Timestamp NameChangedAt { get; set; }
@@ -165,6 +171,14 @@ public class UserData
     public int DrinkCoupon { get; set; }
     [FirestoreProperty("coffee_coupon")]
     public int CoffeeCoupon { get; set; }
+
+    /// <summary>キャラクターチケット（レベル50到達ごとのボーナス。ガチャからは排出されない）</summary>
+    [FirestoreProperty("character_ticket")]
+    public int CharacterTicket { get; set; }
+
+    /// <summary>キャラクターチケットの付与済みマイルストーン数（全キャラの lv÷50 の合計。二重付与防止）</summary>
+    [FirestoreProperty("char_ticket_milestones")]
+    public int CharTicketMilestones { get; set; }
 
     /// <summary>
     /// Firestore の characters マップ（キー: "0","1",... のスロット番号）。

@@ -47,6 +47,11 @@ public class HomeSceneInitializer : MonoBehaviour
         // ローカルに保存した装備データをキャラクターに復元
         LocalEquipSave.ApplyAll(UserDataManager.instance.UserData.Characters);
 
+        // キャラクターチケット: 使用途中フラグの後始末と、Lv50到達の取りこぼし精算
+        // （導入前からLv50を超えていたキャラのぶんも初回起動時にここで付与される）
+        CharacterTicketService.PendingUse = false;
+        CharacterTicketService.CheckAndGrantAsync().Forget();
+
         // フレンド機能のUI（コード生成）をセットアップ（シーン編集不要で追加するため）
         if (GetComponent<FriendMenuController>() == null)
             gameObject.AddComponent<FriendMenuController>();
@@ -87,6 +92,14 @@ public class HomeSceneInitializer : MonoBehaviour
         if (GetComponent<MenuButton>() == null)
             gameObject.AddComponent<MenuButton>();
 
+        // アカウント（お知らせページのアカウントボタンから、ユーザー名編集・ログアウト）
+        if (GetComponent<AccountButton>() == null)
+            gameObject.AddComponent<AccountButton>();
+
+        // 募集チャット（お知らせページの募集ボタンから開く。中身は未実装のガワのみ）
+        if (GetComponent<RecruitChatButton>() == null)
+            gameObject.AddComponent<RecruitChatButton>();
+
         // タブレット(横長比率)でフッターと重なる下部の6ボタンを
         // 2行3列に組み替えてフッター上に収める（スマホは変更なし）
         if (GetComponent<TabletFooterLayout>() == null)
@@ -100,10 +113,30 @@ public class HomeSceneInitializer : MonoBehaviour
         if (LocalVisitLog.AutoCloseStaleVisits() > 0)
             PresenceService.SetCheckedInAsync(false).Forget();
 
-        if (UserDataManager.instance.UserData.Characters.Count == 1)
+        // キャラクター0体でも動くようにする（アカウント作成時に「あとで作る」を選んだ場合）。
+        // キャラクターチケットで作成するまではプレースホルダを表示する
+        var characters = UserDataManager.instance.UserData.Characters;
+        if (characters.Count <= 1)
         {
             _leftArrow.SetActive(false);
             _rightArrow.SetActive(false);
+        }
+        if (characters.Count == 0)
+        {
+            // シーンの文字サイズ（名前78pt/ステータス71pt）は短い定型文用なので、
+            // 案内文はこの場でだけ小さくする（キャラ作成後はHome再ロードで元に戻る）
+            _nameText.text = "キャラクター未作成";
+            _nameText.fontSize = 54f;
+            _statusText.text = "バッグのキャラクターチケットで\nキャラクターを作成できます";
+            _statusText.fontSize = 38f;
+            if (_jobImage != null) _jobImage.enabled = false;
+            // キャラクター前提の機能は押せないようにする（作成後のHome再ロードで自動復帰）
+            SetSceneButtonInteractable("Button_Battle", false);      // 戦闘
+            SetSceneButtonInteractable("Button_OpenProfile", false); // 情報
+            SetSceneButtonInteractable("Button_Equipment", false);   // 装備
+            // 図鑑・グループのボタンはコード生成のため、生成されるのを待って無効化する
+            StartCoroutine(DisableRuntimeButtonsWhenReady(new[] { "__ZukanButton", "__GroupButton" }));
+            return; // 以降は選択中キャラクター前提の表示のため何もしない
         }
 
         _nameText.text = UserDataManager.instance.UserData.Characters[UserDataManager.instance.CurrentSelectCharacterNumber].Name;
@@ -187,6 +220,50 @@ public class HomeSceneInitializer : MonoBehaviour
 #endif
 
     /// <summary>
+    /// 実行時生成のボタン（図鑑・グループ）が生成されるのを待って無効化する。
+    /// キャラクター未作成のときに使う（最大約2秒待ち、生成され次第すぐ無効化）。
+    /// </summary>
+    private System.Collections.IEnumerator DisableRuntimeButtonsWhenReady(string[] names)
+    {
+        int left = names.Length;
+        for (int frame = 0; frame < 120 && left > 0; frame++)
+        {
+            for (int i = 0; i < names.Length; i++)
+            {
+                if (names[i] == null) continue;
+                foreach (var go in Resources.FindObjectsOfTypeAll<GameObject>())
+                {
+                    if (go.name != names[i] || !go.scene.IsValid()) continue;
+                    var btn = go.GetComponent<UnityEngine.UI.Button>();
+                    if (btn != null) btn.interactable = false;
+                    names[i] = null;
+                    left--;
+                    break;
+                }
+            }
+            yield return null;
+        }
+        for (int i = 0; i < names.Length; i++)
+            if (names[i] != null) Debug.LogWarning($"[Home] ボタンが見つかりません: {names[i]}");
+    }
+
+    /// <summary>
+    /// シーン上のボタンの押下可否を切り替える（非アクティブページ配下も対象）。
+    /// キャラクター未作成の間、戦闘・情報・装備ボタンを無効化するのに使う。
+    /// </summary>
+    private static void SetSceneButtonInteractable(string name, bool interactable)
+    {
+        foreach (var go in Resources.FindObjectsOfTypeAll<GameObject>())
+        {
+            if (go.name != name || !go.scene.IsValid()) continue;
+            var btn = go.GetComponent<UnityEngine.UI.Button>();
+            if (btn != null) btn.interactable = interactable;
+            return;
+        }
+        Debug.LogWarning($"[Home] ボタンが見つかりません: {name}");
+    }
+
+    /// <summary>
     /// シーン内の全画面背景（Image_Background、各ページに1枚ずつ）へ
     /// 古地図風のプロシージャルテクスチャを貼る。
     /// CanvasFloat 内の小さな Image_Background は対象外（幅でフィルタ）。
@@ -235,8 +312,11 @@ public class HomeSceneInitializer : MonoBehaviour
             _todayText.fontSizeMax = _todayText.fontSize; // 元の71ptを上限に
             _todayText.fontSizeMin = 40;
 
-            var chara = UserDataManager.instance.UserData.Characters[UserDataManager.instance.CurrentSelectCharacterNumber];
-            _todayText.text = BuildTodayText(_today, chara.Job, chara.Element);
+            // キャラクター0体でも落ちないように（未作成時は強調なしの本日情報だけ出す）
+            var chara = System.Linq.Enumerable.ElementAtOrDefault(
+                UserDataManager.instance.UserData.Characters,
+                UserDataManager.instance.CurrentSelectCharacterNumber);
+            _todayText.text = BuildTodayText(_today, chara?.Job, chara?.Element);
         }
         catch (System.Exception ex)
         {

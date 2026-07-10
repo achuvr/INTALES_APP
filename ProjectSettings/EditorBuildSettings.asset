@@ -29,6 +29,9 @@ EditorBuildSettings:
   - enabled: 1
     path: Assets/Scenes/dev/BuffCardDeckBuilder.unity
     guid: b0ffca2ddeadbeefcafe12345678abcd
+  - enabled: 1
+    path: Assets/Scenes/GameImageAdmin.unity
+    guid: 1ed1abf50acef1bfd9f449025ca9ff61
   m_configObjects:
     com.unity.input.settings.actions: {fileID: -944628639613478452, guid: 052faaac586de48259a63d0c4782560b, type: 3}
   m_UseUCBPForAssetBundles: 0

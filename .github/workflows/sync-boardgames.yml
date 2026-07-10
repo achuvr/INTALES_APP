@@ -37,3 +37,12 @@ jobs:
         working-directory: tools/firestore
         env:
           GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/sa.json
+
+      # 相席募集ボードの期限切れ投稿を削除する（募集は当日限りの使い捨て。
+      # 通報付きは店側確認のため7日間保持）。詳細: tools/firestore/cleanup-recruits.js
+      - name: Cleanup expired recruits
+        if: always() # スクレイプが失敗しても掃除は実行する
+        run: node cleanup-recruits.js
+        working-directory: tools/firestore
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/sa.json

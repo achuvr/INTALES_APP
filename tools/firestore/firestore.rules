@@ -97,6 +97,108 @@ service cloud.firestore {
     }
 
     // ================================================================
+    // 相席募集ボード（recruits/{postId}）
+    //   自由入力を持たない完全選択式の掲示板（RecruitBoardController）。
+    //   誹謗中傷対策としてルールレベルで書き込み形状を強制する:
+    //     ・自由文フィールドは存在しない。tags/slot/seats/msg/理由は数値IDのみ
+    //     ・name は users/{uid}.name と完全一致（なりすまし・別名の防止）
+    //     ・game は文字列だがクライアントは「ローカルのカタログに実在する
+    //       タイトルだけ」を表示するため、不正な文字列を書いても表示されない
+    //     ・参加表明/通報は participants/reports マップの「自分のUIDのキー」のみ
+    //     ・expires_at は最大92日先まで（クライアントはカレンダーで90日先まで。
+    //       消えない募集は作れない）
+    //     ・game_custom は店側だけが設定できる表示用タイトル（持ち込みゲームの
+    //       正式名を後から入れる用途）。管理者アカウントはアプリ内から更新可
+    //       （update(4)）。一般ユーザーは create の hasOnly と update の
+    //       affectedKeys 制約により一切書き込めない
+    // ================================================================
+    match /recruits/{postId} {
+      allow read: if signedIn();
+
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly([
+             'uid', 'name', 'game', 'date', 'slot', 'seats', 'tags',
+             'status', 'participants', 'reports', 'created_at', 'expires_at'])
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.name ==
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.name
+        && request.resource.data.name is string
+        && request.resource.data.name.size() >= 1
+        && request.resource.data.name.size() <= 12
+        && request.resource.data.game is string
+        && request.resource.data.game.size() <= 100
+        && request.resource.data.date is string
+        && request.resource.data.date.size() == 10
+        // 時間枠: 12:00(720)〜22:30(1350)の30分刻み
+        && request.resource.data.slot is int
+        && request.resource.data.slot >= 720
+        && request.resource.data.slot <= 1350
+        && request.resource.data.slot % 30 == 0
+        && request.resource.data.seats is int
+        && request.resource.data.seats >= 1
+        && request.resource.data.seats <= 9
+        && request.resource.data.tags is list
+        && request.resource.data.tags.size() <= 4
+        && request.resource.data.tags.hasOnly([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11])
+        && request.resource.data.status == 'open'
+        && request.resource.data.participants == {}
+        && request.resource.data.reports == {}
+        && request.resource.data.created_at == request.time
+        && request.resource.data.expires_at is timestamp
+        && request.resource.data.expires_at < request.time + duration.value(92, 'd');
+
+      allow update: if signedIn() && (
+        // (1) 投稿者が締め切る/再開する（status のみ変更可）
+        (
+          resource.data.uid == request.auth.uid
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
+          && request.resource.data.status in ['open', 'closed']
+        )
+        // (2) 参加表明・参加取り消し（participants マップの自分のキーのみ）
+        || (
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['participants'])
+          && request.resource.data.get('participants', {})
+               .diff(resource.data.get('participants', {}))
+               .affectedKeys().hasOnly([request.auth.uid])
+          && (
+            // 取り消し（自分のキーを削除）はそのまま許可
+            !(request.auth.uid in request.resource.data.get('participants', {}))
+            // 追加・変更は {name(本人のユーザー名), msg(定型ID)} の形だけ許可
+            || (
+              request.resource.data.participants[request.auth.uid].keys().hasOnly(['name', 'msg'])
+              && request.resource.data.participants[request.auth.uid].name ==
+                   get(/databases/$(database)/documents/users/$(request.auth.uid)).data.name
+              && request.resource.data.participants[request.auth.uid].msg is int
+              && request.resource.data.participants[request.auth.uid].msg >= 0
+              && request.resource.data.participants[request.auth.uid].msg < 5
+            )
+          )
+        )
+        // (3) 通報（reports マップの自分のキーのみ・理由は定型ID）
+        || (
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['reports'])
+          && request.resource.data.get('reports', {})
+               .diff(resource.data.get('reports', {}))
+               .affectedKeys().hasOnly([request.auth.uid])
+          && request.resource.data.reports[request.auth.uid] is int
+          && request.resource.data.reports[request.auth.uid] >= 0
+          && request.resource.data.reports[request.auth.uid] < 3
+        )
+        // (4) 管理者による表示用タイトルの設定（持ち込みゲーム用。game_custom のみ変更可）
+        || (
+          isAdmin()
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['game_custom'])
+          && request.resource.data.game_custom is string
+          && request.resource.data.game_custom.size() <= 100
+        )
+      );
+
+      // 取り消しは投稿者本人、モデレーションは管理者
+      allow delete: if signedIn()
+        && (resource.data.uid == request.auth.uid || isAdmin());
+    }
+
+    // ================================================================
     // 旧構造（バックアップ残置分）: 読み取りのみ許可、書き込みは禁止
     // ================================================================
     match /events/{docId} {

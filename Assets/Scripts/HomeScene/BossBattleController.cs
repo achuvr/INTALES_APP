@@ -989,6 +989,7 @@ public class BossBattleController : MonoBehaviour
             chara.Level = newLevel;
             if (gp > 0) manager.UserData.GP += gp;
             Debug.Log($"[Boss] 討伐報酬: Lv{newLevel} / GP+{gp}");
+            await CharacterTicketService.CheckAndGrantAsync(); // Lv50到達ごとのキャラクターチケット
         }
         catch (System.Exception ex)
         {

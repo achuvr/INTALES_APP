@@ -21,6 +21,7 @@ public class CharacterPageManager : MonoBehaviour
 
     public void PageUp()
     {
+        if (UserDataManager.instance.UserData.Characters.Count == 0) return; // キャラ未作成
         _currentPage++;
         if (UserDataManager.instance.UserData.Characters.Count <= _currentPage)
             _currentPage = 0;
@@ -30,6 +31,7 @@ public class CharacterPageManager : MonoBehaviour
 
     public void PageDown()
     {
+        if (UserDataManager.instance.UserData.Characters.Count == 0) return; // キャラ未作成
         _currentPage--;
         if (0 > _currentPage)
             _currentPage = UserDataManager.instance.UserData.Characters.Count - 1;
@@ -40,7 +42,10 @@ public class CharacterPageManager : MonoBehaviour
     public void ChangePage()
     {
         var assets = AssetsDatabase.instance;
-        var chara = UserDataManager.instance.UserData.Characters[_currentPage];
+        var characters = UserDataManager.instance.UserData.Characters;
+        if (characters.Count == 0) return; // キャラ未作成（チケットで作成するまで表示なし）
+        if (_currentPage >= characters.Count) _currentPage = 0; // 範囲外になった場合の保険
+        var chara = characters[_currentPage];
 
         _nameText.text = chara.Name;
         _statusText.text = "職業　　";
@@ -157,7 +162,9 @@ public class CharacterPageManager : MonoBehaviour
     /// </summary>
     public void OnCharacterPageOpened()
     {
-        var chara = UserDataManager.instance.UserData.Characters[_currentPage];
+        var characters = UserDataManager.instance.UserData.Characters;
+        if (_currentPage >= characters.Count) return; // キャラ未作成
+        var chara = characters[_currentPage];
         if (ElementEffectController.instance != null)
             ElementEffectController.instance.PlayEffect(chara.Element);
     }

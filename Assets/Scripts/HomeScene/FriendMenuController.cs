@@ -841,11 +841,20 @@ public class FriendMenuController : MonoBehaviour
         rt.anchorMin = rt.anchorMax = new Vector2(0.5f, 0f);
         rt.pivot = new Vector2(0.5f, 0f);
         rt.anchoredPosition = new Vector2(0, 320);
-        rt.sizeDelta = new Vector2(900, 130);
+        // 幅はキャンバス実寸に収める（QRシーン等、参照解像度が異なるキャンバスでもはみ出さない）
+        var canvasRt = canvas.transform as RectTransform;
+        float w = Mathf.Min(900f, (canvasRt != null ? canvasRt.rect.width : 900f) - 60f);
+        rt.sizeDelta = new Vector2(w, 130);
         go.AddComponent<Image>().color = new Color(0.10f, 0.08f, 0.06f, 0.88f);
 
-        var label = MakeLabel("__Text", go.transform, message, jp, 40, FontStyles.Bold, Color.white, 860, 120);
-        label.GetComponent<TextMeshProUGUI>().alignment = TextAlignmentOptions.Center;
+        var label = MakeLabel("__Text", go.transform, message, jp, 40, FontStyles.Bold, Color.white, w - 40f, 120);
+        var tmp = label.GetComponent<TextMeshProUGUI>();
+        tmp.alignment = TextAlignmentOptions.Center;
+        // 長文でも箱からはみ出さない（折り返し＋自動縮小）
+        tmp.enableWordWrapping = true;
+        tmp.enableAutoSizing = true;
+        tmp.fontSizeMax = 40;
+        tmp.fontSizeMin = 22;
 
         go.AddComponent<ToastFader>();
     }

@@ -46,15 +46,23 @@ public class CreateNewCharacter : MonoBehaviour
             { "name", _characterNameInputField.text }
         };
 
+        // キャラクターチケット使用による作成なら、作成と同じ書き込みで1枚消費する
+        // （別書き込みにすると片方だけ成功する事故があり得るため、必ず同時に反映する）
+        bool useTicket = CharacterTicketService.PendingUse
+                         && UserDataManager.instance.UserData != null
+                         && UserDataManager.instance.UserData.CharacterTicket > 0;
+
+        var updates = new Dictionary<string, object>
+        {
+            { "characters", new Dictionary<string, object> { { newIndex.ToString(), characterData } } }
+        };
+        if (useTicket)
+            updates["character_ticket"] = FieldValue.Increment(-1);
+
         try
         {
             // characters.{newIndex} だけを深いマージで書き込む
-            await db.Collection("users").Document(uid).SetAsync(
-                new Dictionary<string, object>
-                {
-                    { "characters", new Dictionary<string, object> { { newIndex.ToString(), characterData } } }
-                },
-                SetOptions.MergeAll);
+            await db.Collection("users").Document(uid).SetAsync(updates, SetOptions.MergeAll);
 
             Debug.Log($"キャラクターを作成しました: {_characterNameInputField.text} (slot {newIndex})");
         }
@@ -64,6 +72,18 @@ public class CreateNewCharacter : MonoBehaviour
             SetLoading(false);
             return;
         }
+
+        if (useTicket)
+        {
+            UserDataManager.instance.UserData.CharacterTicket--;
+            CharacterTicketService.PendingUse = false;
+            LocalHistoryLog.Add("coupon",
+                $"キャラクターチケット を1枚 使用（{_characterNameInputField.text} を作成）");
+        }
+
+        // 新規キャラは何も装備していない状態で始める
+        // （装備はキャラ番号キーの端末保存のため、過去に同じ番号だったキャラの装備が残っている）
+        LocalEquipSave.ClearCharacter(newIndex);
 
         // 新規アカウント直後はローカルにユーザーデータが無いことがあるため、
         // キャラ作成時だけは1回の再取得（1ドキュメント）で確実に同期してからHomeへ

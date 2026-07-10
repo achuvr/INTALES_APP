@@ -41,4 +41,17 @@ public static class LocalEquipSave
         for (int i = 0; i < characters.Count; i++)
             ApplyToCharacter(i, characters[i]);
     }
+
+    /// <summary>
+    /// 指定キャラ番号のローカル装備データを全スロット消去する。
+    /// キーはキャラ番号ベースのため、過去に同じ番号を使っていたキャラ（別アカウントや
+    /// 引き継ぎ前のデータ）の装備が新規キャラに乗り移らないよう、キャラ新規作成時に呼ぶ。
+    /// </summary>
+    public static void ClearCharacter(int charIdx)
+    {
+        foreach (EquipmentSlot slot in System.Enum.GetValues(typeof(EquipmentSlot)))
+            PlayerPrefs.DeleteKey(Key(charIdx, slot));
+        PlayerPrefs.Save();
+        Debug.Log($"[LocalEquipSave] Cleared: char={charIdx}");
+    }
 }

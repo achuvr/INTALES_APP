@@ -150,8 +150,11 @@ public static class BoardGamePhotoStore
         return sb.ToString();
     }
 
-    /// <summary>長辺が maxSize を超えるテクスチャを縮小する（超えない場合は元をそのまま返す）。</summary>
-    private static Texture2D Downscale(Texture2D src, int maxSize)
+    /// <summary>
+    /// 長辺が maxSize を超えるテクスチャを縮小する（超えない場合は元をそのまま返す）。
+    /// GameImageAdminController（ゲーム画像のアップロード前縮小）からも利用する。
+    /// </summary>
+    public static Texture2D Downscale(Texture2D src, int maxSize)
     {
         int longer = Mathf.Max(src.width, src.height);
         if (longer <= maxSize) return src;

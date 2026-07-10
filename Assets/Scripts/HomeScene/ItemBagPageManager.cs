@@ -50,6 +50,14 @@ public class ItemBagPageManager : MonoBehaviour
     private const string ATK_COUPON_NAME = "ATK+1チケット";
     private const string ATK_COUPON_EXPLANATION = "ATKが1上がるチケット。";
 
+    // キャラクターチケット（ガチャ排出なし。Lv50到達ごとのボーナス。1度に1枚のみ使用可）
+    private const string CHARACTER_TICKET_TYPE = "character";
+    private const string CHARACTER_TICKET_NAME = "キャラクターチケット";
+    private const string CHARACTER_TICKET_EXPLANATION = "新しいキャラクターを1体作れるチケット。";
+
+    /// <summary>キャラクターチケット行の枚数表示（行ごと実行時に生成する）</summary>
+    private TextMeshProUGUI _characterTicketText;
+
     private string _currentCouponName = "";
 
     /// <summary>枚数選択中の「合計 ◯% OFF」表示（5%/7%クーポンのみ。実行時に生成）</summary>
@@ -59,10 +67,78 @@ public class ItemBagPageManager : MonoBehaviour
     
     private void Start()
     {
+        BuildCharacterTicketRow(); // RestyleBagPage が行スタイルも整えるため、その前に作る
         UpdateCouponDisplay();
         RestyleCouponPanel();
         RestyleBagPage();
         gameObject.SetActive(false);
+    }
+
+    /// <summary>
+    /// キャラクターチケットの行を、ATK行の複製で実行時に追加する（シーン編集なし）。
+    /// 行名は Button_5 にして RestyleBagPage の行スタイル適用（Button_+数字1桁）に乗せる。
+    /// 行の位置は「コーヒー行→ATK行」の間隔ぶんだけATK行の下に置く。
+    /// </summary>
+    private void BuildCharacterTicketRow()
+    {
+        Transform RowOf(TextMeshProUGUI t)
+        {
+            for (var p = t != null ? t.transform : null; p != null; p = p.parent)
+                if (p.name.StartsWith("Button_")) return p;
+            return null;
+        }
+        var atkRow = RowOf(_atkCouponText);
+        var coffeeRow = RowOf(_coffeeCouponText);
+        if (atkRow == null || coffeeRow == null)
+        {
+            Debug.LogWarning("[Bag] クーポン行を特定できないため、キャラクターチケット行の追加をスキップします");
+            return;
+        }
+
+        var clone = Instantiate(atkRow.gameObject, atkRow.parent);
+        clone.name = "Button_5";
+        var rt = (RectTransform)clone.transform;
+        var atkRt = (RectTransform)atkRow;
+        var coffeeRt = (RectTransform)coffeeRow;
+        rt.anchoredPosition = atkRt.anchoredPosition + (atkRt.anchoredPosition - coffeeRt.anchoredPosition);
+
+        foreach (var t in clone.GetComponentsInChildren<Transform>(true))
+        {
+            switch (t.name)
+            {
+                case "Text_ItemName":
+                {
+                    var tmp = t.GetComponent<TextMeshProUGUI>();
+                    if (tmp != null)
+                    {
+                        tmp.text = CHARACTER_TICKET_NAME;
+                        // 既存行より名前が長いので、はみ出すぶんは自動縮小で収める
+                        tmp.enableAutoSizing = true;
+                        tmp.fontSizeMax = tmp.fontSize;
+                        tmp.fontSizeMin = tmp.fontSize * 0.5f;
+                    }
+                    break;
+                }
+                case "Text_ItemCount":
+                    _characterTicketText = t.GetComponent<TextMeshProUGUI>();
+                    break;
+                case "Image_Icon":
+                {
+                    var img = t.GetComponent<Image>();
+                    if (img != null && CharacterTicketService.IconSprite != null)
+                        img.sprite = CharacterTicketService.IconSprite;
+                    break;
+                }
+            }
+        }
+
+        var btn = clone.GetComponent<Button>();
+        if (btn != null)
+        {
+            // 複製元のonClick（"atk"引数のシーン設定）を丸ごと差し替える
+            btn.onClick = new Button.ButtonClickedEvent();
+            btn.onClick.AddListener(() => OnClickItemButton(CHARACTER_TICKET_TYPE));
+        }
     }
 
     /// <summary>
@@ -200,6 +276,8 @@ public class ItemBagPageManager : MonoBehaviour
         _drinkCouponText.text = UserDataManager.instance.UserData.DrinkCoupon.ToString();
         _coffeeCouponText.text = UserDataManager.instance.UserData.CoffeeCoupon.ToString();
         _atkCouponText.text = UserDataManager.instance.UserData.ATKCoupon.ToString();
+        if (_characterTicketText != null)
+            _characterTicketText.text = UserDataManager.instance.UserData.CharacterTicket.ToString();
     }
 
     /// <summary>
@@ -241,6 +319,13 @@ public class ItemBagPageManager : MonoBehaviour
     /// </summary>
     private async UniTask UseCoupon()
     {
+        // キャラクターチケットは消費フローが特殊（キャラ作成の書き込みと同時に消費）なので別処理
+        if (_currentCouponName == CHARACTER_TICKET_TYPE)
+        {
+            UseCharacterTicket();
+            return;
+        }
+
         string couponField;
         string couponDisplayName;
         System.Action<UserData, int> applyLocal;
@@ -325,6 +410,26 @@ public class ItemBagPageManager : MonoBehaviour
             LocalHistoryLog.Add("coupon", $"{couponDisplayName} を{usedCount}枚 使用");
             ShowItemUsedPopup(couponDisplayName, usedCount).Forget();
         }
+    }
+
+    /// <summary>
+    /// キャラクターチケットを使う（1度に1枚のみ）。
+    /// ここではまだ消費せず、キャラクター作成シーン（New）をHomeに加算マージで開く。
+    /// チケットの消費（-1）はキャラクター作成の書き込みと同時に行う
+    /// （CreateNewCharacter 側。作成せずアプリを終了した場合にチケットだけ減る事故を防ぐ）。
+    /// </summary>
+    private void UseCharacterTicket()
+    {
+        if (UserDataManager.instance.UserData.CharacterTicket <= 0) return;
+
+        _numOfUsingCoupon = 0;
+        _numOfUsingCouponText.text = "0";
+        _couponPanel.SetActive(false);
+
+        CharacterTicketService.PendingUse = true;
+        if (SceneLoader.instance == null)
+            new GameObject("SceneLoader").AddComponent<SceneLoader>();
+        SceneLoader.instance.MergeScene("New");
     }
 
     /// <summary>割引上限（%）。チケット説明文の「最大100%オフまで可能」に対応</summary>
@@ -435,6 +540,14 @@ public class ItemBagPageManager : MonoBehaviour
                     _numOfUsingCoupon = UserDataManager.instance.UserData.ATKCoupon;
                 }
                 break;
+
+            case CHARACTER_TICKET_TYPE:
+            {
+                // 1度に1枚しか使えない（所持0枚なら0のまま）
+                int max = Mathf.Min(1, UserDataManager.instance.UserData.CharacterTicket);
+                if (_numOfUsingCoupon > max) _numOfUsingCoupon = max;
+                break;
+            }
         }
         _numOfUsingCouponText.text = _numOfUsingCoupon.ToString();
         UpdateTotalDiscountText();
@@ -493,6 +606,12 @@ public class ItemBagPageManager : MonoBehaviour
                 _itemImage.sprite = AssetsDatabase.instance.AtkCouponSprite;
                 _nameText.text = ATK_COUPON_NAME;
                 _explanationText.text = ATK_COUPON_EXPLANATION;
+                break;
+
+            case CHARACTER_TICKET_TYPE:
+                _itemImage.sprite = CharacterTicketService.IconSprite;
+                _nameText.text = CHARACTER_TICKET_NAME;
+                _explanationText.text = CHARACTER_TICKET_EXPLANATION;
                 break;
         }
         _currentCouponName = type;

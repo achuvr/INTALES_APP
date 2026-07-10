@@ -18,7 +18,15 @@ public class CallMethodFromQR : MonoBehaviour
     public async UniTask LevelUp(int upLevel)
     {
         var charIdx = UserDataManager.instance.CurrentSelectCharacterNumber;
-        var chara = UserDataManager.instance.UserData.Characters[charIdx];
+        var chars = UserDataManager.instance.UserData.Characters;
+        if (chars == null || charIdx >= chars.Count)
+        {
+            // キャラ未作成（アカウント作成時に「あとで作る」を選んだ場合）
+            FriendMenuController.ShowToast("キャラクターがいません\nバッグのキャラクターチケットで作成できます");
+            EndFromButton();
+            return;
+        }
+        var chara = chars[charIdx];
         int newLevel = chara.Level + upLevel;
 
         try
@@ -32,6 +40,7 @@ public class CallMethodFromQR : MonoBehaviour
             chara.Level = newLevel;
             Debug.Log($"[QR] レベルアップ: {chara.Name} → Lv{newLevel}");
             AssetsDatabase.instance.PlayLevelUpSE(); // レベルアップSEを再生
+            await CharacterTicketService.CheckAndGrantAsync(); // Lv50到達ごとのキャラクターチケット
             End();
         }
         catch (System.Exception ex)
@@ -236,6 +245,10 @@ public class CallMethodFromQR : MonoBehaviour
             manager.UserData.SevenCoupon += sevenCoupon;
             manager.UserData.DrinkCoupon += drinkCoupon;
 
+            // 引き継いだキャラは何も装備していない状態で始める
+            // （装備はキャラ番号キーの端末保存のため、過去に同じ番号だったキャラの装備が残っている）
+            LocalEquipSave.ClearCharacter(newIndex);
+
             Debug.Log($"[QR] 会員証引き継ぎ完了: {charaName} Lv{level} クーポン5%×{fiveCoupon}/7%×{sevenCoupon}/ドリンク×{drinkCoupon} ({code})");
             AssetsDatabase.instance?.PlayLevelUpSE();
             End();
@@ -391,6 +404,7 @@ public class CallMethodFromQR : MonoBehaviour
         }).AsUniTask();
 
         chara.Level = newLv;
+        await CharacterTicketService.CheckAndGrantAsync(); // Lv50到達ごとのキャラクターチケット
         return (oldLv, newLv, chara.Name);
     }
 
@@ -449,6 +463,7 @@ public class CallMethodFromQR : MonoBehaviour
             InfoModal.Show("ご来店ありがとうございます！",
                 $"{chara.Name} がレベルアップ！\nLv{oldLv} → Lv{newLv}",
                 string.Join("\n", parts), strongYOffset: 40f);
+            await CharacterTicketService.CheckAndGrantAsync(); // Lv50到達ごとのキャラクターチケット
         }
         catch (System.Exception ex)
         {
