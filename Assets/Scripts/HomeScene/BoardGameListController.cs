@@ -280,6 +280,7 @@ public class BoardGameListController : MonoBehaviour
         trt.anchorMin = new Vector2(0f, 1f); trt.anchorMax = new Vector2(1f, 1f);
         trt.pivot = new Vector2(0.5f, 1f);
         trt.offsetMin = new Vector2(0f, -TITLE_H); trt.offsetMax = new Vector2(0f, 0f);
+        UITheme.PolishTitleBar(titleBar);
 
         var titleGO = new GameObject("__TitleLabel");
         titleGO.transform.SetParent(titleBar.transform, false);
@@ -505,7 +506,7 @@ public class BoardGameListController : MonoBehaviour
         frt.anchorMin = Vector2.zero; frt.anchorMax = Vector2.one;
         frt.offsetMin = frt.offsetMax = Vector2.zero;
         var dim = _filterPopup.AddComponent<Image>();
-        dim.color = new Color(0f, 0f, 0f, 0.6f);
+        dim.color = UITheme.DIM;
         var dimBtn = _filterPopup.AddComponent<Button>();
         dimBtn.transition = Selectable.Transition.None;
         dimBtn.onClick.AddListener(CloseFilterPopup);
@@ -513,6 +514,7 @@ public class BoardGameListController : MonoBehaviour
         float panelH = 120f + labels.Length * 104f + 24f;
         var border = MakeRect("__FBorder", _filterPopup.transform, C_BORDER, 640, panelH + 24f);
         RoundedRectSprite.Apply(border.GetComponent<Image>());
+        UITheme.ElevateCard(border, 18f, 10f, 0.35f);
         var panel = MakeRect("__FPanel", border.transform, C_PARCHMENT, 616, panelH);
         RoundedRectSprite.Apply(panel.GetComponent<Image>());
         panel.AddComponent<Button>().transition = Selectable.Transition.None; // パネル内タップで閉じない
@@ -784,6 +786,7 @@ public class BoardGameListController : MonoBehaviour
         var btn = _tagBar.AddComponent<Button>();
         btn.targetGraphic = img;
         btn.onClick.AddListener(ClearTagFilter); // チップのどこを押しても解除
+        UITheme.PolishDarkButton(img); // C_CHIP は r+g+b=2.35 の中間色なので濃色版
 
         var label = MakeChildLabel(_tagBar.transform, 30, FontStyles.Bold, C_TITLE,
             Vector2.zero, Vector2.one, new Vector2(28f, 0f), new Vector2(-92f, 0f),
@@ -950,6 +953,8 @@ public class BoardGameListController : MonoBehaviour
         var btn = go.AddComponent<Button>();
         btn.targetGraphic = bg;
         btn.onClick.AddListener(() => { if (row.entry != null) ShowDetail(row.entry); });
+        // 行カードのソフトシャドウ。行はプールで使い回すため、生成時のここで1回だけ付ける
+        UITheme.ElevateCard(go, 12f, 6f, 0.22f);
 
         // タイトル（上部・大きめ）: 上端-14〜下端-74（offsetMin=下端, offsetMax=上端）
         // 右端はチェックボックス（幅96+余白）を避けて -150 まで
@@ -988,6 +993,7 @@ public class BoardGameListController : MonoBehaviour
             var btn = btnGO.AddComponent<Button>();
             btn.targetGraphic = bg;
             btn.onClick.AddListener(onClick);
+            UITheme.PolishButton(bg); // 常態は明色(C_SEARCHBG)。プール生成時に1回だけ適用される
             var label = MakeChildLabel(btnGO.transform, 52, FontStyles.Bold, C_TITLE,
                 Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero, TextAlignmentOptions.Center);
             label.text = mark;
@@ -1038,7 +1044,7 @@ public class BoardGameListController : MonoBehaviour
         drt.anchorMin = Vector2.zero; drt.anchorMax = Vector2.one;
         drt.offsetMin = drt.offsetMax = Vector2.zero;
         var dim = _detailModal.AddComponent<Image>();
-        dim.color = new Color(0f, 0f, 0f, 0.6f);
+        dim.color = UITheme.DIM;
         var dimBtn = _detailModal.AddComponent<Button>();
         dimBtn.transition = Selectable.Transition.None;
         dimBtn.onClick.AddListener(CloseDetail);
@@ -1046,6 +1052,7 @@ public class BoardGameListController : MonoBehaviour
         // パネル（下部に「遊んだ記録」写真行があるぶん縦長。高さは情報スタック構築後に量に応じて伸ばす）
         var border = MakeRect("__DBorder", _detailModal.transform, C_BORDER, 900, DETAIL_PANEL_BASE_H + 24f);
         RoundedRectSprite.Apply(border.GetComponent<Image>());
+        UITheme.ElevateCard(border, 18f, 10f, 0.35f);
         var panel = MakeRect("__DPanel", border.transform, C_PARCHMENT, 876, DETAIL_PANEL_BASE_H);
         RoundedRectSprite.Apply(panel.GetComponent<Image>());
         panel.AddComponent<Button>().transition = Selectable.Transition.None; // パネル内タップで閉じない
@@ -1308,6 +1315,7 @@ public class BoardGameListController : MonoBehaviour
         var sbtn = sortGO.AddComponent<Button>();
         sbtn.targetGraphic = simg;
         sbtn.onClick.AddListener(TogglePhotoSort);
+        UITheme.PolishButton(simg);
         _photoSortLabel = MakeChildLabel(sortGO.transform, 28, FontStyles.Bold, C_INK,
             Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero, TextAlignmentOptions.Center);
         UpdatePhotoSortLabel();
@@ -1693,6 +1701,13 @@ public class BoardGameListController : MonoBehaviour
         img.color = bg;
         var btn = go.AddComponent<Button>();
         btn.targetGraphic = img;
+        // デザイン基盤: 背景の明るさで白ボタン/濃色ボタンの磨きを出し分ける
+        // （a < 0.5 の透明ヒットエリアには適用しない）
+        if (bg.a >= 0.5f)
+        {
+            if (bg.r + bg.g + bg.b >= 2.4f) UITheme.PolishButton(img);
+            else UITheme.PolishDarkButton(img);
+        }
 
         var labelGO = new GameObject("__Label");
         labelGO.transform.SetParent(go.transform, false);

@@ -468,11 +468,16 @@ public class GachaController : MonoBehaviour
     /// </summary>
     public const float GRID_FONT_SIZE = 80.4f;
 
-    /// <summary>下部グリッドボタン共通の背景スタイル（白の角丸）を適用する</summary>
-    public static void ApplyGridButtonStyle(Image img)
+    /// <summary>
+    /// 下部グリッドボタン共通の背景スタイル（白の角丸＋上光グラデ＋影＋押下フィードバック）。
+    /// Home下部のシーン側4ボタンやお知らせページの各入口ボタンなど、
+    /// アプリの主要ボタンが全てここを通るため、見た目の底上げはこの1点で効く。
+    /// </summary>
+    public static void ApplyGridButtonStyle(Image img, float uiScale = 1f)
     {
         RoundedRectSprite.Apply(img);
         img.color = Color.white;
+        UITheme.PolishButton(img, uiScale);
     }
 
     /// <summary>
@@ -494,7 +499,7 @@ public class GachaController : MonoBehaviour
                 Debug.LogWarning($"[Gacha] 下部ボタンが見つかりません: {name}");
                 continue;
             }
-            ApplyGridButtonStyle(img);
+            ApplyGridButtonStyle(img, Mathf.Max(1f, go.transform.localScale.x));
             img.pixelsPerUnitMultiplier = Mathf.Max(1f, go.transform.localScale.x);
         }
     }
@@ -547,10 +552,11 @@ public class GachaController : MonoBehaviour
         var ort = _overlay.AddComponent<RectTransform>();
         ort.anchorMin = Vector2.zero; ort.anchorMax = Vector2.one;
         ort.offsetMin = ort.offsetMax = Vector2.zero;
-        _overlay.AddComponent<Image>().color = new Color(0.15f, 0.05f, 0.20f, 0.72f);
+        _overlay.AddComponent<Image>().color = UITheme.DIM;
         _overlay.SetActive(false);
 
         var border = MakeRect("__Border", _overlay.transform, C_FRAME, 936, 1316);
+        UITheme.ElevateCard(border, 18f, 10f, 0.35f);
         var panel  = MakeRect("__Panel", border.transform, C_BG, 920, 1300);
 
         // にじ色タイトル
@@ -872,6 +878,7 @@ public class GachaController : MonoBehaviour
     {
         var go = MakeCircle(name, parent, bg, d);
         go.GetComponent<RectTransform>().anchoredPosition = pos;
+        PolishByColor(go.GetComponent<Image>());
         MakeLabel(go.transform, text, font, fontSize, FontStyles.Bold, textColor, d, d, Vector2.zero);
         var btn = go.AddComponent<Button>();
         btn.targetGraphic = go.GetComponent<Image>();
@@ -922,10 +929,24 @@ public class GachaController : MonoBehaviour
     {
         var go = MakeRect(name, parent, bg, w, h);
         go.GetComponent<RectTransform>().anchoredPosition = pos;
+        PolishByColor(go.GetComponent<Image>());
         MakeLabel(go.transform, text, font, fontSize, FontStyles.Bold, textColor, w, h, Vector2.zero);
         var btn = go.AddComponent<Button>();
         btn.targetGraphic = go.GetComponent<Image>();
         btn.onClick.AddListener(onClick);
         return go;
+    }
+
+    /// <summary>
+    /// 背景色に応じて UITheme の明るい/濃色ボタン磨きを振り分ける。
+    /// 透明なヒットエリア（a &lt; 0.5）には何も付けない。二重適用はUITheme側で防止される。
+    /// </summary>
+    private static void PolishByColor(Image img)
+    {
+        if (img == null) return;
+        var c = img.color;
+        if (c.a < 0.5f) return;
+        if (c.r + c.g + c.b >= 2.4f) UITheme.PolishButton(img);
+        else UITheme.PolishDarkButton(img);
     }
 }

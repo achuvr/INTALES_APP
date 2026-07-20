@@ -30,6 +30,9 @@ EditorBuildSettings:
     path: Assets/Scenes/dev/BuffCardDeckBuilder.unity
     guid: b0ffca2ddeadbeefcafe12345678abcd
   - enabled: 1
+    path: Assets/Scenes/dev/GachaAdmin.unity
+    guid: b7232beab16349b3a450cb871fe66443
+  - enabled: 1
     path: Assets/Scenes/GameImageAdmin.unity
     guid: 1ed1abf50acef1bfd9f449025ca9ff61
   m_configObjects:

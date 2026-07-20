@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using Cysharp.Threading.Tasks;
 using UnityEngine;
 using Firebase.Firestore;
@@ -93,10 +94,161 @@ public class CallMethodFromQR : MonoBehaviour
     /// <summary>
     /// バフカード山札QR。形式: "deck:soft=10,beer=5,sweets=1,..."。
     /// 読むと枚数を重みに1枚抽選して手札に保持し、次のボス戦で自動発動する。
+    /// ユニークスキルを装備していると、抽選の前に山札へ介入できる:
+    ///  1. 財宝（ドミニオンのスキルブック(B)・自動発動）… 山札枚数に応じてGPを獲得する
+    ///  2. カード変化（塔覇の本(B)・自動発動）… 山札の1枚がランダムな別のカードに変化する
+    ///  3. カード除去（塔覇の本(A)・選択式）… 山札から好きなカードを1種類取り除ける
+    ///  4. カード選択（カタンのスキルブック(A)・選択式）… 山札が「パーティ人数+3」枚以上なら
+    ///     抽選の代わりに好きなカードを選んで引ける（SPカードは選べない）
+    ///  5. アップグレード（オーディンの術書(A)・選択式）… 山札のカードを1枚選んで
+    ///     1ランク上のカードに強化してから抽選する（SPカードは選べない）
+    /// 変化→除去/選択/強化の順で適用するため、変化で山札に入ったカードも各スキルの対象にできる。
     /// </summary>
     public void DrawBuffCard(string qrText)
     {
         var counts = BuffCard.DecodeDeck(qrText);
+
+        // 財宝（ドミニオンのスキルブック(B)・自動発動）:
+        // 「元の山札の枚数（カード変化・除去の前）−パーティ人数」が6枚以上なら3枚ごとにGP+1
+        if (UniqueSkill.IsActive(UniqueSkillType.DeckTreasure))
+            GrantDeckTreasureAsync(counts.Values.Sum()).Forget();
+
+        // カード変化（自動発動）: 山札の1枚をランダムな別のカードに置き換える
+        string transmuteText = null;
+        if (UniqueSkill.IsActive(UniqueSkillType.DeckTransmute))
+        {
+            var t = BuffCard.TransmuteRandomCard(counts);
+            if (t != null)
+            {
+                transmuteText = $"「塔覇の本(B)」カード変化：山札の「{BuffCard.DisplayName(t.Value.from)}」1枚が「{BuffCard.DisplayName(t.Value.to)}」に変化した！";
+                Debug.Log($"[QR] カード変化: {BuffCard.DisplayName(t.Value.from)} → {BuffCard.DisplayName(t.Value.to)}");
+            }
+        }
+
+        // カード除去は山札に2種類以上あるときだけ発動する（1種類の山札を空にはできない）
+        if (UniqueSkill.IsActive(UniqueSkillType.DeckPurge) && counts.Count >= 2)
+        {
+            EndFromButton(); // 選択モーダルを出すため先にQR画面を閉じる
+            // 変化の告知は除去モーダル内に出す（変化後の山札から取り除くカードを選べる）
+            DeckPurgeModal.Show(counts, removed =>
+            {
+                if (removed.HasValue)
+                {
+                    counts.Remove(removed.Value);
+                    Debug.Log($"[QR] カード除去: 「{BuffCard.DisplayName(removed.Value)}」を山札から取り除いた");
+                }
+                DrawBuffCardAndShow(counts);
+            }, transmuteText);
+            return;
+        }
+
+        // カード選択（カタンのスキルブック(A)・選択式）:
+        // 山札が「自分を含めたパーティ人数＋3」枚以上あれば、ランダム抽選の代わりに
+        // 欲しいカードを1枚選んで手札にできる（SPカードは選べない。変化後の山札から選ぶ）
+        if (UniqueSkill.IsActive(UniqueSkillType.DeckPick))
+        {
+            int members = GroupSession.Active != null ? Mathf.Max(1, GroupSession.MemberCount()) : 1;
+            bool hasPickable = counts.Any(kv => kv.Value > 0
+                && kv.Key != BuffCardType.SP1 && kv.Key != BuffCardType.SP2);
+            if (counts.Values.Sum() >= members + 3 && hasPickable)
+            {
+                EndFromButton(); // 選択モーダルを出すため先にQR画面を閉じる
+                DeckPickModal.Show(counts, picked =>
+                {
+                    if (picked.HasValue)
+                    {
+                        Debug.Log($"[QR] カード選択: 「{BuffCard.DisplayName(picked.Value)}」を選んで入手");
+                        HoldAndShow(picked.Value, transmuteText);
+                    }
+                    else
+                    {
+                        DrawBuffCardAndShow(counts, transmuteText);
+                    }
+                }, transmuteText);
+                return;
+            }
+        }
+
+        // アップグレード（オーディンの術書(A)・選択式）:
+        // 山札のカードを1枚選んで1ランク上のカードに強化してから抽選する（SPカード＝最高ランクは選べない）
+        if (UniqueSkill.IsActive(UniqueSkillType.DeckUpgrade))
+        {
+            bool hasUpgradable = counts.Any(kv => kv.Value > 0
+                && kv.Key != BuffCardType.SP1 && kv.Key != BuffCardType.SP2);
+            if (hasUpgradable)
+            {
+                EndFromButton(); // 選択モーダルを出すため先にQR画面を閉じる
+                DeckUpgradeModal.Show(counts, chosen =>
+                {
+                    string notice = transmuteText;
+                    if (chosen.HasValue)
+                    {
+                        var to = BuffCard.UpgradeOneCard(counts, chosen.Value);
+                        if (to != null)
+                        {
+                            string upNote = $"アップグレード：「{BuffCard.DisplayName(chosen.Value)}」1枚が「{BuffCard.DisplayName(to.Value)}」に強化された！";
+                            notice = string.IsNullOrEmpty(notice) ? upNote : $"{notice}\n{upNote}";
+                            Debug.Log($"[QR] アップグレード: {BuffCard.DisplayName(chosen.Value)} → {BuffCard.DisplayName(to.Value)}");
+                        }
+                    }
+                    DrawBuffCardAndShow(counts, notice);
+                }, transmuteText);
+                return;
+            }
+        }
+
+        DrawBuffCardAndShow(counts, transmuteText);
+    }
+
+    /// <summary>
+    /// 財宝（ドミニオンのスキルブック(B)）: 山札の枚数に応じてGPを付与する。
+    /// 有効枚数＝QRに書かれた元の山札の枚数 − 自分を含めたパーティメンバーの人数
+    /// （グループ未参加なら1人。例: 山札10枚・3人なら7枚）。
+    /// 有効枚数が6枚以上なら3枚ごとにGP+1。
+    /// GPの加算は FieldValue.Increment の1回書き込み。成功したらローカルにも反映して告知する。
+    /// </summary>
+    private async UniTaskVoid GrantDeckTreasureAsync(int deckCount)
+    {
+        const int MIN_CARDS = 6;    // 発動に必要な有効枚数
+        const int CARDS_PER_GP = 3; // この枚数ごとにGP+1
+
+        // 自分を含めたパーティ人数（グループ未参加なら自分1人）
+        int members = GroupSession.Active != null ? Mathf.Max(1, GroupSession.MemberCount()) : 1;
+        int effective = deckCount - members;
+        if (effective < MIN_CARDS) return;
+        int gp = effective / CARDS_PER_GP;
+
+        var manager = UserDataManager.instance;
+        if (manager == null || string.IsNullOrEmpty(manager.UID)) return;
+
+        try
+        {
+            await UserDocRef.UpdateAsync(new Dictionary<string, object>
+            {
+                { "gp", FieldValue.Increment(gp) },
+                { "lastDate", Timestamp.GetCurrentTimestamp() },
+            }).AsUniTask();
+
+            manager.UserData.GP += gp;
+            Debug.Log($"[QR] 財宝: 山札{deckCount}枚−{members}人={effective}枚 → GP+{gp}");
+            LocalHistoryLog.Add("gacha", $"財宝スキルで GP+{gp}（山札{deckCount}枚−メンバー{members}人）");
+            // カード除去モーダルが開いていても隠れないよう、モーダルより下の空きに出す
+            FriendMenuController.ShowToast(
+                $"「ドミニオンのスキルブック(B)」財宝発動！ 山札{deckCount}枚−メンバー{members}人={effective}枚 → GP+{gp}", 120f);
+        }
+        catch (System.Exception ex)
+        {
+            Debug.LogError($"[QR] 財宝GP付与エラー: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// 山札から1枚引いて手札に保持し、結果モーダルを表示する。
+    /// transmuteText があれば結果表示の上にトーストでカード変化を告知する
+    /// （除去モーダルを経由した場合はモーダル内で告知済みなので null を渡す）。
+    /// </summary>
+    private void DrawBuffCardAndShow(Dictionary<BuffCardType, int> counts, string transmuteText = null)
+    {
         var drawn = BuffCard.DrawFrom(counts);
         if (drawn == null)
         {
@@ -105,11 +257,19 @@ public class CallMethodFromQR : MonoBehaviour
             return;
         }
 
-        BuffCard.SetHeld(drawn.Value); // 1枚だけ保持（上書き）
         Debug.Log($"[QR] バフカード「{BuffCard.DisplayName(drawn.Value)}」を引いた");
+        HoldAndShow(drawn.Value, transmuteText);
+    }
+
+    /// <summary>カードを手札に保持して結果モーダルを表示する（ランダム抽選・カード選択の共通処理）。</summary>
+    private void HoldAndShow(BuffCardType card, string transmuteText = null)
+    {
+        BuffCard.SetHeld(card); // 1枚だけ保持（上書き）
         AssetsDatabase.instance?.PlayLevelUpSE();
         End();
-        BuffCardModal.Show(drawn.Value);
+        BuffCardModal.Show(card);
+        if (!string.IsNullOrEmpty(transmuteText))
+            FriendMenuController.ShowToast(transmuteText); // モーダルの後に出して最前面に表示する
     }
 
     /// <summary>
@@ -131,6 +291,14 @@ public class CallMethodFromQR : MonoBehaviour
         if (sep >= 0 && sep < qrText.Length - 1)
             poolId = qrText.Substring(sep + 1).Trim();
 
+        // 常用プールを自作QRで無料で引かれないようにする
+        if (poolId == GachaService.STANDARD_POOL)
+        {
+            FriendMenuController.ShowToast("無効なイベントQRです");
+            EndFromButton();
+            return;
+        }
+
         try
         {
             var result = await GachaService.DrawAsync(poolId, free: true);
@@ -144,7 +312,10 @@ public class CallMethodFromQR : MonoBehaviour
             Debug.Log($"[QR] イベントガチャ: {result.Type}/{result.Id} を入手 ({poolId})");
             AssetsDatabase.instance?.PlayLevelUpSE();
             End();
-            InfoModal.Show("イベントガチャ", result.DisplayName, result.SubText);
+            // 結果モーダルのタイトルはプール名（例:「ウイングスパンガチャ」）。取れなければ汎用名
+            var pool = await GachaService.GetPoolAsync(poolId);
+            string title = string.IsNullOrEmpty(pool?.Name) ? "イベントガチャ" : pool.Name;
+            InfoModal.Show(title, result.DisplayName, result.SubText);
         }
         catch (System.Exception ex)
         {

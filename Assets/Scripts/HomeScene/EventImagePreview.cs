@@ -119,6 +119,7 @@ public class EventImagePreview : MonoBehaviour
         fbg.color = new Color(0.12f, 0.12f, 0.12f, 1f);
         fbg.raycastTarget = true;
         footer.AddComponent<Button>().onClick.AddListener(Hide);
+        UITheme.PolishDarkButton(fbg); // 濃色の全幅バー。上光グラデ＋上縁の影＋押下フィードバック
 
         // フッターテキスト（日本語フォント適用）
         var ftxtGO = new GameObject("__CloseFooterTxt");

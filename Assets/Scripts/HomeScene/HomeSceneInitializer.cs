@@ -40,9 +40,10 @@ public class HomeSceneInitializer : MonoBehaviour
         _database = FirebaseFirestore.DefaultInstance;
         FetchGoodDay();
 
-        // アイテムマスターデータの週次同期（土曜5時以降の初回起動時）
-        if (ItemSyncManager.instance != null)
-            ItemSyncManager.instance.InitAsync().Forget();
+        // アイテムマスターデータの差分同期（items_version 一致なら読み取りゼロ）。
+        // ItemSyncManager はシーンに存在せず instance が常に null のため、実体の ItemCacheManager を直接叩く
+        if (ItemCacheManager.instance != null)
+            ItemCacheManager.instance.SyncAsync(msg => Debug.Log($"[ItemSync] {msg}")).Forget();
 
         // ローカルに保存した装備データをキャラクターに復元
         LocalEquipSave.ApplyAll(UserDataManager.instance.UserData.Characters);
@@ -190,31 +191,58 @@ public class HomeSceneInitializer : MonoBehaviour
         }
 
         _statusText.text += $"レベル　{UserDataManager.instance.UserData.Characters[UserDataManager.instance.CurrentSelectCharacterNumber].Level}";
+
+        // シリーズセットスキル発動中なら専用キャラ画像へ差し替え（表示ロジックはCharacterPageManagerに集約）
+        var cpm = FindObjectOfType<CharacterPageManager>();
+        if (cpm != null) cpm.RefreshSeriesImage();
     }
 
 #if UNITY_EDITOR
     /// <summary>
-    /// デバッグ用: Unity Editor 上で N キーを押すと入店処理（CheckIn）を実行する。
+    /// デバッグ用: Unity Editor 上でのキーボードショートカット。
+    ///  - N キー: 入店処理（CheckIn）を実行
+    ///  - G キー: ガチャ管理シーン（GachaAdmin）へ移動
+    ///  - B キー: バフカード山札作成シーン（BuffCardDeckBuilder）へ移動
     /// 実機ビルドには含まれない（#if UNITY_EDITOR で囲っているため）。
     /// 新旧どちらの Input バックエンドでも拾えるよう両対応している。
     /// </summary>
     private void Update()
     {
-        bool pressed = false;
+        bool checkinPressed = false;
+        bool gachaAdminPressed = false;
+        bool deckBuilderPressed = false;
 #if ENABLE_INPUT_SYSTEM
         var kb = UnityEngine.InputSystem.Keyboard.current;
         if (kb != null && kb.nKey.wasPressedThisFrame)
-            pressed = true;
+            checkinPressed = true;
+        if (kb != null && kb.gKey.wasPressedThisFrame)
+            gachaAdminPressed = true;
+        if (kb != null && kb.bKey.wasPressedThisFrame)
+            deckBuilderPressed = true;
 #endif
 #if ENABLE_LEGACY_INPUT_MANAGER
         if (Input.GetKeyDown(KeyCode.N))
-            pressed = true;
+            checkinPressed = true;
+        if (Input.GetKeyDown(KeyCode.G))
+            gachaAdminPressed = true;
+        if (Input.GetKeyDown(KeyCode.B))
+            deckBuilderPressed = true;
 #endif
-        if (pressed)
+        if (checkinPressed)
         {
             Debug.Log("[Debug] N キー押下 → 入店処理を実行します");
             var caller = GetComponent<CallMethodFromQR>() ?? gameObject.AddComponent<CallMethodFromQR>();
             caller.CheckIn();
+        }
+        if (gachaAdminPressed)
+        {
+            Debug.Log("[Debug] G キー押下 → ガチャ管理シーンへ移動します");
+            SceneManager.LoadScene("GachaAdmin");
+        }
+        if (deckBuilderPressed)
+        {
+            Debug.Log("[Debug] B キー押下 → バフカード山札作成シーンへ移動します");
+            SceneManager.LoadScene("BuffCardDeckBuilder");
         }
     }
 #endif

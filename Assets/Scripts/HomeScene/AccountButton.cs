@@ -148,13 +148,14 @@ public class AccountButton : MonoBehaviour
         mrt.anchorMin = Vector2.zero; mrt.anchorMax = Vector2.one;
         mrt.offsetMin = mrt.offsetMax = Vector2.zero;
         var dim = _modal.AddComponent<Image>();
-        dim.color = new Color(0f, 0f, 0f, 0.6f);
+        dim.color = UITheme.DIM;
         var dimBtn = _modal.AddComponent<Button>();
         dimBtn.transition = Selectable.Transition.None;
         dimBtn.onClick.AddListener(CloseModal);
 
         var border = MakeRect("__Border", _modal.transform, C_BORDER, 860, 900);
         RoundedRectSprite.Apply(border.GetComponent<Image>());
+        UITheme.ElevateCard(border, 18f, 10f, 0.35f); // モーダルを浮かせる
         var panel = MakeRect("__Panel", border.transform, C_PARCHMENT, 836, 876);
         RoundedRectSprite.Apply(panel.GetComponent<Image>());
         panel.AddComponent<Button>().transition = Selectable.Transition.None; // パネル内タップで閉じない
@@ -193,13 +194,20 @@ public class AccountButton : MonoBehaviour
         MakeButton(_editRoot.transform, new Color(1f, 1f, 1f, 0.95f), "やめる", jp, 30, C_MUTED,
             300, 96, new Vector2(165, 95), SwitchToViewMode);
 
-        // ---- 管理者専用: ゲーム画像の管理（店側アカウントにだけ表示） ----
+        // ---- 管理者専用: ゲーム画像の管理・バフデッキ作成・イベントガチャQR（店側アカウントにだけ表示） ----
         // 表示の出し分けは AdminClaim（IDトークンのadminクレーム）。実際の書き込み保護は
         // Firestore/Storage ルール側なので、この判定を偽装されても登録はできない
         if (AdminClaim.IsAdmin)
         {
-            MakeButton(panel.transform, C_BORDER, "ゲーム画像の管理（店舗用）", jp, 26, C_TITLE,
-                460, 60, new Vector2(0, -25), OpenGameImageAdmin);
+            var imgBtn = MakeButton(panel.transform, C_BORDER, "ゲーム画像の管理", jp, 26, C_TITLE,
+                250, 60, new Vector2(-270, -25), OpenGameImageAdmin);
+            ShrinkLabelToFit(imgBtn, 26);
+            var deckBtn = MakeButton(panel.transform, C_BORDER, "バフデッキ作成", jp, 26, C_TITLE,
+                250, 60, new Vector2(0, -25), OpenDeckBuilder);
+            ShrinkLabelToFit(deckBtn, 26);
+            var qrBtn = MakeButton(panel.transform, C_BORDER, "イベントガチャQR", jp, 26, C_TITLE,
+                250, 60, new Vector2(270, -25), OpenEventQr);
+            ShrinkLabelToFit(qrBtn, 26);
         }
 
         // ---- ログアウト＆アカウント削除＆とじる ----
@@ -356,6 +364,35 @@ public class AccountButton : MonoBehaviour
         SceneLoader.instance.MergeScene("GameImageAdmin");
     }
 
+    /// <summary>
+    /// バフカード山札ビルダーを開く（GachaAdmin と同じ全画面LoadScene方式。
+    /// シーン専用のCanvasを持つためマージせず、右上の「✕ Home」でHomeへ戻る）。
+    /// </summary>
+    private void OpenDeckBuilder()
+    {
+        CloseModal();
+        SceneManager.LoadScene("BuffCardDeckBuilder");
+    }
+
+    /// <summary>イベントガチャQRの表示モーダルを開く（プール一覧→選択でQR表示。シーン遷移なし）。</summary>
+    private void OpenEventQr()
+    {
+        CloseModal();
+        EventGachaQrViewer.Show();
+    }
+
+    /// <summary>ボタンのラベルを枠内に収まるよう自動縮小させる（管理者ボタンなど文字数が多いもの用）。</summary>
+    private static void ShrinkLabelToFit(GameObject buttonGO, float maxFontSize)
+    {
+        var label = buttonGO.GetComponentInChildren<TextMeshProUGUI>();
+        if (label == null) return;
+        label.enableAutoSizing = true;
+        label.fontSizeMax = maxFontSize;
+        label.fontSizeMin = 18;
+        label.enableWordWrapping = false;
+        label.overflowMode = TextOverflowModes.Ellipsis;
+    }
+
     // ================================================================
     // ログアウト（誤タップ防止のため2度押しで実行）
     // ================================================================
@@ -501,6 +538,12 @@ public class AccountButton : MonoBehaviour
         var btn = go.AddComponent<Button>();
         btn.targetGraphic = go.GetComponent<Image>();
         btn.onClick.AddListener(onClick);
+        // デザイン基盤: 明るい面は白グラデ、濃い面は控えめグラデで磨く（透明ヒットエリアは除外）
+        if (bg.a >= 0.5f)
+        {
+            if (bg.r + bg.g + bg.b >= 2.4f) UITheme.PolishButton(go.GetComponent<Image>());
+            else UITheme.PolishDarkButton(go.GetComponent<Image>());
+        }
         return go;
     }
 }

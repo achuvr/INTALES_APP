@@ -4,18 +4,25 @@ using System.Linq;
 /// <summary>スキルの挙動の種類。</summary>
 public enum SkillKind
 {
-    /// <summary>指定面ダイスを振り、当たり目(WinFaces)なら効果(Effect+Value)を発動する。</summary>
+    /// <summary>指定面ダイスを振り、当たり目(WinFaces)なら効果(Effect+Value)を発動する（手動発動・1戦闘1回）。</summary>
     StatBuff,
+    /// <summary>戦闘開始時に自動で DiceFaces 面ダイスを振り、当たり目(WinFaces)なら効果(Effect+Value)をその戦闘だけ適用する。</summary>
+    BattleStartStatBuff,
     /// <summary>1D100と一緒に指定面ダイスを振り、その出目ぶん 1D100 の出目を引く（低いほど有利）。</summary>
     D100Subtract,
     /// <summary>所持しているアクティブスキル本1冊につき成功確率＋Value（戦闘開始時に自動適用）。</summary>
     ProbPerOwnedSkillBook,
     /// <summary>自分の攻撃力−1と引き換えに、味方全員の成功確率＋Value（手動発動）。</summary>
     CoopProbBuff,
-    /// <summary>クリティカル率を Value 倍にする（戦闘開始時に自動適用・常時）。</summary>
+    /// <summary>
+    /// クリティカル率を Value〜DiceFaces 倍にする（戦闘開始時に倍率をランダム決定して自動適用・常時。
+    /// Value=DiceFaces なら固定倍率）。
+    /// </summary>
     CritRateMultiplier,
     /// <summary>オーバーキルダメージが DiceFaces 以上なら討伐報酬GPに＋Value（パッシブ）。</summary>
     OverkillGpBonus,
+    /// <summary>オーバーキルダメージ DiceFaces ごとに討伐時のレベルアップを＋1する（パッシブ）。</summary>
+    OverkillLevelBonus,
     /// <summary>
     /// 連勝ボーナス（パッシブ）。現在の連勝数 × Value ぶん成功確率を上げ、
     /// さらに DiceFaces 連勝ごとに討伐時のレベルアップを＋1する（DiceFaces=0 ならレベル加算なし）。
@@ -55,6 +62,11 @@ public class BattleSkillDef
         int diceFaces, IEnumerable<int> winFaces, EffectType effect, int value)
         => new BattleSkillDef(id, name, desc, SkillKind.StatBuff, diceFaces, winFaces, effect, value);
 
+    /// <summary>戦闘開始時に自動でダイスを振る StatBuff（当たり目なら効果がその戦闘だけ有効）を作る。</summary>
+    public static BattleSkillDef BattleStartStatBuffSkill(string id, string name, string desc,
+        int diceFaces, IEnumerable<int> winFaces, EffectType effect, int value)
+        => new BattleSkillDef(id, name, desc, SkillKind.BattleStartStatBuff, diceFaces, winFaces, effect, value);
+
     /// <summary>1D100減算スキルを作る。</summary>
     public static BattleSkillDef D100SubtractSkill(string id, string name, string desc, int diceFaces)
         => new BattleSkillDef(id, name, desc, SkillKind.D100Subtract, diceFaces, null, EffectType.AtkUp, 0);
@@ -67,13 +79,20 @@ public class BattleSkillDef
     public static BattleSkillDef CoopBuffSkill(string id, string name, string desc, int probBonus)
         => new BattleSkillDef(id, name, desc, SkillKind.CoopProbBuff, 0, null, EffectType.ProbUp, probBonus);
 
-    /// <summary>クリティカル率を multiplier 倍にする自動パッシブを作る。</summary>
-    public static BattleSkillDef CritRateMultiplierSkill(string id, string name, string desc, int multiplier)
-        => new BattleSkillDef(id, name, desc, SkillKind.CritRateMultiplier, 0, null, EffectType.CriticalRateUp, multiplier);
+    /// <summary>
+    /// クリティカル率を minMultiplier〜maxMultiplier 倍（戦闘ごとにランダム）にする自動パッシブを作る。
+    /// 最小倍率を Value、最大倍率を DiceFaces に格納する（同値なら固定倍率）。
+    /// </summary>
+    public static BattleSkillDef CritRateMultiplierSkill(string id, string name, string desc, int minMultiplier, int maxMultiplier)
+        => new BattleSkillDef(id, name, desc, SkillKind.CritRateMultiplier, maxMultiplier, null, EffectType.CriticalRateUp, minMultiplier);
 
     /// <summary>オーバーキルが threshold 以上なら報酬GPに＋bonusGp する自動パッシブを作る（threshold は DiceFaces に格納）。</summary>
     public static BattleSkillDef OverkillGpBonusSkill(string id, string name, string desc, int threshold, int bonusGp)
         => new BattleSkillDef(id, name, desc, SkillKind.OverkillGpBonus, threshold, null, EffectType.AtkUp, bonusGp);
+
+    /// <summary>オーバーキル perDamage ダメージごとに討伐時のレベルアップを＋1する自動パッシブを作る（perDamage は DiceFaces に格納）。</summary>
+    public static BattleSkillDef OverkillLevelBonusSkill(string id, string name, string desc, int perDamage)
+        => new BattleSkillDef(id, name, desc, SkillKind.OverkillLevelBonus, perDamage, null, EffectType.AtkUp, 0);
 
     /// <summary>連勝ボーナス自動パッシブを作る。連勝数×probPerStreak ぶん確率上昇＋levelEveryN 連勝ごとにレベル＋1（0でレベル加算なし）。</summary>
     public static BattleSkillDef WinStreakSkill(string id, string name, string desc, int probPerStreak, int levelEveryN)
@@ -123,9 +142,10 @@ public static class BattleSkillRegistry
             BattleSkillDef.CoopBuffSkill("coop_party_prob20", "協力",
                 "自分の攻撃力−1と引き換えに、味方全員の成功確率＋20", 20),
 
-            // クリティカル率を2倍にする
+            // クリティカル率を2〜3倍（戦闘ごとにランダム）にする
+            // （IDは×2固定だった旧仕様の名残。master/items の skill_id が参照しているため変えない）
             BattleSkillDef.CritRateMultiplierSkill("wingspan_crit_x2", "ウイングスパン",
-                "クリティカル率を2倍にする", 2),
+                "クリティカル率が2倍〜3倍（戦闘ごとにランダム）になる", 2, 3),
 
             // オーバーキルが3以上なら討伐報酬GPに＋2
             BattleSkillDef.OverkillGpBonusSkill("wall_overkill_gp", "城壁都市",
@@ -134,6 +154,15 @@ public static class BattleSkillRegistry
             // 連勝数ぶん成功確率が上がり、5連勝ごとに討伐時のレベルアップ＋1
             BattleSkillDef.WinStreakSkill("wingspan_prob_per_streak", "ウイングスパン",
                 "現在の連勝数ぶん成功確率が上がる。さらに5連勝するたびに討伐時のレベルが1追加で上がる", 1, 5),
+
+            // 戦闘開始時に自動で8面ダイスを振り、1・3・6が出たら成功確率＋20（その戦闘だけ）
+            BattleSkillDef.BattleStartStatBuffSkill("dominion_d8_prob20", "ドミニオン",
+                "戦闘開始時に8面ダイスを振り、1・3・6が出たら成功確率＋20",
+                8, new[] { 1, 3, 6 }, EffectType.ProbUp, 20),
+
+            // オーバーキル4ダメージごとに討伐時のレベルアップ＋1
+            BattleSkillDef.OverkillLevelBonusSkill("catan_overkill_level", "カタン",
+                "オーバーキルダメージ4につき、討伐時のレベルが1追加で上がる", 4),
 
             // ここに各スキルブックのスキルを追加していく
         }

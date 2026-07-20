@@ -17,12 +17,20 @@ using UnityEngine;
 /// entry.type:
 ///   "coupon" … id: atk / drink / coffee / five / seven
 ///   "item"   … id: master/items の item_id（選択中キャラのインベントリに追加）
-/// 既に所持している装備は抽選から自動的に除外される（ダブりなし）。
+/// 装備のダブりの扱いはプールで異なる:
+///   standard … ダブりあり（所持済みでも排出される）。ただし所持品(inventory)への登録は1つだけで、
+///              再排出時は GP に変換される（DUP_ITEM_GP。装備一覧の重複表示防止＋ハズレ感の軽減）
+///   イベント（standard以外）… ダブりなし（所持済みの装備は抽選候補から除外される）。
+///                              さらに選択中キャラの職業に合う装備（job一致 or common）だけが排出候補になる
+///   スキルブックA/B … 例外として常にダブりあり。GP変換もせず、何冊でも所持品に追加される（重複所持可）
 /// </summary>
 public static class GachaService
 {
     public const string STANDARD_POOL = "standard";
     public const string EVENT_POOL = "event";
+
+    /// <summary>所持済みの装備が排出されたときに代わりに付与するGP。</summary>
+    private const int DUP_ITEM_GP = 2;
 
     private static GachaMaster _master;
     private static UniTaskCompletionSource<GachaMaster> _loadingTcs;
@@ -60,6 +68,18 @@ public static class GachaService
         return _master;
     }
 
+    /// <summary>
+    /// 全プール（poolId → プール定義）を返す。
+    /// forceRefresh=true ならセッションキャッシュを破棄してFirestoreから読み直す
+    /// （管理者のイベントQR表示など、最新のプール一覧が欲しいとき用）。
+    /// </summary>
+    public static async UniTask<Dictionary<string, GachaPool>> GetPoolsAsync(bool forceRefresh = false)
+    {
+        if (forceRefresh) Invalidate();
+        var master = await GetMasterAsync();
+        return master?.Pools ?? new Dictionary<string, GachaPool>();
+    }
+
     /// <summary>キャッシュを破棄して次回取得時に再読み込みさせる（デバッグ用）</summary>
     public static void Invalidate()
     {
@@ -91,8 +111,12 @@ public static class GachaService
         if (cost > 0 && manager.UserData.GP < cost)
             return GachaResult.Fail($"GPが足りません（{cost}GP必要です）");
 
-        // 既にアカウントが持っている装備は候補から外す
-        var candidates = pool.Entries.Where(e => IsGrantable(e, manager.UserData)).ToList();
+        // イベントガチャ（standard以外）は所持済みの装備を候補から外し（スキルブックA/Bは除く）、
+        // 選択中キャラの職業に合う装備（job一致 or common）だけを出す
+        bool excludeOwned = poolId != STANDARD_POOL;
+        string jobFilter = excludeOwned ? SelectedCharacterJob(manager) : null;
+        var candidates = pool.Entries
+            .Where(e => IsGrantable(e, manager.UserData, excludeOwned, jobFilter)).ToList();
         if (candidates.Count == 0)
             return GachaResult.Fail("引ける景品がありません");
 
@@ -125,8 +149,18 @@ public static class GachaService
             }
             case "item":
             {
-                var entry = ItemSyncManager.instance.FindById(picked.Id);
-                var newRef = new InventoryRef { Job = entry.job, ItemId = entry.itemId };
+                var entry = ItemCacheManager.instance.FindById(picked.Id);
+                displayName = entry.name;
+                // 装備の再排出（所持済み）: 重複登録せず GP に変換する（消費と合算して1回のIncrementに）。
+                // スキルブックA/Bは何冊でも持てるため変換せず、そのまま所持品に追加する
+                if (!IsSkillBook(picked.Id) && manager.UserData.Inventory.Any(r => r.ItemId == picked.Id))
+                {
+                    updates[new FieldPath("gp")] = FieldValue.Increment(-cost + DUP_ITEM_GP);
+                    applyLocal = () => manager.UserData.GP += DUP_ITEM_GP;
+                    subText = $"すでに所持しているため GP+{DUP_ITEM_GP} に変換されました";
+                    break;
+                }
+                var newRef = new InventoryRef { Job = entry.job, ItemId = entry.item_id };
                 // 所持品はアカウント単位（users/{uid}.inventory）。全キャラ共有。
                 var inventoryData = manager.UserData.Inventory
                     .Concat(new[] { newRef })
@@ -138,7 +172,6 @@ public static class GachaService
                     .ToList();
                 updates[new FieldPath("inventory")] = inventoryData;
                 applyLocal = () => manager.UserData.Inventory.Add(newRef);
-                displayName = entry.name;
                 subText = "装備メニューから確認できます";
                 break;
             }
@@ -184,7 +217,8 @@ public static class GachaService
 
     /// <summary>
     /// ガチャをまとめて count 回引く（5連用）。
-    /// 抽選は1回ずつ行い、同一バッチ内で当たった装備は以降の候補から除外する（ダブりなし）。
+    /// 抽選は1回ずつ行う。standard は装備ダブりありなので同一バッチ内で同じ装備が複数回出うる
+    /// （イベントガチャの装備はダブりなし。スキルブックA/Bはどのプールでもダブりあり）。
     /// GP消費と全景品の付与は users/{uid} への1回の UpdateAsync にまとめる
     /// （途中で通信が切れて一部だけ付与される事故を防ぐ）。
     /// 装備が尽きる等で count 回引けない場合は引けた分だけ確定し、GPもその分だけ消費する。
@@ -203,20 +237,23 @@ public static class GachaService
         if (unitCost > 0 && manager.UserData.GP < unitCost * count)
             return GachaMultiResult.Fail($"GPが足りません（{unitCost * count}GP必要です）");
 
-        // ---- 抽選（バッチ内で当たった装備はダブり防止のため候補から外す）----
+        // ---- 抽選 ----
+        // standard は装備ダブりありなので同一バッチ内でも候補から外さない。
+        // イベントガチャは所持済み＋バッチ内で引いた装備を候補から外し（スキルブックA/Bは除く）、
+        // 選択中キャラの職業に合う装備（job一致 or common）だけを出す
+        bool excludeOwned = poolId != STANDARD_POOL;
+        string jobFilter = excludeOwned ? SelectedCharacterJob(manager) : null;
         var picks = new List<GachaEntry>();
-        var pendingItems = new HashSet<string>();
+        var pickedItemIds = new HashSet<string>();
         for (int i = 0; i < count; i++)
         {
             var candidates = pool.Entries
-                .Where(e => IsGrantable(e, manager.UserData))
-                .Where(e => e.Type != "item" || !pendingItems.Contains(e.Id))
-                .ToList();
+                .Where(e => IsGrantable(e, manager.UserData, excludeOwned, jobFilter, pickedItemIds)).ToList();
             if (candidates.Count == 0) break; // 引けるものが尽きた（引けた分だけで確定する）
             var picked = WeightedPick(candidates);
             if (picked == null) break;
             picks.Add(picked);
-            if (picked.Type == "item") pendingItems.Add(picked.Id);
+            if (picked.Type == "item") pickedItemIds.Add(picked.Id);
         }
         if (picks.Count == 0)
             return GachaMultiResult.Fail("引ける景品がありません");
@@ -236,6 +273,7 @@ public static class GachaService
         var applyLocals = new List<System.Action>();
         var couponCounts = new Dictionary<string, int>(); // Firestoreフィールド → 加算数
         var newRefs = new List<InventoryRef>();
+        int dupGpTotal = 0; // 所持済み装備のGP変換の合計
 
         foreach (var picked in picks)
         {
@@ -258,15 +296,30 @@ public static class GachaService
                 }
                 case "item":
                 {
-                    var entry = ItemSyncManager.instance.FindById(picked.Id);
-                    var newRef = new InventoryRef { Job = entry.job, ItemId = entry.itemId };
-                    newRefs.Add(newRef);
-                    applyLocals.Add(() => manager.UserData.Inventory.Add(newRef));
+                    var entry = ItemCacheManager.instance.FindById(picked.Id);
+                    // 装備の再排出（所持済み・同一バッチ内で入手済み）: 重複登録せず GP に変換する。
+                    // スキルブックA/Bは何冊でも持てるため変換せず、そのまま所持品に追加する
+                    bool alreadyOwned = !IsSkillBook(picked.Id)
+                                     && (manager.UserData.Inventory.Any(r => r.ItemId == picked.Id)
+                                         || newRefs.Any(r => r.ItemId == picked.Id));
+                    if (alreadyOwned)
+                    {
+                        dupGpTotal += DUP_ITEM_GP;
+                        applyLocals.Add(() => manager.UserData.GP += DUP_ITEM_GP);
+                    }
+                    else
+                    {
+                        var newRef = new InventoryRef { Job = entry.job, ItemId = entry.item_id };
+                        newRefs.Add(newRef);
+                        applyLocals.Add(() => manager.UserData.Inventory.Add(newRef));
+                    }
                     results.Add(new GachaResult
                     {
                         Success = true, Type = picked.Type, Id = picked.Id,
                         DisplayName = entry.name,
-                        SubText = "装備メニューから確認できます",
+                        SubText = alreadyOwned
+                            ? $"すでに所持しているため GP+{DUP_ITEM_GP} に変換されました"
+                            : "装備メニューから確認できます",
                         CostPaid = unitCost,
                     });
                     break;
@@ -278,6 +331,9 @@ public static class GachaService
 
         foreach (var kv in couponCounts)
             updates[new FieldPath(kv.Key)] = FieldValue.Increment(kv.Value);
+        // GP変換分があれば消費と合算して1回のIncrementにまとめる
+        if (dupGpTotal > 0)
+            updates[new FieldPath("gp")] = FieldValue.Increment(-cost + dupGpTotal);
         if (newRefs.Count > 0)
         {
             // 所持品はアカウント単位（users/{uid}.inventory）。全キャラ共有。
@@ -324,8 +380,16 @@ public static class GachaService
         };
     }
 
-    /// <summary>このエントリが現在の状態で付与可能か（アカウント所持済み・定義不明は除外）</summary>
-    private static bool IsGrantable(GachaEntry e, UserData user)
+    /// <summary>
+    /// このエントリが現在の状態で付与可能か（定義不明は除外）。
+    /// excludeOwnedItems=true（イベントガチャ）のとき、所持済みの装備と
+    /// alreadyPicked（同一バッチ内で引いた装備ID）を候補から外す。
+    /// jobFilter が指定されていれば、その職業の装備と共通("common")装備だけを候補に残す。
+    /// スキルブックA/Bは所持済みでも候補に残る（何冊でも持てる。職業フィルタは適用される）。
+    /// standard はダブりあり: 所持済みでも排出され、付与側でGPに変換される。
+    /// </summary>
+    private static bool IsGrantable(GachaEntry e, UserData user, bool excludeOwnedItems,
+        string jobFilter = null, HashSet<string> alreadyPicked = null)
     {
         if (e == null || e.Weight <= 0 || string.IsNullOrEmpty(e.Id)) return false;
         switch (e.Type)
@@ -333,8 +397,42 @@ public static class GachaService
             case "coupon":
                 return CouponInfo(e.Id).field != null;
             case "item":
-                return ItemSyncManager.instance?.FindById(e.Id) != null
-                    && !user.Inventory.Any(r => r.ItemId == e.Id);
+                // ItemSyncManager はシーン未配置で instance が常に null のため、実体の ItemCacheManager を見る
+                var item = ItemCacheManager.instance?.FindById(e.Id);
+                if (item == null) return false;
+                // 職業フィルタ: 選択中キャラの職業の装備か共通装備だけを出す
+                if (jobFilter != null && item.job != jobFilter && item.job != "common") return false;
+                if (excludeOwnedItems && !IsSkillBook(e.Id))
+                {
+                    if (user.Inventory.Any(r => r.ItemId == e.Id)) return false;
+                    if (alreadyPicked != null && alreadyPicked.Contains(e.Id)) return false;
+                }
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    /// <summary>
+    /// 選択中キャラクターの職業（イベントガチャの職業フィルタ用）。
+    /// キャラがいない場合は ""（共通装備だけが候補に残る）。
+    /// </summary>
+    private static string SelectedCharacterJob(UserDataManager manager)
+    {
+        var chara = manager.UserData?.Characters?
+            .ElementAtOrDefault(manager.CurrentSelectCharacterNumber);
+        return chara?.Job ?? "";
+    }
+
+    /// <summary>スキルブック（A/B）か。スキルブックはどのプールでもダブり排出あり＆何冊でも重複所持できる。</summary>
+    private static bool IsSkillBook(string itemId)
+    {
+        var item = ItemCacheManager.instance?.FindById(itemId);
+        switch (item?.slot_type)
+        {
+            case "skill_book_a": case "skillA":
+            case "skill_book_b": case "skillB":
+                return true;
             default:
                 return false;
         }

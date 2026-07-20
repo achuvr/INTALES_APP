@@ -84,6 +84,7 @@ public class MenuViewerController : MonoBehaviour
         trt.pivot = new Vector2(0.5f, 1f);
         trt.offsetMin = new Vector2(0f, -TITLE_H); trt.offsetMax = new Vector2(0f, 0f);
         titleBar.AddComponent<Image>().color = C_TITLEBAR;
+        UITheme.PolishTitleBar(titleBar);
 
         var titleGO = new GameObject("__TitleLabel");
         titleGO.transform.SetParent(titleBar.transform, false);
@@ -113,6 +114,7 @@ public class MenuViewerController : MonoBehaviour
         var cbtn = close.AddComponent<Button>();
         cbtn.targetGraphic = cimg;
         cbtn.onClick.AddListener(Close);
+        UITheme.PolishDarkButton(cimg); // C_CLOSE は濃色（赤）
         var clabel = new GameObject("__X");
         clabel.transform.SetParent(close.transform, false);
         var clrt = clabel.AddComponent<RectTransform>();

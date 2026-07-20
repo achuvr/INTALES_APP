@@ -95,11 +95,15 @@ public class BossBattleController : MonoBehaviour
     private int _equipCritRate = 5;
     private int _equipCritDamage = 1;
     private int _equipProbBonus = 0; // 成功確率への加算（装備 ProbUp）
-    private int _critRateMultiplier = 1; // クリティカル率の倍率（ウイングスパン等。装備＋一時バフの合計に掛かる）
+    private float _critRateMultiplier = 1f; // クリティカル率の倍率（ウイングスパン等。戦闘開始時にランダム決定し、装備＋一時バフの合計に掛かる）
 
     // 装備中スキルブックの任意発動スキル（1戦闘につき各1回）
     private readonly List<BattleSkillDef> _battleSkills = new List<BattleSkillDef>();
     private readonly HashSet<string> _usedSkills = new HashSet<string>();
+    // ワーカー配置（ワーカープレイスメントの本A/B）: 借用モーダルの表示待ちスロット。
+    // 先頭から順に候補が集まったものを表示する（AB両装備時はAが先頭）。味方の参戦アナウンスが揃うまで再試行
+    private readonly List<EquipmentSlot> _borrowPendingSlots = new List<EquipmentSlot>();
+    private bool _borrowModalOpen; // 借用モーダル表示中（同時に2枚出さない）
     // スキル発動で今回の1D100にだけ乗る一時バフ（ダイス選択し直しでリセット）
     private int _skillCritRate, _skillCritDamage;
     private int _armedSubtractFaces; // >0 なら次の1D100でこの面数のダイスを振り出目を差し引く
@@ -158,6 +162,9 @@ public class BossBattleController : MonoBehaviour
             return;
         }
 
+        // ワーカー配置: 味方の参戦アナウンスが揃ったら借用モーダルを出す（1戦闘1回）
+        TryShowSkillBorrow();
+
         if (_selectPanel != null && _selectPanel.activeSelf)
             RefreshReadyState();
         else if (_waitingForRolls)
@@ -180,6 +187,8 @@ public class BossBattleController : MonoBehaviour
 
         BuildUI();
         HookBattleButton();
+        // 1日1回制限の免除判定に使う（判定済みUIDならキャッシュが効く）
+        AdminClaim.RefreshAsync().Forget();
     }
 
     /// <summary>戦闘ボタンを「ボス戦を開く」に差し替える（DiceRollController と同じ方式）。</summary>
@@ -276,6 +285,22 @@ public class BossBattleController : MonoBehaviour
                 }
             }
         }
+
+        // シリーズセットスキル: 武器・頭・体・足が同一シリーズなら効果を加算
+        var set = SeriesSetBonus.GetActiveSeries(idx);
+        if (set?.effects != null)
+        {
+            foreach (var fx in set.effects)
+            {
+                if (fx == null || !System.Enum.TryParse(fx.effectType, out EffectType type)) continue;
+                switch (type)
+                {
+                    case EffectType.CriticalRateUp:   rate += fx.value; break;
+                    case EffectType.CriticalDamageUp: dmg  += fx.value; break;
+                    case EffectType.ProbUp:           prob += fx.value; break;
+                }
+            }
+        }
         return (rate, dmg, prob);
     }
 
@@ -309,6 +334,107 @@ public class BossBattleController : MonoBehaviour
     /// <summary>未使用の「自動発動」スキル（D100Subtract系）があれば最初の1つを返す。</summary>
     private BattleSkillDef NextAutoSubtractSkill()
         => _battleSkills.FirstOrDefault(s => s.Kind == SkillKind.D100Subtract && !_usedSkills.Contains(s.Id));
+
+    /// <summary>
+    /// 戦闘開始時に自動発動するパッシブ系スキルを適用する。
+    /// OpenBattle（装備分）と、ワーカー配置で借りたスキルの決定時に呼ぶ。
+    /// 呼ぶ前に _critRateMultiplier の初期化(1f)を済ませておくこと（OpenBattleで実施）。
+    /// </summary>
+    private void ApplyBattleStartSkills(IEnumerable<BattleSkillDef> skills)
+    {
+        foreach (var s in skills)
+        {
+            switch (s.Kind)
+            {
+                // エンジンビルド系: 所持アクティブスキル本の数だけ成功確率を底上げ（自動・常時）
+                case SkillKind.ProbPerOwnedSkillBook:
+                    _equipProbBonus += CountOwnedActiveSkillBooks() * s.Value;
+                    break;
+
+                // ウイングスパン系: クリティカル率を倍にする（装備＋一時バフの合計に掛かる）。
+                // 倍率は最小(Value)〜最大(DiceFaces)の間で戦闘ごとにランダムに決まる。
+                // 今回の倍率はランダムなので毎戦闘ここで告知する（既定位置はダイス選択と重なるため上に出す）
+                case SkillKind.CritRateMultiplier:
+                    _critRateMultiplier *= s.DiceFaces > s.Value
+                        ? Random.Range((float)s.Value, (float)s.DiceFaces)
+                        : s.Value;
+                    FriendMenuController.ShowToast(
+                        $"{s.Name}スキル発動！ この戦闘はクリティカル率{_critRateMultiplier:F1}倍", 900f);
+                    break;
+
+                // 連勝ボーナス: 現在の連勝数ぶん成功確率を底上げ（連勝数 × Value）
+                case SkillKind.WinStreakBonus:
+                    _equipProbBonus += BattleStreak.Current * s.Value;
+                    break;
+
+                // ドミニオン系: 戦闘開始時に自動でダイスを振り、当たり目なら効果をこの戦闘だけ適用
+                case SkillKind.BattleStartStatBuff:
+                {
+                    int eye = Random.Range(1, s.DiceFaces + 1);
+                    bool hit = s.WinFaces.Contains(eye);
+                    if (hit)
+                    {
+                        if (s.Effect == EffectType.ProbUp) _equipProbBonus += s.Value;
+                        else Debug.LogWarning($"[Battle] BattleStartStatBuff の未対応効果: {s.Effect}（{s.Id}）");
+                    }
+                    // 結果の告知はフェーズ表示の上の空きに出す（既定位置はダイス選択と重なる）
+                    FriendMenuController.ShowToast(hit
+                        ? $"{s.Name}スキル発動！ {s.DiceFaces}面ダイス→{eye}が出た！ 成功確率＋{s.Value}"
+                        : $"{s.Name}スキル不発… {s.DiceFaces}面ダイス→{eye}", 900f);
+                    Debug.Log($"[Battle] {s.Id}: D{s.DiceFaces}→{eye} {(hit ? "発動" : "不発")}");
+                    break;
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// ワーカー配置（ワーカープレイスメントの本A/B）: 参戦中の味方が装備する同じスロットの
+    /// スキルブックのスキルが集まったら借用モーダルを出す（各スロット1戦闘1回・同時に1枚）。
+    /// _borrowPendingSlots の先頭から順に試し（AB両装備時はA優先）、候補がまだ無いスロットは
+    /// 維持したまま GroupSession.Changed（味方の参戦アナウンス）のたびに再試行される。
+    /// </summary>
+    private void TryShowSkillBorrow()
+    {
+        if (_borrowModalOpen || _borrowPendingSlots.Count == 0 || _busy || _battleEnded) return;
+        if (_overlay == null || !_overlay.activeSelf) return;
+        if (_selectPanel == null || !_selectPanel.activeSelf) return; // ダイス選択中だけ出す
+
+        for (int i = 0; i < _borrowPendingSlots.Count; i++)
+        {
+            var slot = _borrowPendingSlots[i];
+
+            // skill_id → 所持メンバー名（自分の同スロットはワーカー配置の本自身で skill_id 無し＝自然に除外される）
+            var owners = new Dictionary<string, string>();
+            foreach (var m in GroupSession.Members.Values)
+            {
+                string skillId = slot == EquipmentSlot.SkillBookA ? m.SkillA : m.SkillB;
+                if (!m.InBattle || string.IsNullOrEmpty(skillId)) continue;
+                if (BattleSkillRegistry.Get(skillId) == null) continue;  // クライアント未定義のIDは除外
+                if (_battleSkills.Any(s => s.Id == skillId)) continue;   // 既に自分が使えるスキルは除外
+                owners[skillId] = owners.TryGetValue(skillId, out var names) ? $"{names}・{m.Name}" : m.Name;
+            }
+            if (owners.Count == 0) continue; // このスロットは味方の参戦・アナウンス待ち
+
+            _borrowPendingSlots.RemoveAt(i); // モーダルは各スロット1戦闘1回だけ
+            _borrowModalOpen = true;
+            var rows = owners.Select(kv => (BattleSkillRegistry.Get(kv.Key), kv.Value)).ToList();
+            SkillBorrowModal.Show(slot == EquipmentSlot.SkillBookA ? "A" : "B", rows, def =>
+            {
+                _borrowModalOpen = false;
+                if (def != null) // null = 借りずにたたかう
+                {
+                    _battleSkills.Add(def);
+                    ApplyBattleStartSkills(new[] { def }); // 借りたスキルがパッシブ系なら今すぐ適用
+                    FriendMenuController.ShowToast($"ワーカー配置！ 「{def.Name}」をこの戦闘で使える", 900f);
+                    if (_selectPanel != null && _selectPanel.activeSelf)
+                        ShowSelectPhase(_selectMsg); // 成功確率などの表示を最新化
+                }
+                TryShowSkillBorrow(); // 残りのスロット（AB両装備時のBなど）があれば続けて表示
+            });
+            return;
+        }
+    }
 
     /// <summary>
     /// 手札のバフカードを1枚消費して、この戦闘だけのバフを適用する。
@@ -354,6 +480,13 @@ public class BossBattleController : MonoBehaviour
             case BuffCardType.SP2: // 1D10を振り、出目ぶん全ダイス確率+／攻撃力+1
                 _equipProbBonus += Random.Range(1, 11);
                 _cardAtkBonus += 1;
+                // 城壁都市のスキルブック(A): SPカードのバフ発動時は攻撃力を追加で＋1（この戦闘だけ）
+                if (UniqueSkill.IsActive(UniqueSkillType.SpCardAtkUp))
+                {
+                    _cardAtkBonus += 1;
+                    FriendMenuController.ShowToast(
+                        "「城壁都市のスキルブック(A)」発動！ SPカードの攻撃力がさらに＋1", 900f);
+                }
                 break;
         }
     }
@@ -447,6 +580,13 @@ public class BossBattleController : MonoBehaviour
     // ================================================================
     private void OpenBattle()
     {
+        // ボス討伐は1日1回まで（管理者アカウントは無制限）
+        if (!AdminClaim.IsAdmin && DailyBattleLimit.HasBattledToday)
+        {
+            InfoModal.Show("本日の討伐は終了", "ボス討伐は1日1回まで。\nまた明日挑戦しよう！");
+            return;
+        }
+
         _overlay.SetActive(true);
         _battleEnded = false;
         _waitingForRolls = false;
@@ -463,18 +603,10 @@ public class BossBattleController : MonoBehaviour
         _coopAtkPenalty = 0;
         GroupSession.ResetCoopBuff(); // 協力バフは戦闘ごとにリセット
 
-        // エンジンビルド系: 所持アクティブスキル本の数だけ成功確率を底上げ（自動・常時）
-        foreach (var s in _battleSkills.Where(s => s.Kind == SkillKind.ProbPerOwnedSkillBook))
-            _equipProbBonus += CountOwnedActiveSkillBooks() * s.Value;
-
-        // ウイングスパン系: クリティカル率を倍にする（装備＋一時バフの合計に掛かる）
-        _critRateMultiplier = 1;
-        foreach (var s in _battleSkills.Where(s => s.Kind == SkillKind.CritRateMultiplier))
-            _critRateMultiplier *= s.Value;
-
-        // 連勝ボーナス: 現在の連勝数ぶん成功確率を底上げ（連勝数 × Value）
-        foreach (var s in _battleSkills.Where(s => s.Kind == SkillKind.WinStreakBonus))
-            _equipProbBonus += BattleStreak.Current * s.Value;
+        // 戦闘開始時に自動発動するパッシブ系スキルを適用
+        // （エンジンビルド／ウイングスパン／連勝ボーナス／ドミニオン系）
+        _critRateMultiplier = 1f;
+        ApplyBattleStartSkills(_battleSkills);
 
         // バフカード（手札を1枚消費して戦闘1回限りのバフを適用）
         ApplyHeldBuffCard();
@@ -493,6 +625,28 @@ public class BossBattleController : MonoBehaviour
         ShowSelectPhase(string.IsNullOrEmpty(_cardName)
             ? "どのダイスで挑む？"
             : $"★ {_cardName}カード発動中！ どのダイスで挑む？");
+
+        // セットコレクションの本: 戦闘開始時に店員へのセット注文の申告を案内する（実店舗連動）
+        if (UniqueSkill.IsActive(UniqueSkillType.SetMenuNotice))
+            InfoModal.Show("セット注文スキル発動！", "本日セット商品を頼んだと\n店員に伝えてください。");
+
+        // ワーカープレイスメントの本(A)/(B): 参戦中の味方の同じスロットのスキルブックから1つ借りる。
+        // AB両装備時はAを先に発動する。味方の参戦アナウンスがまだ届いていなければ GroupSession.Changed で再試行する
+        _borrowPendingSlots.Clear();
+        _borrowModalOpen = false;
+        bool borrowA = UniqueSkill.IsActive(UniqueSkillType.SkillBorrow);
+        bool borrowB = UniqueSkill.IsActive(UniqueSkillType.SkillBorrowB);
+        if (borrowA || borrowB)
+        {
+            if (GroupSession.Active == null)
+                FriendMenuController.ShowToast("ワーカー配置スキル: グループ参加中だけ発動できる", 900f);
+            else
+            {
+                if (borrowA) _borrowPendingSlots.Add(EquipmentSlot.SkillBookA);
+                if (borrowB) _borrowPendingSlots.Add(EquipmentSlot.SkillBookB);
+                TryShowSkillBorrow();
+            }
+        }
     }
 
     /// <summary>今日お得な属性に対し、プレイヤーが相性有利になる属性をボスへ割り当てる。</summary>
@@ -735,6 +889,8 @@ public class BossBattleController : MonoBehaviour
 
         _busy = true;
         HideActionButtons();
+        // ここで後戻りできなくなるので「今日戦った」を記録する（開いて閉じただけでは消費しない）
+        DailyBattleLimit.RecordBattle();
         // ダイスを振り始めたら以降は閉じられないように×ボタンを隠す
         if (_closeButton != null) _closeButton.SetActive(false);
         if (_bossVisual != null) _bossVisual.gameObject.SetActive(false);
@@ -749,7 +905,9 @@ public class BossBattleController : MonoBehaviour
         var autoSub = NextAutoSubtractSkill();
         if (autoSub != null) { _armedSubtractFaces = autoSub.DiceFaces; _usedSkills.Add(autoSub.Id); }
 
-        _phaseText.text = "運命の 1D100 …";
+        // クリティカルのしきい値＝(装備＋一時バフのクリ率)×倍率。出目は整数なので切り捨てで表示・判定とも一致する
+        int critLine = Mathf.FloorToInt((_equipCritRate + _skillCritRate) * _critRateMultiplier);
+        _phaseText.text = $"運命の 1D100 …（{critLine}以下でクリティカル！）";
         int d100 = await _sim.RollPercentileAsync(); // 十の位(00..90)＋一の位(0..9)
 
         // スキル発動中なら、一緒に指定面ダイスを振って出目を差し引く（低いほど有利）
@@ -769,8 +927,8 @@ public class BossBattleController : MonoBehaviour
         // 協力バフ（味方全員に乗る成功確率）を最新値で加算して判定
         int successProb = Mathf.Clamp(_pending.prob + GroupSession.CoopProbBonus, 0, PROB_MAX);
         _d100Success = d100 <= successProb;
-        // 出目がクリティカル率以下ならクリティカル判定（(装備＋一時バフ)×倍率）
-        _isCritical = d100 <= (_equipCritRate + _skillCritRate) * _critRateMultiplier;
+        // 出目がクリティカル率以下ならクリティカル判定（表示したしきい値と同じ値で判定する）
+        _isCritical = d100 <= critLine;
         bool fumble = !_isCritical && d100 >= 96;
         _critBonus  = _isCritical ? _equipCritDamage + _skillCritDamage : 0;
         _d100AtkMod = fumble ? -1 : 0;
@@ -935,9 +1093,16 @@ public class BossBattleController : MonoBehaviour
             if (streak >= 2) LocalHistoryLog.Add("dice", $"{streak}連勝中！");
 
             // 連勝ボーナス: N連勝ごとに討伐時のレベルアップを＋1
-            int extraLevels = 0;
+            int streakLevels = 0;
             foreach (var s in _battleSkills.Where(s => s.Kind == SkillKind.WinStreakBonus))
-                if (s.DiceFaces > 0 && streak > 0 && streak % s.DiceFaces == 0) extraLevels += 1;
+                if (s.DiceFaces > 0 && streak > 0 && streak % s.DiceFaces == 0) streakLevels += 1;
+
+            // オーバーキルレベルボーナス（カタンのスキルブック(B)等）: オーバーキルNダメージごとにレベル＋1
+            int overkillLevels = 0;
+            foreach (var s in _battleSkills.Where(s => s.Kind == SkillKind.OverkillLevelBonus))
+                if (s.DiceFaces > 0) overkillLevels += overkill / s.DiceFaces;
+
+            int extraLevels = streakLevels + overkillLevels;
 
             // GP付与＋選択キャラのレベルアップ（1回の書き込み。通常+1＋連勝ボーナス）
             int oldLv = SelfLevel();
@@ -950,6 +1115,14 @@ public class BossBattleController : MonoBehaviour
                 : lvLine;
             string title = streak >= 2 ? $"ボス討伐成功！　{streak}連勝中！" : "ボス討伐成功！";
             InfoModal.Show(title, strong, strongYOffset: -50f);
+
+            // スキルで追加レベルが入ったことの告知（要因ごとに文言を分ける。B枠は1冊なので同時には出ない）
+            if (streakLevels > 0)
+                FriendMenuController.ShowToast("翼長の本Bの効果で追加でレベルが上がりました！");
+            if (overkillLevels > 0)
+                FriendMenuController.ShowToast(overkillLevels == 1
+                    ? "カタンのスキルブック(B)の効果で追加でレベルが上がりました！"
+                    : $"カタンのスキルブック(B)の効果で追加でレベルが{overkillLevels}上がりました！");
         }
         else
         {
@@ -1076,13 +1249,14 @@ public class BossBattleController : MonoBehaviour
         // 「振る」アクションボタン（ダイス選択後に表示。任意タイミングで振る）
         _actionButton = MakeButton("__ActionBtn", _overlay.transform, C_BORDER, "", jp, 46,
             new Color(0.16f, 0.09f, 0.03f), 520, 132, new Vector2(0, -360), () => { });
-        _actionLabel = _actionButton.transform.GetChild(0).GetComponent<TextMeshProUGUI>();
+        // 影(__Shadow)が先頭の子になるため、インデックスではなく型でラベルを取得する
+        _actionLabel = _actionButton.GetComponentInChildren<TextMeshProUGUI>(true);
         _actionButton.SetActive(false);
 
         // 「スキル発動」ボタン（ダイス選択後・1D100の前。任意発動。アクションボタンの上）
         _skillButton = MakeButton("__SkillBtn", _overlay.transform, new Color(0.40f, 0.20f, 0.52f), "", jp, 34,
             Color.white, 560, 92, new Vector2(0, -232), OnActivateSkill);
-        _skillLabel = _skillButton.transform.GetChild(0).GetComponent<TextMeshProUGUI>();
+        _skillLabel = _skillButton.GetComponentInChildren<TextMeshProUGUI>(true);
         _skillButton.SetActive(false);
 
         _cancelButton = MakeButton("__CancelBtn", _overlay.transform, C_MUTED, "選び直す", jp, 34,
@@ -1173,6 +1347,12 @@ public class BossBattleController : MonoBehaviour
         var btn = go.AddComponent<Button>();
         btn.targetGraphic = go.GetComponent<Image>();
         btn.onClick.AddListener(onClick);
+        // デザイン基盤: 明るい面は白グラデ、濃い面は控えめグラデで磨く（透明ヒットエリアは除外）
+        if (bg.a >= 0.5f)
+        {
+            if (bg.r + bg.g + bg.b >= 2.4f) UITheme.PolishButton(go.GetComponent<Image>());
+            else UITheme.PolishDarkButton(go.GetComponent<Image>());
+        }
         return go;
     }
 }

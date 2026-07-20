@@ -142,6 +142,27 @@ public class ItemCacheManager : SingletonBehaviour<ItemCacheManager>
             foreach (var job in JOB_KEYS)
                 _db.SetJobItems(job, byJob[job]);
 
+            // シリーズ定義（セットスキル）も同じドキュメントの series マップから同期する
+            _db.series = new List<CachedSeries>();
+            if (snap.ContainsField("series"))
+            {
+                var seriesMap = snap.GetValue<Dictionary<string, object>>("series");
+                foreach (var kv in seriesMap)
+                {
+                    if (!(kv.Value is Dictionary<string, object> fields)) continue;
+                    _db.series.Add(new CachedSeries
+                    {
+                        series_id      = kv.Key,
+                        name           = GetString(fields, "name"),
+                        effects        = ParseEffectList(fields),
+                        image_warrior  = GetString(fields, "image_warrior"),
+                        image_magician = GetString(fields, "image_magician"),
+                        image_archer   = GetString(fields, "image_archer"),
+                        image_gunner   = GetString(fields, "image_gunner"),
+                    });
+                }
+            }
+
             _meta.Version  = config.ItemsVersion;
             _meta.LastSync = DateTime.UtcNow.ToString("o");
             SaveToFile();
@@ -174,23 +195,32 @@ public class ItemCacheManager : SingletonBehaviour<ItemCacheManager>
         item.game         = GetString(d, "game");
         item.storage_path = GetString(d, "storage_path");
         item.skill_id     = GetString(d, "skill_id");
+        item.series       = GetString(d, "series");
 
         if (d.TryGetValue("created_at", out var tsObj) && tsObj is Timestamp ts)
             item.created_at = ts.ToDateTime().ToString("o");
 
+        item.effects = ParseEffectList(d);
+        return item;
+    }
+
+    /// <summary>Firestoreのmapから effects 配列を LocalItemEffect のリストに変換（アイテム・シリーズ共通）。</summary>
+    private static List<LocalItemEffect> ParseEffectList(Dictionary<string, object> d)
+    {
+        var list = new List<LocalItemEffect>();
         if (d.TryGetValue("effects", out var fxObj) && fxObj is IEnumerable<object> fxList)
         {
             foreach (var fx in fxList)
             {
                 if (!(fx is Dictionary<string, object> m)) continue;
-                item.effects.Add(new LocalItemEffect
+                list.Add(new LocalItemEffect
                 {
                     effectType = GetString(m, "effect_type"),
                     value      = m.TryGetValue("value", out var v) ? Convert.ToInt32(v) : 0,
                 });
             }
         }
-        return item;
+        return list;
     }
 
     private static string GetString(Dictionary<string, object> d, string key)
@@ -371,6 +401,13 @@ public class ItemCacheManager : SingletonBehaviour<ItemCacheManager>
     public CachedItem FindById(string itemId)
         => _db.AllItems().FirstOrDefault(x => x.item_id == itemId);
 
+    /// <summary>登録済みシリーズ（セットスキル）の一覧。</summary>
+    public List<CachedSeries> GetAllSeries() => _db.series;
+
+    /// <summary>シリーズIDから定義を返す（なければnull）。</summary>
+    public CachedSeries FindSeriesById(string seriesId)
+        => string.IsNullOrEmpty(seriesId) ? null : _db.series.FirstOrDefault(s => s.series_id == seriesId);
+
     // ================================================================
     // キャッシュクリア
     // ================================================================
@@ -439,7 +476,33 @@ public class CachedItem
     public string storage_path;
     public string created_at;
     public string skill_id; // スキルブックの任意発動スキルID（BattleSkillRegistry のキー）
+    public string series;   // シリーズID（master/items の series マップのキー。空=シリーズなし）
     public List<LocalItemEffect> effects = new List<LocalItemEffect>();
+}
+
+/// <summary>シリーズ（セットスキル）定義。武器・頭・体・足を同一シリーズで揃えると effects が発動する。</summary>
+[Serializable]
+public class CachedSeries
+{
+    public string series_id;
+    public string name;
+    public List<LocalItemEffect> effects = new List<LocalItemEffect>();
+
+    // セット発動中にキャラページのシルエットを差し替える専用画像URL（職業別・空=未設定）
+    public string image_warrior;
+    public string image_magician;
+    public string image_archer;
+    public string image_gunner;
+
+    /// <summary>職業キーに対応するセット画像URL（未設定は空文字）。</summary>
+    public string GetImageUrl(string job) => job switch
+    {
+        "warrior"  => image_warrior  ?? "",
+        "magician" => image_magician ?? "",
+        "archer"   => image_archer   ?? "",
+        "gunner"   => image_gunner   ?? "",
+        _          => "",
+    };
 }
 
 [Serializable]
@@ -450,6 +513,7 @@ public class ItemDatabase
     public List<CachedItem> archer   = new List<CachedItem>();
     public List<CachedItem> gunner   = new List<CachedItem>();
     public List<CachedItem> common   = new List<CachedItem>();
+    public List<CachedSeries> series = new List<CachedSeries>();
 
     public int TotalCount =>
         warrior.Count + magician.Count + archer.Count + gunner.Count + common.Count;

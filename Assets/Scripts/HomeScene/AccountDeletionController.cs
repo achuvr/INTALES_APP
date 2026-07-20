@@ -267,12 +267,13 @@ public class AccountDeletionController : MonoBehaviour
         var rt = dim.AddComponent<RectTransform>();
         rt.anchorMin = Vector2.zero; rt.anchorMax = Vector2.one;
         rt.offsetMin = rt.offsetMax = Vector2.zero;
-        dim.AddComponent<Image>().color = new Color(0f, 0f, 0f, 0.6f);
+        dim.AddComponent<Image>().color = UITheme.DIM;
         var dimBtn = dim.AddComponent<Button>();
         dimBtn.transition = Selectable.Transition.None;
         dimBtn.onClick.AddListener(CloseModal);
 
         var border = MakeRect("__ModalBorder", dim.transform, C_BORDER, w + 16, h + 16);
+        UITheme.ElevateCard(border, 18f, 10f, 0.35f);
         panel = MakeRect("__ModalPanel", border.transform, C_PARCHMENT, w, h);
         panel.AddComponent<Button>().transition = Selectable.Transition.None;
         return dim;
@@ -321,5 +322,12 @@ public class AccountDeletionController : MonoBehaviour
         var btn = go.AddComponent<Button>();
         btn.targetGraphic = go.GetComponent<Image>();
         btn.onClick.AddListener(onClick);
+        // デザイン基盤: 背景の明るさで白ボタン／濃色ボタンの磨き分け（透明ヒットエリアは対象外）
+        if (bg.a >= 0.5f)
+        {
+            var img = go.GetComponent<Image>();
+            if (bg.r + bg.g + bg.b >= 2.4f) UITheme.PolishButton(img);
+            else UITheme.PolishDarkButton(img);
+        }
     }
 }

@@ -9,7 +9,7 @@ using UnityEngine.UI;
 /// </summary>
 public static class BuffCardModal
 {
-    private static readonly Color C_DIM     = new Color(0f, 0f, 0f, 0.6f);
+    private static readonly Color C_DIM     = UITheme.DIM; // モーダル暗幕（デザイントークン）
     private static readonly Color C_BORDER  = new Color(0.84f, 0.66f, 0.18f, 1f);
     private static readonly Color C_BG      = new Color(0.99f, 0.95f, 0.84f, 0.98f);
     private static readonly Color C_TITLE   = new Color(0.38f, 0.16f, 0.04f, 1f);
@@ -36,6 +36,7 @@ public static class BuffCardModal
 
         var border = MakeRect("__Border", dim.transform, C_BORDER, 760, 1040);
         var panel  = MakeRect("__Panel", border.transform, C_BG, 744, 1024);
+        UITheme.ElevateCard(border, 18f, 10f, 0.35f); // モーダルを浮かせる
 
         MakeLabel(panel.transform, "カードを引いた！", jp, 46, FontStyles.Bold, C_TITLE,
             700, 70, new Vector2(0, 430));
@@ -50,6 +51,7 @@ public static class BuffCardModal
         var raw = imgGO.AddComponent<RawImage>();
         if (tex != null) { raw.texture = tex; FitRawImage(raw, tex, 560, 560); }
         else raw.color = new Color(0.8f, 0.75f, 0.6f);
+        UITheme.ElevateCard(imgGO, 12f, 6f, 0.22f); // カード絵を浮かせる
 
         MakeLabel(panel.transform, BuffCard.DisplayName(card), jp, 50, FontStyles.Bold, C_TITLE,
             700, 70, new Vector2(0, -230));
@@ -62,6 +64,7 @@ public static class BuffCardModal
         btn.GetComponent<RectTransform>().anchoredPosition = new Vector2(0, -460);
         MakeLabel(btn.transform, "とじる", jp, 38, FontStyles.Bold, Color.white, 360, 96, Vector2.zero);
         btn.AddComponent<Button>().onClick.AddListener(() => Object.Destroy(dim));
+        UITheme.PolishDarkButton(btn.GetComponent<Image>()); // 濃茶ボタン（r+g+b<2.4）
 
         var dimBtn = dim.AddComponent<Button>();
         dimBtn.transition = Selectable.Transition.None;

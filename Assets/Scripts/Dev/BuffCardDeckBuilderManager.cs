@@ -78,6 +78,16 @@ public class BuffCardDeckBuilderManager : MonoBehaviour
         MakeText("__Title", canvas.transform, "バフカード 山札ビルダー", 54, FontStyles.Bold, C_GOLD,
             new Vector2(0, -50), new Vector2(1000, 90), TextAlignmentOptions.Center, anchorTop: true);
 
+        // Homeへ戻る（右上。GachaAdmin と同じ流儀）
+        var backGO = MakeButton("__Back", canvas.transform, new Color(0.86f, 0.28f, 0.28f), "✕ Home", 32,
+            Vector2.zero, new Vector2(200, 84));
+        var backRt = backGO.GetComponent<RectTransform>();
+        backRt.anchorMin = backRt.anchorMax = new Vector2(1f, 1f);
+        backRt.pivot = new Vector2(1f, 1f);
+        backRt.anchoredPosition = new Vector2(-20f, -20f);
+        backGO.GetComponent<Button>().onClick.AddListener(
+            () => UnityEngine.SceneManagement.SceneManager.LoadScene("Home"));
+
         // スクロール領域（タイトル下〜画面下）。カードを大きく取り、はみ出しはスクロールで見る。
         var content = CreateScroll(canvas.transform);
 

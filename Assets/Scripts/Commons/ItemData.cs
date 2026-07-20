@@ -154,6 +154,10 @@ public class ItemData
     [FirestoreProperty("game")]
     public string Game { get; set; }
 
+    // シリーズID（master/items の series マップのキー。空=シリーズなし）
+    [FirestoreProperty("series")]
+    public string Series { get; set; }
+
 
 
 

@@ -147,7 +147,19 @@ public class EquipInfoModal : MonoBehaviour
             }
         }
 
-        BuildModal(chara, equippedIds, itemDataMap, statTotals);
+        // シリーズセットスキル（武器・頭・体・足が同一シリーズ）発動中ならその効果も合計へ
+        var activeSet = SeriesSetBonus.GetActiveSeries(charIdx);
+        if (activeSet?.effects != null)
+        {
+            foreach (var fx in activeSet.effects)
+            {
+                if (fx == null || !System.Enum.TryParse(fx.effectType, out EffectType t)) continue;
+                if (!statTotals.ContainsKey(t)) statTotals[t] = 0;
+                statTotals[t] += fx.value;
+            }
+        }
+
+        BuildModal(chara, equippedIds, itemDataMap, statTotals, activeSet);
     }
 
     // ================================================================
@@ -157,7 +169,8 @@ public class EquipInfoModal : MonoBehaviour
         Character chara,
         Dictionary<EquipmentSlot, string> equippedIds,
         Dictionary<string, ItemData> itemDataMap,
-        Dictionary<EffectType, int> statTotals)
+        Dictionary<EffectType, int> statTotals,
+        CachedSeries activeSet = null)
     {
         const float ROW_H      = 105f;
         const float ROW_GAP    = 8f;
@@ -190,6 +203,20 @@ public class EquipInfoModal : MonoBehaviour
             EFFECT_LABELS.TryGetValue(effectType, out var lbl);
             equipStats.Add((lbl.name ?? effectType.ToString(),
                             string.Format(lbl.fmt ?? "+{0}", total)));
+        }
+
+        // セットスキル発動中はその旨を先頭に表示（効果値は上の合計へ算入済み）
+        if (activeSet != null)
+            equipStats.Insert(0, ("セットスキル", activeSet.name));
+
+        // ユニークスキル付き装備（例: 塔覇の本(A)＝カード除去）を着けていれば先頭に表示
+        foreach (var kv in equippedIds)
+        {
+            if (string.IsNullOrEmpty(kv.Value)) continue;
+            itemDataMap.TryGetValue(kv.Value, out var uniqueItem);
+            var us = UniqueSkill.FromItem(kv.Value, uniqueItem?.Name);
+            if (us != null)
+                equipStats.Insert(0, ("ユニークスキル", UniqueSkill.DisplayName(us.Value)));
         }
 
         int charRows  = Mathf.CeilToInt(charStats.Count / 2f);
@@ -427,6 +454,11 @@ public class EquipInfoModal : MonoBehaviour
         nTxt.text = statName; nTxt.fontSize = 36f;
         nTxt.alignment = TextAlignmentOptions.MidlineLeft;
         nTxt.color = C_LABEL; nTxt.raycastTarget = false;
+        // 長い項目名（ユニークスキル・クリティカルダメージ等）は改行せず自動で縮小して1行に収める
+        nTxt.enableAutoSizing = true;
+        nTxt.fontSizeMax = 36f; nTxt.fontSizeMin = 20f;
+        nTxt.enableWordWrapping = false;
+        nTxt.overflowMode = TextOverflowModes.Ellipsis;
         AF(nTxt);
 
         var valGO = MakeGO("__SVal", go.transform);
@@ -437,6 +469,11 @@ public class EquipInfoModal : MonoBehaviour
         vTxt.text = statValue; vTxt.fontSize = 40f; vTxt.fontStyle = FontStyles.Bold;
         vTxt.alignment = TextAlignmentOptions.MidlineRight;
         vTxt.color = C_STAT_VAL; vTxt.raycastTarget = false;
+        // 長い値（セットスキル名・ユニークスキル名等）も同様に自動縮小
+        vTxt.enableAutoSizing = true;
+        vTxt.fontSizeMax = 40f; vTxt.fontSizeMin = 20f;
+        vTxt.enableWordWrapping = false;
+        vTxt.overflowMode = TextOverflowModes.Ellipsis;
         AF(vTxt);
     }
 

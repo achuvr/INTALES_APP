@@ -44,10 +44,11 @@ public static class InfoModal
         var drt = dim.AddComponent<RectTransform>();
         drt.anchorMin = Vector2.zero; drt.anchorMax = Vector2.one;
         drt.offsetMin = drt.offsetMax = Vector2.zero;
-        dim.AddComponent<Image>().color = new Color(0f, 0f, 0f, 0.55f);
+        dim.AddComponent<Image>().color = UITheme.DIM;
 
         // パネル
         var border = MakeRect("__Border", dim.transform, C_BORDER, 792, 616);
+        UITheme.ElevateCard(border, 18f, 10f, 0.35f);
         var panel  = MakeRect("__Panel", border.transform, C_PARCHMENT, 776, 600);
 
         MakeLabel(panel.transform, title, jp, 44, FontStyles.Bold, C_TITLE, 700, 80, new Vector2(0, 196));
@@ -64,6 +65,7 @@ public static class InfoModal
         btnGO.GetComponent<RectTransform>().anchoredPosition = new Vector2(0, -200);
         MakeLabel(btnGO.transform, "とじる", jp, 40, FontStyles.Bold, Color.white, 360, 100, Vector2.zero);
         btnGO.AddComponent<Button>().onClick.AddListener(() => Object.Destroy(dim));
+        UITheme.PolishDarkButton(btnGO.GetComponent<Image>()); // C_BTN は濃茶（r+g+b < 2.4）
 
         var dimBtn = dim.AddComponent<Button>();
         dimBtn.transition = Selectable.Transition.None;

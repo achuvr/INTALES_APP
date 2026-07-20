@@ -198,6 +198,10 @@ public class FriendMenuController : MonoBehaviour
         foreach (var kv in friends)
         {
             var row = MakeRect($"__Friend_{kv.Key}", _listContent, C_ROW, 820, 110);
+            // 行カードを浮かせる。影の子はHorizontalLayoutGroupの整列対象から外す
+            UITheme.ElevateCard(row, 12f, 6f, 0.22f);
+            var rowShadow = row.transform.Find("__Shadow");
+            if (rowShadow != null) rowShadow.gameObject.AddComponent<LayoutElement>().ignoreLayout = true;
             var layout = row.AddComponent<HorizontalLayoutGroup>();
             layout.padding = new RectOffset(30, 30, 10, 10);
             layout.childAlignment = TextAnchor.MiddleLeft;
@@ -476,6 +480,7 @@ public class FriendMenuController : MonoBehaviour
         dimBtn.onClick.AddListener(CloseModal);
 
         var border = MakeRect("__ModalBorder", dim.transform, C_BORDER, w + 16, h + 16);
+        UITheme.ElevateCard(border, 18f, 10f, 0.35f);
         panel = MakeRect("__ModalPanel", border.transform, C_PARCHMENT, w, h);
         // パネル内のタップが暗幕の「閉じる」に吸われないようにする
         panel.GetComponent<Image>().raycastTarget = true;
@@ -637,7 +642,7 @@ public class FriendMenuController : MonoBehaviour
         var ort = _overlay.AddComponent<RectTransform>();
         ort.anchorMin = Vector2.zero; ort.anchorMax = Vector2.one;
         ort.offsetMin = ort.offsetMax = Vector2.zero;
-        _overlay.AddComponent<Image>().color = new Color(0.08f, 0.04f, 0.20f, 0.68f);
+        _overlay.AddComponent<Image>().color = UITheme.DIM;
         _overlay.SetActive(false);
 
         _listPanel = BuildListPanel(jp);
@@ -651,6 +656,7 @@ public class FriendMenuController : MonoBehaviour
     private GameObject BuildListPanel(TMP_FontAsset jp)
     {
         var border = MakeRect("__ListBorder", _overlay.transform, C_BORDER, 936, 1316);
+        UITheme.ElevateCard(border, 18f, 10f, 0.35f);
         var panel  = MakeRect("__ListPanel", border.transform, C_PARCHMENT, 920, 1300);
 
         MakeLabel("__Title", panel.transform, "フレンド", jp, 52, FontStyles.Bold, C_TITLE, 700, 90)
@@ -790,6 +796,7 @@ public class FriendMenuController : MonoBehaviour
     private GameObject BuildQRPanel(TMP_FontAsset jp)
     {
         var border = MakeRect("__QRBorder", _overlay.transform, C_BORDER, 936, 1316);
+        UITheme.ElevateCard(border, 18f, 10f, 0.35f);
         var panel  = MakeRect("__QRPanel", border.transform, C_PARCHMENT, 920, 1300);
 
         MakeLabel("__Title", panel.transform, "フレンド登録QR", jp, 52, FontStyles.Bold, C_TITLE, 700, 90)
@@ -825,7 +832,11 @@ public class FriendMenuController : MonoBehaviour
     // ================================================================
     // トースト（他クラスからも呼べる）
     // ================================================================
-    public static void ShowToast(string message)
+    /// <summary>
+    /// 画面下部に一時表示のトーストを出す。
+    /// bottomY は画面下端からの表示位置（既定320。ボス戦中などUIと重なる場合は上寄りを指定する）。
+    /// </summary>
+    public static void ShowToast(string message, float bottomY = 320f)
     {
         var canvas = GetMainCanvas();
         if (canvas == null)
@@ -840,7 +851,7 @@ public class FriendMenuController : MonoBehaviour
         var rt = go.AddComponent<RectTransform>();
         rt.anchorMin = rt.anchorMax = new Vector2(0.5f, 0f);
         rt.pivot = new Vector2(0.5f, 0f);
-        rt.anchoredPosition = new Vector2(0, 320);
+        rt.anchoredPosition = new Vector2(0, bottomY);
         // 幅はキャンバス実寸に収める（QRシーン等、参照解像度が異なるキャンバスでもはみ出さない）
         var canvasRt = canvas.transform as RectTransform;
         float w = Mathf.Min(900f, (canvasRt != null ? canvasRt.rect.width : 900f) - 60f);
@@ -856,6 +867,7 @@ public class FriendMenuController : MonoBehaviour
         tmp.fontSizeMax = 40;
         tmp.fontSizeMin = 22;
 
+        UITheme.ElevateCard(go, 12f, 6f, 0.30f);
         go.AddComponent<ToastFader>();
     }
 
@@ -918,6 +930,13 @@ public class FriendMenuController : MonoBehaviour
         var btn = go.AddComponent<Button>();
         btn.targetGraphic = go.GetComponent<Image>();
         btn.onClick.AddListener(onClick);
+        // デザイン基盤: 背景の明るさで白ボタン／濃色ボタンの磨き分け（透明ヒットエリアは対象外）
+        if (bgColor.a >= 0.5f)
+        {
+            var img = go.GetComponent<Image>();
+            if (bgColor.r + bgColor.g + bgColor.b >= 2.4f) UITheme.PolishButton(img);
+            else UITheme.PolishDarkButton(img);
+        }
         return go;
     }
 }

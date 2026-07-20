@@ -99,6 +99,10 @@ public class EquipmentMenuController : MonoBehaviour
             AssetsDatabase.instance?.PlayEquipSE();
             SafeRebuildItemList(_currentSlot);
             RefreshSlotIndicators();
+
+            // キャラページのシルエット表示を更新（セット完成/解除で専用画像⇔デフォルトを切替）
+            var cpm = FindObjectOfType<CharacterPageManager>();
+            if (cpm != null) cpm.RefreshSeriesImage();
         }
         catch (System.Exception ex)
         {
@@ -148,6 +152,23 @@ public class EquipmentMenuController : MonoBehaviour
             }
         }
 
+        // シリーズセットスキル（武器・頭・体・足が同一シリーズ）の効果を加算
+        var set = SeriesSetBonus.GetActiveSeries(charIdx);
+        if (set?.effects != null)
+        {
+            foreach (var fx in set.effects)
+            {
+                if (fx == null || !System.Enum.TryParse(fx.effectType, out EffectType t)) continue;
+                switch (t)
+                {
+                    case EffectType.AtkUp:             atk      += fx.value; break;
+                    case EffectType.ProbUp:            prob     += fx.value; break;
+                    case EffectType.CriticalRateUp:    critRate += fx.value; break;
+                    case EffectType.CriticalDamageUp:  critDmg  += fx.value; break;
+                }
+            }
+        }
+
         chara.BaseAtk        = atk;
         chara.BaseProb       = prob;
         chara.BaseCritRate   = critRate;
@@ -167,7 +188,7 @@ public class EquipmentMenuController : MonoBehaviour
         var ort = _overlay.AddComponent<RectTransform>();
         ort.anchorMin = Vector2.zero; ort.anchorMax = Vector2.one;
         ort.offsetMin = ort.offsetMax = Vector2.zero;
-        _overlay.AddComponent<Image>().color = new Color(0.08f,0.04f,0.20f,0.68f);
+        _overlay.AddComponent<Image>().color = UITheme.DIM;
         _overlay.SetActive(false);
         _slotPanel = BuildSlotPanel(jp);
         _slotPanel.transform.SetParent(_overlay.transform, false);
@@ -180,6 +201,7 @@ public class EquipmentMenuController : MonoBehaviour
     {
         var border = MakeRect("__SlotBorder", _overlay.transform, C_BORDER, 978, 1089);
         var panel  = MakeRect("__SlotPanel", border.transform, C_PARCHMENT, 962, 1073);
+        UITheme.ElevateCard(border, 18f, 10f, 0.35f); // モーダルを浮かせる
         MakeFancyBtn("__Close", panel.transform, C_CLOSE_BTN, "✕", jp, 64, 422, 478, 93, 93, Hide);
         MakeLabel("__Title", panel.transform, "装備スロット選択", jp, 48, FontStyles.Bold, C_TITLE, 0, 444, 851, 93);
         MakeRect("__Div", panel.transform, C_DIVIDER, 851, 4)
@@ -213,6 +235,12 @@ public class EquipmentMenuController : MonoBehaviour
         cb.pressedColor = new Color(0.75f,0.75f,0.75f,1f);
         btn.colors = cb;
         btn.onClick.AddListener(() => ShowListPanel(slot));
+        // デザイン基盤: 明るい面は白グラデ、濃い面は控えめグラデで磨く（透明ヒットエリアは除外）
+        if (color.a >= 0.5f)
+        {
+            if (color.r + color.g + color.b >= 2.4f) UITheme.PolishButton(go.GetComponent<Image>());
+            else UITheme.PolishDarkButton(go.GetComponent<Image>());
+        }
         float iconSize = 100f, iconPad = 8f;
         var iconGO = MakeGO("__Icon", go.transform);
         var irt = iconGO.AddComponent<RectTransform>();
@@ -246,6 +274,7 @@ public class EquipmentMenuController : MonoBehaviour
     {
         var border = MakeRect("__ListBorder", _overlay.transform, C_BORDER, 1004, 1232);
         var panel  = MakeRect("__ListPanel", border.transform, C_PARCHMENT, 988, 1216);
+        UITheme.ElevateCard(border, 18f, 10f, 0.35f); // モーダルを浮かせる
         _listTitle = MakeLabel("__ListTitle", panel.transform, "", jp, 46, FontStyles.Bold, C_TITLE, 0, 513, 874, 95);
         MakeRect("__Div2", panel.transform, C_DIVIDER, 874, 4)
             .GetComponent<RectTransform>().anchoredPosition = new Vector2(0, 447);
@@ -278,32 +307,28 @@ public class EquipmentMenuController : MonoBehaviour
     }
 
     // ================================================================
-    // セット効果判定
+    // セットスキル判定（シリーズ）
     // ================================================================
+
+    /// <summary>直近で発動を通知したシリーズID（付け替えのたびに再通知しない）。</summary>
+    private string _announcedSetSeriesId;
+
+    /// <summary>
+    /// 武器・頭・体・足の4部位が同一シリーズになった瞬間にSEとモーダルで発動を知らせる。
+    /// 効果の適用自体は RecalcStats（ステータス）と BossBattleController（ボス戦）が行う。
+    /// </summary>
     private void CheckSetEffect(int charIdx)
     {
-        var cacheManager = ItemCacheManager.instance;
-        if (cacheManager == null || !cacheManager.IsLoaded) return;
-
-        var setSlots = new[] { EquipmentSlot.Weapon, EquipmentSlot.Head, EquipmentSlot.Body, EquipmentSlot.Feet };
-        string setGame = null;
-
-        foreach (var slot in setSlots)
+        var set = SeriesSetBonus.GetActiveSeries(charIdx);
+        string id = set?.series_id;
+        if (id != null && id != _announcedSetSeriesId)
         {
-            string itemId = LocalEquipSave.Load(charIdx, slot);
-            if (string.IsNullOrEmpty(itemId)) return;
-
-            var cached = cacheManager.GetAll().FirstOrDefault(x => x.item_id == itemId);
-            if (cached == null || string.IsNullOrEmpty(cached.game)) return;
-
-            if (setGame == null)
-                setGame = cached.game;
-            else if (setGame != cached.game)
-                return;
+            Debug.Log($"[Equip] シリーズ「{set.name}」のセットスキルが発動！");
+            AssetsDatabase.instance?.PlaySetSE();
+            InfoModal.Show("セットスキル発動！",
+                $"シリーズ「{set.name}」\n{SeriesSetBonus.DescribeEffects(set.effects)}");
         }
-
-        Debug.Log($"[Equip] {setGame}のセット効果が発動します！");
-        AssetsDatabase.instance?.PlaySetSE();
+        _announcedSetSeriesId = id;
     }
 
     // =================== 表示制御 ===================
@@ -396,17 +421,18 @@ public class EquipmentMenuController : MonoBehaviour
             return;
         }
 
-        foreach (var item in items)
+        // 同じ装備を複数持っている場合（スキルブックA/Bは重複所持できる）は1行にまとめて所持数を表示する
+        foreach (var group in items.Where(i => i != null).GroupBy(i => i.ItemId))
         {
-            if (item == null) continue;
-            MakeItemRow(item, item.IsEquippedBy(chara), jp);
+            var item = group.First();
+            MakeItemRow(item, item.IsEquippedBy(chara), jp, group.Count());
         }
     }
 
     // ================================================================
     // アイテム行（アイコン + 装備名 + 効果）
     // ================================================================
-    private void MakeItemRow(ItemData item, bool isEquipped, TMP_FontAsset jp)
+    private void MakeItemRow(ItemData item, bool isEquipped, TMP_FontAsset jp, int count = 1)
     {
         if (item == null) { Debug.LogError("MakeItemRow: item が null"); return; }
         if (_listContent == null) { Debug.LogError("MakeItemRow: _listContent がnull"); return; }
@@ -489,7 +515,8 @@ public class EquipmentMenuController : MonoBehaviour
         nameGO.AddComponent<RectTransform>();
         nameGO.AddComponent<LayoutElement>().preferredHeight = 70f;
         var ntxt = nameGO.AddComponent<TextMeshProUGUI>();
-        ntxt.text = !string.IsNullOrEmpty(item.Name) ? item.Name : (item.ItemId ?? "---");
+        string baseName = !string.IsNullOrEmpty(item.Name) ? item.Name : (item.ItemId ?? "---");
+        ntxt.text = count > 1 ? $"{baseName} ×{count}" : baseName; // 複数所持（スキルブック）は所持数を表示
         ntxt.fontSize = 50f; ntxt.fontStyle = FontStyles.Bold;
         ntxt.alignment = TextAlignmentOptions.MidlineLeft;
         ntxt.color = C_TITLE;
@@ -555,6 +582,9 @@ public class EquipmentMenuController : MonoBehaviour
             btxt.color = Color.white; btxt.raycastTarget = false;
             if (jp != null) btxt.font = jp;
         }
+
+        // デザイン基盤: 行カードを軽く持ち上げる（行は再構築のたびに作り直すため、生成時の1回だけ）
+        UITheme.ElevateCard(row, 12f, 6f, 0.22f);
     }
 
     // =================== ヘルパー ===================
@@ -622,6 +652,12 @@ public class EquipmentMenuController : MonoBehaviour
         cb.pressedColor = new Color(0.75f,0.75f,0.75f,1f);
         btn.colors = cb;
         btn.onClick.AddListener(onClick);
+        // デザイン基盤: 明るい面は白グラデ、濃い面は控えめグラデで磨く（透明ヒットエリアは除外）
+        if (color.a >= 0.5f)
+        {
+            if (color.r + color.g + color.b >= 2.4f) UITheme.PolishButton(go.GetComponent<Image>());
+            else UITheme.PolishDarkButton(go.GetComponent<Image>());
+        }
         MakeLabel("__Txt", go.transform, label, jp, fontSize, FontStyles.Bold, Color.white, 0,0,w,h);
     }
 }

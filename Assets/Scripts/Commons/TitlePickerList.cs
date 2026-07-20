@@ -169,6 +169,7 @@ public class TitlePickerList : MonoBehaviour
         var btn = go.AddComponent<Button>();
         btn.targetGraphic = img;
         btn.onClick.AddListener(() => { if (row.BoundTitle != null) _onPick?.Invoke(row.BoundTitle); });
+        UITheme.AddPressEffect(go); // 押下の沈み込み（影は行数が多いので付けない）
         go.SetActive(false);
         return row;
     }

@@ -142,6 +142,7 @@ public class ZukanController : MonoBehaviour
         trt.anchorMin = new Vector2(0f, 1f); trt.anchorMax = new Vector2(1f, 1f);
         trt.pivot = new Vector2(0.5f, 1f);
         trt.offsetMin = new Vector2(0f, -150f); trt.offsetMax = new Vector2(0f, 0f);
+        UITheme.PolishTitleBar(titleBar);
         // タイトル文字は左上に寄せる（左パディングを取り左揃え）
         var titleGO = new GameObject("__TitleLabel");
         titleGO.transform.SetParent(titleBar.transform, false);
@@ -198,6 +199,7 @@ public class ZukanController : MonoBehaviour
             var img = go.AddComponent<Image>();
             RoundedRectSprite.Apply(img);
             img.color = slot == _currentSlot ? C_TAB_ON : C_TAB_OFF;
+            PolishByColor(img);
             var btn = go.AddComponent<Button>();
             btn.targetGraphic = img;
             string captured = slot;
@@ -233,6 +235,7 @@ public class ZukanController : MonoBehaviour
             var img = go.AddComponent<Image>();
             RoundedRectSprite.Apply(img);
             img.color = job == _currentJob ? C_TAB_ON : C_TAB_OFF;
+            PolishByColor(img);
             var btn = go.AddComponent<Button>();
             btn.targetGraphic = img;
             string captured = job;
@@ -472,6 +475,7 @@ public class ZukanController : MonoBehaviour
         card.bg = go.AddComponent<Image>();
         RoundedRectSprite.Apply(card.bg);
         card.bg.color = C_CARD;
+        UITheme.ElevateCard(go, 12f, 6f, 0.22f); // 使い回すカードなので生成時に1回だけ
         card.button = go.AddComponent<Button>();
         card.button.targetGraphic = card.bg;
         // リスナーは1回だけ登録し、タップ時に現在の item を読む（再バインドで付け替えない）
@@ -575,7 +579,7 @@ public class ZukanController : MonoBehaviour
         drt.anchorMin = Vector2.zero; drt.anchorMax = Vector2.one;
         drt.offsetMin = drt.offsetMax = Vector2.zero;
         var dim = _detailModal.AddComponent<Image>();
-        dim.color = new Color(0f, 0f, 0f, 0.6f);
+        dim.color = UITheme.DIM;
         var dimBtn = _detailModal.AddComponent<Button>();
         dimBtn.transition = Selectable.Transition.None;
         dimBtn.onClick.AddListener(CloseDetail);
@@ -583,6 +587,7 @@ public class ZukanController : MonoBehaviour
         // パネル
         var border = MakeRect("__DBorder", _detailModal.transform, C_BORDER, 900, 1180);
         RoundedRectSprite.Apply(border.GetComponent<Image>());
+        UITheme.ElevateCard(border, 18f, 10f, 0.35f);
         var panel = MakeRect("__DPanel", border.transform, C_PARCHMENT, 876, 1156);
         RoundedRectSprite.Apply(panel.GetComponent<Image>());
         // パネル内タップはモーダルを閉じない
@@ -821,9 +826,23 @@ public class ZukanController : MonoBehaviour
         var img = go.AddComponent<Image>();
         RoundedRectSprite.Apply(img);
         img.color = bg;
+        PolishByColor(img);
         var btn = go.AddComponent<Button>();
         btn.targetGraphic = img;
         MakeLabel(go.transform, text, font, fontSize, FontStyles.Bold, textColor, 0, 0, stretch: true);
         return go;
+    }
+
+    /// <summary>
+    /// 背景色に応じて UITheme の明るい/濃色ボタン磨きを振り分ける。
+    /// 透明なヒットエリア（a &lt; 0.5）には何も付けない。二重適用はUITheme側で防止される。
+    /// </summary>
+    private static void PolishByColor(Image img)
+    {
+        if (img == null) return;
+        var c = img.color;
+        if (c.a < 0.5f) return;
+        if (c.r + c.g + c.b >= 2.4f) UITheme.PolishButton(img);
+        else UITheme.PolishDarkButton(img);
     }
 }

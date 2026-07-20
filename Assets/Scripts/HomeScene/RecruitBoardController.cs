@@ -390,6 +390,7 @@ public class RecruitBoardController : MonoBehaviour
         trt.pivot = new Vector2(0.5f, 1f);
         trt.offsetMin = new Vector2(0f, -TITLE_H); trt.offsetMax = Vector2.zero;
         titleBar.AddComponent<Image>().color = C_TITLEBAR;
+        UITheme.PolishTitleBar(titleBar);
 
         var title = MakeLabel(titleBar.transform, "募集ボード", _jp, 84, FontStyles.Bold, C_TITLETEXT, 700, TITLE_H, Vector2.zero);
         var trt2 = title.GetComponent<RectTransform>();
@@ -489,6 +490,7 @@ public class RecruitBoardController : MonoBehaviour
 
         var card = MakeRect("__Card", _listContent, C_CARD, 0, CARD_H);
         RoundedRectSprite.Apply(card.GetComponent<Image>());
+        UITheme.ElevateCard(card, 12f, 6f, 0.22f);
         var rt = card.GetComponent<RectTransform>();
         rt.anchorMin = new Vector2(0f, 1f); rt.anchorMax = new Vector2(1f, 1f);
         rt.pivot = new Vector2(0.5f, 1f);
@@ -512,6 +514,7 @@ public class RecruitBoardController : MonoBehaviour
             timg.preserveAspect = true;
             var tbtn = thumbGO.AddComponent<Button>();
             tbtn.targetGraphic = timg;
+            UITheme.AddPressEffect(thumbGO);
             string display = GameDisplay(p);
             tbtn.onClick.AddListener(() => OpenImageViewer(thumbUrls, display));
             LoadThumbAsync(thumbUrls[0], timg).Forget();
@@ -1001,6 +1004,9 @@ public class RecruitBoardController : MonoBehaviour
                 selected ? C_CHIP_ON : selectable ? C_WHITE : new Color(0f, 0f, 0f, 0.05f),
                 d.ToString(), _jp, 30, selectable ? C_INK : new Color(0.52f, 0.38f, 0.22f, 0.35f),
                 100, 92, pos, null);
+            // カレンダーのマス目は密集して影が濁るので、影だけ外す（グラデ・押下は残す）
+            var cellShadow = go.transform.Find("__Shadow");
+            if (cellShadow != null) Destroy(cellShadow.gameObject);
             var btn = go.GetComponent<Button>();
             if (selectable)
             {
@@ -1456,7 +1462,7 @@ public class RecruitBoardController : MonoBehaviour
         rt.anchorMin = Vector2.zero; rt.anchorMax = Vector2.one;
         rt.offsetMin = rt.offsetMax = Vector2.zero;
         var dim = go.AddComponent<Image>();
-        dim.color = new Color(0f, 0f, 0f, 0.6f);
+        dim.color = UITheme.DIM;
         var btn = go.AddComponent<Button>();
         btn.transition = Selectable.Transition.None;
         btn.onClick.AddListener(() => onTapOutside());
@@ -1467,6 +1473,7 @@ public class RecruitBoardController : MonoBehaviour
     {
         var border = MakeRect("__Border", parent, C_BORDER, w + 24, h + 24);
         RoundedRectSprite.Apply(border.GetComponent<Image>());
+        UITheme.ElevateCard(border, 18f, 10f, 0.35f); // モーダルを浮かせる
         var panel = MakeRect("__Panel", border.transform, C_PARCHMENT, w, h);
         RoundedRectSprite.Apply(panel.GetComponent<Image>());
         panel.AddComponent<Button>().transition = Selectable.Transition.None; // パネル内タップで閉じない
@@ -1636,6 +1643,12 @@ public class RecruitBoardController : MonoBehaviour
         var btn = go.AddComponent<Button>();
         btn.targetGraphic = go.GetComponent<Image>();
         if (onClick != null) btn.onClick.AddListener(onClick);
+        // デザイン基盤: 明るい面は白グラデ、濃い面は控えめグラデで磨く（透明ヒットエリアは除外）
+        if (bg.a >= 0.5f)
+        {
+            if (bg.r + bg.g + bg.b >= 2.4f) UITheme.PolishButton(go.GetComponent<Image>());
+            else UITheme.PolishDarkButton(go.GetComponent<Image>());
+        }
         return go;
     }
 

@@ -193,6 +193,13 @@ public class ItemBagPageManager : MonoBehaviour
                             // 行にはscale(5.41)が掛かっているため、角丸の見た目の半径を補正
                             img.pixelsPerUnitMultiplier = Mathf.Max(1f, t.localScale.x);
                             img.color = row;
+                            // デザイン基盤: 明るい面は白グラデ、濃い面は控えめグラデで磨く
+                            // （行のscale補正を渡して影の見た目を他画面と揃える）
+                            if (row.a >= 0.5f)
+                            {
+                                if (row.r + row.g + row.b >= 2.4f) UITheme.PolishButton(img, t.localScale.x);
+                                else UITheme.PolishDarkButton(img, t.localScale.x);
+                            }
                         }
                     }
                     break;
@@ -258,6 +265,13 @@ public class ItemBagPageManager : MonoBehaviour
                 img.pixelsPerUnitMultiplier = Mathf.Max(1f, target.localScale.x);
             }
             img.color = bgColor;
+            // デザイン基盤: 角丸に差し替えたボタン（使用/キャンセル）だけ磨く。
+            // ＋/−はスプライト自体に記号が描かれているため対象外。
+            if (replaceSprite && bgColor.a >= 0.5f)
+            {
+                if (bgColor.r + bgColor.g + bgColor.b >= 2.4f) UITheme.PolishButton(img, target.localScale.x);
+                else UITheme.PolishDarkButton(img, target.localScale.x);
+            }
         }
         if (textColor.HasValue)
         {

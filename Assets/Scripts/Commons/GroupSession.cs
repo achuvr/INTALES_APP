@@ -43,6 +43,10 @@ public class GroupSession : MonoBehaviour, INetworkRunnerCallbacks
         public bool InBattle;
         /// <summary>このボス戦で自分のターンのダイスを振り終えたか</summary>
         public bool HasRolled;
+        /// <summary>装備中スキルブック(A)の skill_id（"" = 無し）。ワーカー配置スキルの借用候補に使う</summary>
+        public string SkillA = "";
+        /// <summary>装備中スキルブック(B)の skill_id（"" = 無し）。ワーカー配置スキルの借用候補に使う</summary>
+        public string SkillB = "";
     }
 
     /// <summary>メンバー一覧（PlayerId → キャラクター情報）。参加順で安定するようIDでソート</summary>
@@ -328,7 +332,8 @@ public class GroupSession : MonoBehaviour, INetworkRunnerCallbacks
         // 他のメンバーへ送信。
         // - 「誰の情報か」は受信側の引数に頼らず、ペイロード先頭に自分のPlayerIdを入れて伝える
         // - 複数人が同じキーで送ると転送が衝突して上書きされ得るため、キーにも送信者IDを混ぜる
-        var payload = $"{myId}\n{info.Name}\n{info.Job}\n{info.Element}\n{info.Level}\n{info.Dice}\n{(info.InBattle ? 1 : 0)}\n{(info.HasRolled ? 1 : 0)}";
+        // - 末尾へのフィールド追加は旧バージョンのクライアントでも安全（余剰分は無視される）
+        var payload = $"{myId}\n{info.Name}\n{info.Job}\n{info.Element}\n{info.Level}\n{info.Dice}\n{(info.InBattle ? 1 : 0)}\n{(info.HasRolled ? 1 : 0)}\n{info.SkillA}\n{info.SkillB}";
         var data = System.Text.Encoding.UTF8.GetBytes(payload);
         var key = ReliableKey.FromInts(KEY_0, KEY_1, KEY_2, myId);
         foreach (var player in _runner.ActivePlayers)
@@ -352,9 +357,20 @@ public class GroupSession : MonoBehaviour, INetworkRunnerCallbacks
                 Job = chara.Job,
                 Element = chara.Element,
                 Level = chara.Level,
+                SkillA = GetMySkillBook(idx, EquipmentSlot.SkillBookA),
+                SkillB = GetMySkillBook(idx, EquipmentSlot.SkillBookB),
             };
         }
         return new MemberInfo { Name = "ななしさん", Job = "", Element = "", Level = 1 };
+    }
+
+    /// <summary>指定キャラクターが指定スロットに装備しているスキルブックの skill_id（未装備・スキル無しなら ""）。</summary>
+    private static string GetMySkillBook(int charIdx, EquipmentSlot slot)
+    {
+        string itemId = LocalEquipSave.Load(charIdx, slot);
+        if (string.IsNullOrEmpty(itemId)) return "";
+        var item = ItemCacheManager.instance != null ? ItemCacheManager.instance.FindById(itemId) : null;
+        return item?.skill_id ?? "";
     }
 
     // ================================================================
@@ -447,6 +463,8 @@ public class GroupSession : MonoBehaviour, INetworkRunnerCallbacks
             Dice = parts.Length > 5 && int.TryParse(parts[5], out int dice) ? dice : -1,
             InBattle = parts.Length > 6 && parts[6] == "1",
             HasRolled = parts.Length > 7 && parts[7] == "1",
+            SkillA = parts.Length > 8 ? parts[8] : "",
+            SkillB = parts.Length > 9 ? parts[9] : "",
         };
 
         // 入室直後のメンバーの名前が届いたタイミングで履歴に記録する
