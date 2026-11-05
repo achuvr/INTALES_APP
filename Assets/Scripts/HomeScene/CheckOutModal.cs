@@ -27,6 +27,13 @@ public static class CheckOutModal
     /// </summary>
     public static void Show(string stayText, string levelUpName, int oldLevel, int newLevel)
     {
+        // 新ホーム（宇宙デザイン）表示中は宇宙デザインのお知らせで出す
+        if (SpaceTheme.InUse)
+        {
+            SpaceNotice.CheckOut(stayText, levelUpName, oldLevel, newLevel);
+            return;
+        }
+
         bool bonus = !string.IsNullOrEmpty(levelUpName);
 
         var canvasGO = GameObject.Find("Canvas");

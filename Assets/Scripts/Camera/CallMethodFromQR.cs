@@ -51,18 +51,27 @@ public class CallMethodFromQR : MonoBehaviour
         }
     }
 
-    public UniTask Atk()    => AddCouponAsync("atk_coupon",    d => d.ATKCoupon++,    "ATK");
-    public UniTask Drink()  => AddCouponAsync("drink_coupon",  d => d.DrinkCoupon++,  "Drink");
-    public UniTask Coffee() => AddCouponAsync("coffee_coupon", d => d.CoffeeCoupon++, "Coffee");
-    public UniTask Five()   => AddCouponAsync("five_coupon",   d => d.FiveCoupon++,   "5");
-    public UniTask Seven()  => AddCouponAsync("seven_coupon",  d => d.SevenCoupon++,  "7");
+    // 店頭クーポンのQRの中身（読むとそのクーポンが1枚もらえる。判定は QRReader.BranchText）。
+    // 新ホームの管理者用QR一覧（SpaceAdminQrList）もこの文字をQRにして表示する
+    public const string QR_FIVE_COUPON   = "5";
+    public const string QR_SEVEN_COUPON  = "7";
+    public const string QR_DRINK_COUPON  = "drink";
+    public const string QR_COFFEE_COUPON = "coffee";
+    public const string QR_ATK_COUPON    = "atk";
+
+    // 最後の引数はクーポンの表示名（旧バッグ・新ホームの所持品と同じ名前。履歴に残す）
+    public UniTask Atk()    => AddCouponAsync("atk_coupon",    d => d.ATKCoupon++,    "ATK+1チケット");
+    public UniTask Drink()  => AddCouponAsync("drink_coupon",  d => d.DrinkCoupon++,  "ドリンクチケット");
+    public UniTask Coffee() => AddCouponAsync("coffee_coupon", d => d.CoffeeCoupon++, "コーヒーチケット");
+    public UniTask Five()   => AddCouponAsync("five_coupon",   d => d.FiveCoupon++,   "5%OFFチケット");
+    public UniTask Seven()  => AddCouponAsync("seven_coupon",  d => d.SevenCoupon++,  "7%OFFチケット");
 
     /// <summary>
     /// クーポン入手の共通処理。
     /// FieldValue.Increment を使ったサーバー側加算1回だけで完結する
     /// （書き込み前の読み取り・書き込み後の再取得は行わない）。
     /// </summary>
-    private async UniTask AddCouponAsync(string couponField, System.Action<UserData> applyLocal, string label)
+    private async UniTask AddCouponAsync(string couponField, System.Action<UserData> applyLocal, string name)
     {
         try
         {
@@ -73,12 +82,14 @@ public class CallMethodFromQR : MonoBehaviour
             }).AsUniTask();
 
             applyLocal(UserDataManager.instance.UserData);
-            Debug.Log($"[QR] {label}クーポンを入手");
+            Debug.Log($"[QR] {name}を入手");
+            // 履歴に記録（端末ローカル・最大50件。使ったときの「○○ を n枚 使用」と同じ書き方）
+            LocalHistoryLog.Add("coupon", $"{name} を1枚 入手");
             End();
         }
         catch (System.Exception ex)
         {
-            Debug.LogError($"[QR] クーポン書き込みエラー ({label}): {ex.Message}");
+            Debug.LogError($"[QR] クーポン書き込みエラー ({name}): {ex.Message}");
             EndFromButton();
         }
     }
@@ -86,6 +97,93 @@ public class CallMethodFromQR : MonoBehaviour
     public async UniTask NewCharacter()
     {
         SceneLoader.instance.MergeScene("New");
+    }
+
+    /// <summary>
+    /// 惑星の解放QR（アチーブメント報酬）。形式: "planet:{惑星ID}:{署名}"（SpacePlanets.ParseQr）。
+    /// 店側の管理者アカウントの「惑星の解放QRコード」一覧で表示したものを読み取る。
+    /// 署名の合わないQR（自作）は受け付けない。解放済みならお知らせだけ出す。
+    /// 書き込みは users/{uid}.planets への ArrayUnion 1回だけ（読み取りなし）。
+    /// </summary>
+    public async UniTask UnlockPlanet(string qrText)
+    {
+        var def = SpacePlanets.ParseQr(qrText);
+        if (def == null)
+        {
+            FriendMenuController.ShowToast(SpacePlanets.T_INVALID_QR);
+            EndFromButton();
+            return;
+        }
+        if (SpacePlanets.IsOwned(def))
+        {
+            EndFromButton();
+            InfoModal.Show(SpacePlanets.T_ALREADY_TITLE, def.Name, SpacePlanets.T_HOW_TO_CHOOSE);
+            return;
+        }
+
+        try
+        {
+            await UserDocRef.UpdateAsync(new Dictionary<string, object>
+            {
+                { "planets", FieldValue.ArrayUnion(def.Id) },
+                { "lastDate", Timestamp.GetCurrentTimestamp() },
+            }).AsUniTask();
+
+            var planets = UserDataManager.instance.UserData.Planets;
+            if (!planets.Contains(def.Id)) planets.Add(def.Id);
+            SpacePlanets.MarkNews();
+            Debug.Log($"[QR] 惑星を解放: {def.Id}");
+            LocalHistoryLog.Add("planet", $"惑星「{def.Name}」を解放"); // 履歴に記録（端末ローカル）
+            AssetsDatabase.instance?.PlayLevelUpSE();
+            End();
+            // 新ホームでは惑星が回るお祝いのお知らせ（その場で「この惑星にする」も選べる）
+            if (SpaceTheme.InUse) SpaceNotice.PlanetUnlocked(def);
+            else InfoModal.Show(SpacePlanets.T_UNLOCKED_TITLE, def.Name, SpacePlanets.T_HOW_TO_CHOOSE);
+        }
+        catch (System.Exception ex)
+        {
+            Debug.LogError($"[QR] 惑星の解放エラー ({def.Id}): {ex.Message}");
+            FriendMenuController.ShowToast(SpacePlanets.T_UNLOCK_FAILED);
+            EndFromButton();
+        }
+    }
+
+    /// <summary>
+    /// 1か月遊び放題パスの受け取りQR（"pass:{ID}"）。管理者の「お客様に見せるQRコード」の「1か月パス」で
+    /// 発行したもの（1回だけ・発行から60分間使える）。受け取ると、今日を1日目として30日間のパスが所持品に入る
+    /// </summary>
+    public async UniTask ClaimPass(string qrText)
+    {
+        var (result, pass) = await StorePasses.ClaimAsync(qrText);
+        switch (result)
+        {
+            case PassClaimResult.Ok:
+                LocalHistoryLog.Add("pass",
+                    $"{StorePasses.T_SHORT}「{pass.Type.Label}」を受け取り（{StorePasses.DateText(pass.Expiry)}まで）");
+                AssetsDatabase.instance?.PlayLevelUpSE();
+                End();
+                ShowPassNotice(pass, false);
+                break;
+            case PassClaimResult.AlreadyMine:
+                End();
+                ShowPassNotice(pass, true);
+                break;
+            default:
+                FriendMenuController.ShowToast(StorePasses.ClaimMessage(result));
+                EndFromButton();
+                break;
+        }
+    }
+
+    private static void ShowPassNotice(PassInfo pass, bool already)
+    {
+        if (SpaceTheme.InUse)
+        {
+            SpaceNotice.PassReceived(pass, already);
+            return;
+        }
+        InfoModal.Show(already ? "このパスは受け取り済みです" : "パスを受け取りました！",
+            $"{StorePasses.T_SHORT}（{pass.Type.Label}）", $"{StorePasses.DateText(pass.Expiry)}まで遊び放題です");
     }
 
     /// <summary>QRコードのフレンド登録プレフィックス。形式: "friend:{uid}:{name}"</summary>
@@ -538,6 +636,9 @@ public class CallMethodFromQR : MonoBehaviour
 
         // 「ログイン情報を公開する」がONならフレンドに在店中が見えるよう共有する
         PresenceService.SetCheckedInAsync(true).Forget();
+        // 入店中の人数（名前もIDもない記録。新ホームの惑星のまわりを、選んでいる惑星の色の球が回る）。
+        // 新ホームでは、自分の惑星がいちばん外の円の自分の場所へ飛んでいく演出をする
+        StoreVisitors.CheckInAsync(SpacePlanets.Current.Id, arrival: true).Forget();
 
         // 左上の「ログイン中」バッジとグループボタンの表示を更新
         PresenceIndicator.Refresh();
@@ -580,13 +681,32 @@ public class CallMethodFromQR : MonoBehaviour
     }
 
     /// <summary>
+    /// 入店ボーナスの付与とお知らせが終わるまで true（新ホームは、これが終わってお知らせも閉じてから、
+    /// 自分の惑星をいちばん外の円へ飛ばす）
+    /// </summary>
+    public static bool CheckInBonusPending { get; private set; }
+
+    private async UniTaskVoid GrantCheckInBonusesAsync(System.DateTime? lastVisit)
+    {
+        CheckInBonusPending = true;
+        try
+        {
+            await GrantCheckInBonusesCoreAsync(lastVisit);
+        }
+        finally
+        {
+            CheckInBonusPending = false;
+        }
+    }
+
+    /// <summary>
     /// 来店時のレベルアップボーナスをまとめて付与する。
     ///  ・来店ボーナス（毎回）… +1（1日1回）
     ///  ・1か月以内の再来ボーナス … 前回来店から1か月以内なら追加で +1（1日1回）
     /// 競合（同じ旧レベルを二重に読む）を避けるため、合計レベルを1回の書き込みで反映する。
     /// 結果は InfoModal で告知する。
     /// </summary>
-    private async UniTaskVoid GrantCheckInBonusesAsync(System.DateTime? lastVisit)
+    private async UniTask GrantCheckInBonusesCoreAsync(System.DateTime? lastVisit)
     {
         var manager = UserDataManager.instance;
         var chars = manager?.UserData?.Characters;
@@ -668,6 +788,7 @@ public class CallMethodFromQR : MonoBehaviour
 
         // 共有していた在店状態を解除する
         PresenceService.SetCheckedInAsync(false).Forget();
+        StoreVisitors.CheckOutAsync().Forget(); // 入店中の人数から外れる
 
         // 左上の「ログイン中」バッジとグループボタンの表示を更新
         // （グループ参加中なら GroupController 側で自動脱退する）

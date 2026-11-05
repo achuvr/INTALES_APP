@@ -47,6 +47,8 @@ public class HistoryController : MonoBehaviour
             case "visit":  return ("滞在",     new Color(0.55f, 0.40f, 0.12f));
             case "coupon": return ("クーポン", new Color(0.80f, 0.38f, 0.10f));
             case "group":  return ("グループ", new Color(0.15f, 0.50f, 0.60f));
+            case "planet": return ("惑星",     new Color(0.20f, 0.42f, 0.80f));
+            case "pass":   return ("パス",     new Color(0.62f, 0.48f, 0.12f));
             default:       return ("その他",   new Color(0.52f, 0.38f, 0.22f));
         }
     }

@@ -1,34 +1,19 @@
-using System.Collections.Generic;
-using System.IO;
 using System.Linq;
-using System.Text;
 using Cysharp.Threading.Tasks;
-using Firebase.Firestore;
 using TMPro;
 using UnityEngine;
-using UnityEngine.SceneManagement;
 using UnityEngine.UI;
-using YokeijoAssets;
 
 /// <summary>
-/// 退会（アカウント削除）機能。Google Playの「アカウント作成があるアプリは
+/// 退会（アカウント削除）機能の旧ホーム用UI。Google Playの「アカウント作成があるアプリは
 /// アプリ内に削除手段を提供すること」という要件に対応する。
 ///
 /// 入口: アカウントモーダル（AccountButton）内の「アカウント削除」リンク
 /// 流れ: 警告モーダル → 最終確認モーダル → 削除実行
-///
-/// 削除内容:
-///   1. 在店共有エントリ（presence/store の自分のフィールド）
-///   2. フレンドの friends マップから自分を削除（相互登録の後始末）
-///   3. 旧構造サブコレクション（characters / achievements）
-///   4. users/{uid} ドキュメント
-///   5. Firebase Auth アカウント（直近ログインが必要なため保存済み認証情報で再ログインしてから削除）
-///   6. 端末ローカルのデータ（user.txt・来店記録・PlayerPrefs）
+/// 削除処理の本体（削除する内容の一覧も）は AccountSession.DeleteAccountAsync（新ホームと共通）。
 /// </summary>
 public class AccountDeletionController : MonoBehaviour
 {
-    private const string USER_FILE = "user.txt";
-
     private static readonly Color C_PARCHMENT = new Color(0.99f, 0.95f, 0.84f, 0.98f);
     private static readonly Color C_BORDER    = new Color(0.84f, 0.66f, 0.18f, 1.00f);
     private static readonly Color C_TITLE     = new Color(0.38f, 0.16f, 0.04f, 1.00f);
@@ -112,71 +97,11 @@ public class AccountDeletionController : MonoBehaviour
         CloseModal();
         AssetsDatabase.instance?.LoadingPanel?.SetActive(true);
 
-        var manager = UserDataManager.instance;
-        string uid = manager.UID;
-        var db = FirebaseFirestore.DefaultInstance;
-
         try
         {
-            // 1) 在店共有のエントリを削除（公開設定に関わらず消す）
-            await PresenceService.WriteAsync(false);
-
-            // 2) フレンドの friends マップから自分を削除
-            var friendUids = manager.UserData.Friends.Keys.ToList();
-            if (friendUids.Count > 0)
-            {
-                var batch = db.StartBatch();
-                foreach (var fuid in friendUids)
-                {
-                    batch.Update(db.Collection("users").Document(fuid),
-                        new Dictionary<FieldPath, object>
-                        {
-                            { new FieldPath("friends", uid), FieldValue.Delete },
-                        });
-                }
-                try
-                {
-                    await batch.CommitAsync().AsUniTask();
-                }
-                catch (System.Exception ex)
-                {
-                    // 相手のアカウントが既に消えている場合など。退会自体は続行する
-                    Debug.LogWarning($"[AccountDeletion] フレンド側の掃除に一部失敗: {ex.Message}");
-                }
-            }
-
-            // 3) 旧構造のサブコレクションを削除（残っていれば）
-            await DeleteSubcollectionAsync(db, uid, "characters");
-            await DeleteSubcollectionAsync(db, uid, "achievements");
-
-            // 4) ユーザードキュメント本体を削除
-            await db.Collection("users").Document(uid).DeleteAsync().AsUniTask();
-
-            // 5) Firebase Auth のアカウントを削除
-            //    削除には直近のログインが必要なため、保存済みの認証情報で再ログインしてから消す
-            //    （プロジェクト内に同名の FirebaseAuth クラスがあるためフルパスで指定）
-            var auth = Firebase.Auth.FirebaseAuth.DefaultInstance;
-            if (TryReadSavedCredentials(out string mail, out string pw))
-            {
-                try
-                {
-                    await auth.SignInWithEmailAndPasswordAsync(mail, pw).AsUniTask();
-                }
-                catch (System.Exception ex)
-                {
-                    Debug.LogWarning($"[AccountDeletion] 再ログインに失敗（そのまま削除を試みます）: {ex.Message}");
-                }
-            }
-            if (auth.CurrentUser != null)
-                await auth.CurrentUser.DeleteAsync().AsUniTask();
-
-            // 6) 端末ローカルのデータを削除
-            DeleteLocalData();
-            manager.SetUID("");
-            manager.SetUserData(new UserData());
-
-            Debug.Log("[AccountDeletion] アカウント削除が完了しました");
-            SceneManager.LoadScene("Start");
+            // 削除処理の本体は新ホームと共通（AccountSession）
+            await AccountSession.DeleteAccountAsync();
+            AccountSession.ReturnToStart();
         }
         catch (System.Exception ex)
         {
@@ -185,76 +110,6 @@ public class AccountDeletionController : MonoBehaviour
             FriendMenuController.ShowToast("削除に失敗しました。通信環境を確認して再度お試しください");
             _deleting = false;
         }
-    }
-
-    private static async UniTask DeleteSubcollectionAsync(FirebaseFirestore db, string uid, string subName)
-    {
-        try
-        {
-            var snap = await db.Collection("users").Document(uid).Collection(subName)
-                .GetSnapshotAsync().AsUniTask();
-            if (snap.Count == 0) return;
-
-            var batch = db.StartBatch();
-            foreach (var doc in snap.Documents)
-                batch.Delete(doc.Reference);
-            await batch.CommitAsync().AsUniTask();
-            Debug.Log($"[AccountDeletion] 旧 {subName} サブコレクションを削除 ({snap.Count}件)");
-        }
-        catch (System.Exception ex)
-        {
-            Debug.LogWarning($"[AccountDeletion] {subName} の削除に失敗（続行）: {ex.Message}");
-        }
-    }
-
-    /// <summary>user.txt から保存済みのメール・パスワードを読む（再認証用）</summary>
-    private static bool TryReadSavedCredentials(out string mail, out string pw)
-    {
-        mail = null;
-        pw = null;
-        try
-        {
-#if UNITY_EDITOR
-            string dir = Path.Combine(Application.dataPath, "TestUser");
-#else
-            string dir = Path.Combine(Application.persistentDataPath, "TestUser");
-#endif
-            string path = Path.Combine(dir, USER_FILE);
-            if (!File.Exists(path)) return false;
-
-            using var sr = new StreamReader(path, Encoding.GetEncoding("utf-8"));
-            sr.ReadLine();                         // uid（不要）
-            mail = sr.ReadLine();
-            pw = DecryptAES256.Decrypt(sr.ReadLine());
-            return !string.IsNullOrEmpty(mail) && !string.IsNullOrEmpty(pw);
-        }
-        catch (System.Exception ex)
-        {
-            Debug.LogWarning($"[AccountDeletion] 認証情報の読み込みに失敗: {ex.Message}");
-            return false;
-        }
-    }
-
-    /// <summary>端末に残る個人データを削除する</summary>
-    private static void DeleteLocalData()
-    {
-        try
-        {
-#if UNITY_EDITOR
-            string userFile = Path.Combine(Application.dataPath, "TestUser", USER_FILE);
-#else
-            string userFile = Path.Combine(Application.persistentDataPath, "TestUser", USER_FILE);
-#endif
-            if (File.Exists(userFile)) File.Delete(userFile);
-        }
-        catch (System.Exception ex)
-        {
-            Debug.LogWarning($"[AccountDeletion] user.txt 削除失敗: {ex.Message}");
-        }
-
-        LocalVisitLog.Clear();      // 来店記録
-        PlayerPrefs.DeleteAll();    // 装備状態・各種同期フラグなど
-        PlayerPrefs.Save();
     }
 
     // ================================================================

@@ -20,6 +20,8 @@ public class BoardGameEntry
     public string[] genre;    // ジャンル（テーマ/フレーバー＋メカニクスのタグ）
     public string[] designer; // ゲームデザイナー（クレジット欄の「ゲームデザイン」。複数の場合あり）
     public int popularity;    // 当店アプリユーザーの「お気に入り」数（人気順ソート用。日次同期で更新）
+    public int added_rank;    // お店が登録した順（1=いちばん新しい。0=不明）。ボドゲーマのお店の一覧の並び。新着順ソート用
+    public string added_on;   // 毎朝の同期でこのゲームを初めて見つけた日（yyyy-MM-dd。≒お店が登録した日）。空=不明
     public string url;        // ボドゲーマの詳細ページURL
 }
 
@@ -115,28 +117,7 @@ public static class BoardGameCatalog
             }
 
             onProgress?.Invoke($"master/boardgames を取得中... (v{local} → v{config.BoardgamesVersion})");
-            var snap = await FirebaseFirestore.DefaultInstance
-                .Collection("master").Document("boardgames")
-                .GetSnapshotAsync().AsUniTask();
-
-            if (!snap.Exists || !snap.ContainsField("json"))
-            {
-                onProgress?.Invoke("master/boardgames が存在しません");
-                return;
-            }
-
-            string json = snap.GetValue<string>("json");
-            var parsed = Parse(json, "Firestore");
-            if (parsed == null || parsed.games.Length == 0)
-            {
-                onProgress?.Invoke("取得データが不正のため破棄（現行データを維持）");
-                return;
-            }
-
-            Directory.CreateDirectory(CacheDir);
-            File.WriteAllText(CachePath, json);
-            _cache = parsed;
-            onProgress?.Invoke($"更新完了 v{parsed.version} ({parsed.count}件)");
+            await FetchAndSaveAsync(onProgress);
         }
         catch (Exception e)
         {
@@ -146,6 +127,60 @@ public static class BoardGameCatalog
         {
             _syncing = false;
         }
+    }
+
+    /// <summary>
+    /// 新ホームのボードゲーム図鑑のダウンロード: いちばん新しいゲーム一覧をこの端末に用意する。
+    /// サーバーの版が手元より新しければ master/boardgames を1ドキュメント読んで保存し、
+    /// 同じなら読み取りなし（起動時の同期で最新になっていることが多い）。
+    /// サーバーにまだ配信がない・設定を読めないときは、アプリ同梱のデータで用意できたことにする。
+    /// 用意できたら true（ゲームが1件もなければ false）
+    /// </summary>
+    public static async UniTask<bool> DownloadAsync()
+    {
+        try
+        {
+            var config = await MasterData.GetConfigAsync();
+            if (config.BoardgamesVersion > 0 && Load().version < config.BoardgamesVersion)
+            {
+                bool ok = await FetchAndSaveAsync(msg => Debug.Log($"[BoardGame] {msg}"));
+                if (!ok) return false;
+            }
+        }
+        catch (Exception e)
+        {
+            Debug.LogError("[BoardGame] 図鑑のダウンロードでエラー: " + e.Message);
+            return false;
+        }
+        return Load().games.Length > 0;
+    }
+
+    /// <summary>master/boardgames を読んでローカルに保存する。保存できたら true</summary>
+    private static async UniTask<bool> FetchAndSaveAsync(Action<string> onProgress)
+    {
+        var snap = await FirebaseFirestore.DefaultInstance
+            .Collection("master").Document("boardgames")
+            .GetSnapshotAsync().AsUniTask();
+
+        if (!snap.Exists || !snap.ContainsField("json"))
+        {
+            onProgress?.Invoke("master/boardgames が存在しません");
+            return false;
+        }
+
+        string json = snap.GetValue<string>("json");
+        var parsed = Parse(json, "Firestore");
+        if (parsed == null || parsed.games.Length == 0)
+        {
+            onProgress?.Invoke("取得データが不正のため破棄（現行データを維持）");
+            return false;
+        }
+
+        Directory.CreateDirectory(CacheDir);
+        File.WriteAllText(CachePath, json);
+        _cache = parsed;
+        onProgress?.Invoke($"更新完了 v{parsed.version} ({parsed.count}件)");
+        return true;
     }
 
     private static BoardGameCatalogData Parse(string json, string label)

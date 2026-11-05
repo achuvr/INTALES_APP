@@ -26,6 +26,13 @@ public static class InfoModal
     /// <param name="strongYOffset">強調本文の縦位置オフセット（＋で上・−で下）</param>
     public static void Show(string title, string strongText, string subText = null, float strongYOffset = 0f)
     {
+        // 新ホーム（宇宙デザイン）表示中は宇宙デザインのお知らせで出す（文言はそのまま）
+        if (SpaceTheme.InUse)
+        {
+            SpaceNotice.Info(title, strongText, subText);
+            return;
+        }
+
         var canvasGO = GameObject.Find("Canvas");
         var canvas = canvasGO != null ? canvasGO.GetComponent<Canvas>()
                                       : Object.FindFirstObjectByType<Canvas>();

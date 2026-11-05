@@ -16,18 +16,30 @@ public class QRReader : MonoBehaviour
     [SerializeField] private GameObject _rawImageObject;
 
     private bool _isOnce = false;
-    
+
+    private RawImage _rawImage;
+    private RectTransform _rawRect;
+
+    // 映像の向き・大きさを最後に合わせたときの状態（どれかが変わったときだけ合わせ直す）
+    private int _fitAngle = -1, _fitWidth, _fitHeight;
+    private bool _fitMirrored;
+    private Vector2 _fitArea;
+
     void Awake()
     {
         _callMethodFromQR = GetComponent<CallMethodFromQR>();
+        PrepareCameraImage();
         ReadyWebCamAsync().Forget();
     }
 
     void Update()
     {
-        if (_webCam.isPlaying)
+        // カメラの許可待ち・許可なし・カメラなしの間は _webCam が null（毎フレーム例外にならないように）
+        if (_webCam != null && _webCam.isPlaying)
         {
-            if ((_webCam != null && QRCodeHelper.TryRead(_webCam, out var result)) && !_isOnce)
+            FitCameraImage();
+
+            if (QRCodeHelper.TryRead(_webCam, out var result) && !_isOnce)
             {
                 _isOnce = true;
                 _result = result;
@@ -70,6 +82,20 @@ public class QRReader : MonoBehaviour
             return;
         }
 
+        // 1か月遊び放題パスの受け取りQR（"pass:{ID}"。管理者が、購入されたお客様に見せる。1回だけ使える）
+        if (_result.StartsWith(StorePasses.QR_PREFIX))
+        {
+            _callMethodFromQR.ClaimPass(_result).Forget();
+            return;
+        }
+
+        // 惑星の解放QR（"planet:{惑星ID}:{署名}"。アチーブメント報酬）
+        if (_result.StartsWith(SpacePlanets.QR_PREFIX))
+        {
+            _callMethodFromQR.UnlockPlanet(_result).Forget();
+            return;
+        }
+
         switch (_result)
         {
             case "Lv+1":
@@ -91,18 +117,19 @@ public class QRReader : MonoBehaviour
                 _callMethodFromQR.LevelUp(6);
                 break;
             
-            case "drink":
+            // 店頭クーポン（新ホームの管理者用QR一覧も同じ文字のQRを表示する）
+            case CallMethodFromQR.QR_DRINK_COUPON:
                 _callMethodFromQR.Drink();
                 break;
-            
-            case "atk":
+
+            case CallMethodFromQR.QR_ATK_COUPON:
                 _callMethodFromQR.Atk();
                 break;
-            
-            case "5":
+
+            case CallMethodFromQR.QR_FIVE_COUPON:
                 _callMethodFromQR.Five();
                 break;
-            case "7":
+            case CallMethodFromQR.QR_SEVEN_COUPON:
                 _callMethodFromQR.Seven();
                 break;
             
@@ -110,7 +137,7 @@ public class QRReader : MonoBehaviour
                 _callMethodFromQR.NewCharacter();
                 break;
 
-            case "coffee":
+            case CallMethodFromQR.QR_COFFEE_COUPON:
                 _callMethodFromQR.Coffee();
                 break;
 
@@ -148,13 +175,14 @@ public class QRReader : MonoBehaviour
     private void OnDisable()
     {
         Debug.Log("Camera Off");
-        _webCam.Stop();
+        if (_webCam != null) _webCam.Stop();
         _webCam = null;
     }
 
     private async UniTask ReadyWebCamAsync()
     {
         await Application.RequestUserAuthorization(UserAuthorization.WebCam);
+        if (this == null) return; // 許可を待っている間に画面が閉じられた
 
         if (Application.HasUserAuthorization(UserAuthorization.WebCam) == false)
         {
@@ -170,9 +198,66 @@ public class QRReader : MonoBehaviour
 
         Debug.Log(devices[0].name);
         _webCam = new WebCamTexture(devices[0].name, Screen.width, Screen.height, 12);
-        _rawImageObject.GetComponent<RawImage>().texture = _webCam;
+        _rawImage.texture = _webCam;
         _webCam.Play();
-        _rawImageObject.GetComponent<AspectRatioFitter>().aspectRatio = (float)_webCam.width / _webCam.height;
+        // 向き・大きさは映像が届いてから FitCameraImage で合わせる（届くまでは幅・高さが 16 のまま）
+    }
+
+    /// <summary>
+    /// カメラ映像の RawImage を手動で合わせる準備。
+    /// シーン上は「-90°固定回転＋AspectRatioFitter」だったが、それだと回転が要らない環境
+    /// （エディタのPCカメラなど）で90°傾き、縦横比も回転を考えずに計算されて崩れるため、
+    /// フィッターは止めて FitCameraImage で向きと大きさを決める。映像が届くまでは大きさ 0。
+    /// </summary>
+    private void PrepareCameraImage()
+    {
+        _rawImage = _rawImageObject.GetComponent<RawImage>();
+        _rawRect = _rawImage.rectTransform;
+
+        var fitter = _rawImageObject.GetComponent<AspectRatioFitter>();
+        if (fitter != null) fitter.enabled = false;
+
+        _rawRect.anchorMin = _rawRect.anchorMax = new Vector2(0.5f, 0.5f);
+        _rawRect.pivot = new Vector2(0.5f, 0.5f);
+        _rawRect.anchoredPosition = Vector2.zero;
+        _rawRect.sizeDelta = Vector2.zero;
+        _rawRect.localEulerAngles = Vector3.zero;
+    }
+
+    /// <summary>
+    /// 映像を正対させて画面全体を覆う大きさにする（はみ出た分は画面外）。
+    /// カメラの生の映像はセンサーの向き（スマホの背面カメラは多くが横向き）なので、
+    /// videoRotationAngle（時計回りに回すべき角度）だけ回し、上下反転なら UV を反転する。
+    /// 端末を回したとき・解像度が途中で変わったときも合わせ直す。
+    /// </summary>
+    private void FitCameraImage()
+    {
+        int width = _webCam.width, height = _webCam.height;
+        if (width <= 16 || height <= 16) return; // 最初のフレームが届くまでは 16x16 を返す
+
+        int angle = ((_webCam.videoRotationAngle % 360) + 360) % 360;
+        bool mirrored = _webCam.videoVerticallyMirrored;
+        var parent = _rawRect.parent as RectTransform;
+        Vector2 area = parent != null ? parent.rect.size : new Vector2(Screen.width, Screen.height);
+
+        if (angle == _fitAngle && mirrored == _fitMirrored && width == _fitWidth && height == _fitHeight && area == _fitArea)
+            return;
+        _fitAngle = angle;
+        _fitMirrored = mirrored;
+        _fitWidth = width;
+        _fitHeight = height;
+        _fitArea = area;
+
+        // 90°・270° 回すときは画面上の縦横が入れ替わる
+        bool sideways = angle % 180 != 0;
+        float shownW = sideways ? height : width;
+        float shownH = sideways ? width : height;
+        float scale = Mathf.Max(area.x / shownW, area.y / shownH);
+
+        _rawRect.sizeDelta = new Vector2(width * scale, height * scale); // 回す前の大きさ
+        _rawRect.localEulerAngles = new Vector3(0f, 0f, -angle);         // UI の z 回転は反時計回りが正
+        _rawImage.uvRect = mirrored ? new Rect(0f, 1f, 1f, -1f) : new Rect(0f, 0f, 1f, 1f);
+        Debug.Log($"[QRReader] camera {width}x{height} rotation {angle} mirrored {mirrored}");
     }
 
 }

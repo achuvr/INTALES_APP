@@ -12,7 +12,8 @@ using UnityEngine.UI;
 /// 全行生成するとTMPの大量生成で実機OOMの恐れがあり、この作りは必須。
 ///
 /// 使う側: RecruitBoardController（募集作成のゲーム選択・管理者のタイトル設定）、
-///         GameImageAdminController（画像を登録するゲームの選択）。
+///         GameImageAdminController（画像を登録するゲームの選択）、
+///         SpaceRecruitForm（新ホームの相席募集の作成。行の色を宇宙デザインに変えて使う）。
 /// </summary>
 public class TitlePickerList : MonoBehaviour
 {
@@ -25,6 +26,7 @@ public class TitlePickerList : MonoBehaviour
     private ScrollRect _scroll;
     private RectTransform _content;
     private TMP_FontAsset _jp;
+    private Color _rowColor = C_ROW, _textColor = C_INK;
     private Action<string> _onPick;
     private List<string> _items = new List<string>();
     private int _generation; // SetItemsのたびに進める（行の再バインド判定用）
@@ -41,9 +43,12 @@ public class TitlePickerList : MonoBehaviour
     private readonly List<Row> _pool = new List<Row>();
     private int _poolTarget;
 
-    /// <summary>parent の中に、中心 center・大きさ width×height のスクロールリストを作る。</summary>
+    /// <summary>
+    /// parent の中に、中心 center・大きさ width×height のスクロールリストを作る。
+    /// 行の色・文字の色を省くと羊皮紙の配色（旧画面）。
+    /// </summary>
     public static TitlePickerList Create(Transform parent, Vector2 center, float width, float height,
-        TMP_FontAsset jp, Action<string> onPick)
+        TMP_FontAsset jp, Action<string> onPick, Color? rowColor = null, Color? textColor = null)
     {
         var svGO = new GameObject("__TitlePicker");
         svGO.transform.SetParent(parent, false);
@@ -54,6 +59,8 @@ public class TitlePickerList : MonoBehaviour
         var list = svGO.AddComponent<TitlePickerList>();
         list._jp = jp;
         list._onPick = onPick;
+        if (rowColor.HasValue) list._rowColor = rowColor.Value;
+        if (textColor.HasValue) list._textColor = textColor.Value;
 
         var scroll = svGO.AddComponent<ScrollRect>();
         scroll.horizontal = false; scroll.vertical = true; scroll.scrollSensitivity = 40f;
@@ -147,7 +154,7 @@ public class TitlePickerList : MonoBehaviour
         rt.pivot = new Vector2(0.5f, 1f);
         var img = go.AddComponent<Image>();
         RoundedRectSprite.Apply(img);
-        img.color = C_ROW;
+        img.color = _rowColor;
 
         var lgo = new GameObject("__Label");
         lgo.transform.SetParent(go.transform, false);
@@ -158,7 +165,7 @@ public class TitlePickerList : MonoBehaviour
         if (_jp != null) tmp.font = _jp;
         tmp.fontSize = 30;
         tmp.fontStyle = FontStyles.Bold;
-        tmp.color = C_INK;
+        tmp.color = _textColor;
         tmp.alignment = TextAlignmentOptions.Center;
         tmp.raycastTarget = false;
         tmp.enableWordWrapping = false;

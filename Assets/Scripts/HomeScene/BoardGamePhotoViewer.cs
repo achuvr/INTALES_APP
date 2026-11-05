@@ -11,6 +11,7 @@ using UnityEngine.UI;
 /// （エディタではマウスホイール＋左ドラッグ）。
 /// 下部のボタンで「写真に保存」（NativeGalleryで端末のギャラリーへコピー）と
 /// 「削除」（誤タップ防止のため2度押しで確定）ができる。
+/// 新ホーム（宇宙デザイン。SpaceTheme.InUse）の図鑑から開いたときは、宇宙の色と角丸のボタンで出す。
 /// </summary>
 public class BoardGamePhotoViewer : MonoBehaviour
 {
@@ -44,6 +45,10 @@ public class BoardGamePhotoViewer : MonoBehaviour
     private Vector2 _lastMouse;
     private bool _deleteArmed;
 
+    // 見た目（宇宙デザインの新ホームから開いたときは宇宙の色、旧ホームは古い本の色）
+    private bool _space;
+    private Color _deleteIdleBg, _deleteIdleText, _deleteArmedBg;
+
     /// <summary>ビューアを開く。onDeleted は「削除」確定時に呼ばれる（呼び出し側で一覧を更新する）。</summary>
     public static void Show(Transform parent, string photoPath, TMP_FontAsset font, Action onDeleted)
     {
@@ -63,10 +68,17 @@ public class BoardGamePhotoViewer : MonoBehaviour
     private void Build()
     {
         _canvas = GetComponentInParent<Canvas>();
+        _space = SpaceTheme.InUse;
+        var textColor = _space ? SpaceTheme.TEXT : C_PARCHMENT;
+        var subColor = _space ? SpaceTheme.TEXT_SUB : C_PARCHMENT;
+        var glassFill = new Color(0.09f, 0.12f, 0.30f, 0.9f);
+        _deleteIdleBg = _space ? glassFill : C_PARCHMENT;
+        _deleteIdleText = _space ? SpaceTheme.DANGER : C_DELETE;
+        _deleteArmedBg = _space ? SpaceTheme.DANGER : C_DELETE;
 
         // 背景（ほぼ黒。下の詳細ウィンドウへのタップも遮る）
         var dim = gameObject.AddComponent<Image>();
-        dim.color = new Color(0f, 0f, 0f, 0.94f);
+        dim.color = _space ? new Color(0.01f, 0.015f, 0.05f, 0.97f) : new Color(0f, 0f, 0f, 0.94f);
 
         _tex = BoardGamePhotoStore.LoadTexture(_path);
 
@@ -92,7 +104,7 @@ public class BoardGamePhotoViewer : MonoBehaviour
             if (_jp != null) dtmp.font = _jp;
             dtmp.text = $"撮影日時　{taken:yyyy年M月d日 HH:mm}";
             dtmp.fontSize = 34; dtmp.fontStyle = FontStyles.Bold;
-            dtmp.color = C_PARCHMENT;
+            dtmp.color = subColor;
             dtmp.alignment = TextAlignmentOptions.Center;
             dtmp.raycastTarget = false;
         }
@@ -118,7 +130,7 @@ public class BoardGamePhotoViewer : MonoBehaviour
         _status = stGO.AddComponent<TextMeshProUGUI>();
         if (_jp != null) _status.font = _jp;
         _status.fontSize = 30; _status.fontStyle = FontStyles.Bold;
-        _status.color = C_PARCHMENT;
+        _status.color = textColor;
         _status.alignment = TextAlignmentOptions.Center;
         _status.raycastTarget = false;
         _status.text = _tex == null ? "写真を読み込めませんでした" : "";
@@ -134,7 +146,17 @@ public class BoardGamePhotoViewer : MonoBehaviour
             rt.pivot = new Vector2(0.5f, 0f);
             rt.offsetMin = new Vector2(8f, 28f); rt.offsetMax = new Vector2(-8f, 128f);
             var img = go.AddComponent<Image>();
-            RoundedRectSprite.Apply(img);
+            if (_space)
+            {
+                // 宇宙デザインの角丸（SpaceTheme.Rounded と同じ9スライス）
+                img.sprite = SpaceSprites.RoundedFill;
+                img.type = Image.Type.Sliced;
+                img.pixelsPerUnitMultiplier = SpaceSprites.ROUNDED_RADIUS / 46f;
+            }
+            else
+            {
+                RoundedRectSprite.Apply(img);
+            }
             img.color = bgColor;
             var btn = go.AddComponent<Button>();
             btn.targetGraphic = img;
@@ -156,15 +178,19 @@ public class BoardGamePhotoViewer : MonoBehaviour
             return (img, tmp);
         }
 
+        var saveBg = _space ? SpaceTheme.CYAN : C_BORDER;
+        var saveText = _space ? SpaceTheme.TEXT_DARK : C_TITLE;
+        var closeBg = _space ? glassFill : C_PARCHMENT;
+        var closeText = _space ? SpaceTheme.TEXT : C_TITLE;
         if (_tex != null)
         {
-            MakeButton("__Save", "写真に保存", C_BORDER, C_TITLE, 0.02f, 0.34f, OnSave);
-            (_deleteBg, _deleteLabel) = MakeButton("__Delete", "削除", C_PARCHMENT, C_DELETE, 0.34f, 0.66f, OnDelete);
-            MakeButton("__Close", "とじる", C_PARCHMENT, C_TITLE, 0.66f, 0.98f, Close);
+            MakeButton("__Save", "写真に保存", saveBg, saveText, 0.02f, 0.34f, OnSave);
+            (_deleteBg, _deleteLabel) = MakeButton("__Delete", "削除", _deleteIdleBg, _deleteIdleText, 0.34f, 0.66f, OnDelete);
+            MakeButton("__Close", "とじる", closeBg, closeText, 0.66f, 0.98f, Close);
         }
         else
         {
-            MakeButton("__Close", "とじる", C_PARCHMENT, C_TITLE, 0.30f, 0.70f, Close);
+            MakeButton("__Close", "とじる", closeBg, closeText, 0.30f, 0.70f, Close);
         }
     }
 
@@ -274,7 +300,7 @@ public class BoardGamePhotoViewer : MonoBehaviour
         {
             _deleteArmed = true;
             _deleteLabel.text = "本当に削除？";
-            _deleteBg.color = C_DELETE;
+            _deleteBg.color = _deleteArmedBg;
             _deleteLabel.color = Color.white;
             _status.text = "もう一度タップすると削除します";
             return;
@@ -289,8 +315,8 @@ public class BoardGamePhotoViewer : MonoBehaviour
         if (!_deleteArmed) return;
         _deleteArmed = false;
         _deleteLabel.text = "削除";
-        _deleteBg.color = C_PARCHMENT;
-        _deleteLabel.color = C_DELETE;
+        _deleteBg.color = _deleteIdleBg;
+        _deleteLabel.color = _deleteIdleText;
     }
 
     private void Close() => Destroy(gameObject);

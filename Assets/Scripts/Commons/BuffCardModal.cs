@@ -18,6 +18,13 @@ public static class BuffCardModal
 
     public static void Show(BuffCardType card)
     {
+        // 新ホーム（宇宙デザイン）表示中は宇宙デザインのお知らせで出す
+        if (SpaceTheme.InUse)
+        {
+            SpaceNotice.BuffCard(card);
+            return;
+        }
+
         var canvasGO = GameObject.Find("Canvas");
         var canvas = canvasGO != null ? canvasGO.GetComponent<Canvas>()
                                       : Object.FindFirstObjectByType<Canvas>();

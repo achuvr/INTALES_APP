@@ -31,9 +31,84 @@ public class FirebaseAuth : MonoBehaviour
 
     private bool _busy;
 
-    // ボタンのonClickから呼ばれる（インスペクタ設定のため void のまま）
+    // ボタンのonClickから呼ばれる（インスペクタ設定のため void のまま。旧デザインの画面用）
     public void RegisterUser() => RegisterAsync().Forget();
     public void LoginUser() => LoginAsync().Forget();
+
+    // ================================================================
+    // 宇宙デザインのStart画面（SpaceStartScreen）から呼ぶ
+    // ================================================================
+    /// <summary>
+    /// ログイン。成功したらログイン情報を保存して新ホームへ移り始め、null を返す。
+    /// 失敗したら利用者向けのメッセージを返す（画面側で知らせる）
+    /// </summary>
+    public async UniTask<string> LoginWithAsync(string mail, string pw)
+    {
+        mail = (mail ?? "").Trim();
+        if (string.IsNullOrEmpty(mail) || string.IsNullOrEmpty(pw))
+            return "メールアドレスとパスワードを入力してください";
+        if (_busy) return "処理中です。少しお待ちください";
+
+        _busy = true;
+        try
+        {
+            var auth = Firebase.Auth.FirebaseAuth.DefaultInstance;
+            var result = await auth.SignInWithEmailAndPasswordAsync(mail, pw).AsUniTask();
+            Debug.Log("Login Success!");
+            await _checkUserSaveData.SaveAndEnterAsync(result.User.UserId, mail, pw, "", isLogin: true);
+            return null;
+        }
+        catch (System.Exception ex)
+        {
+            Debug.LogError($"ログイン失敗: {ex}");
+            return LoginErrorMessage(ex);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    /// <summary>
+    /// アカウント作成。成功したら初期データを作り、新ホームへ移り始めて null を返す。失敗したら利用者向けのメッセージ。
+    /// キャラクター作成は省く（新ホームではキャラクターを使わないため。2026-11-05 ユーザー指定）。
+    /// 旧画面の「あとで作る」と同じく、キャラクターチケットを1枚付けて始める（初期データと同じ書き込みで付ける）
+    /// </summary>
+    public async UniTask<string> RegisterWithAsync(string mail, string pw, string nickname)
+    {
+        mail = (mail ?? "").Trim();
+        nickname = (nickname ?? "").Trim();
+        if (string.IsNullOrEmpty(mail) || string.IsNullOrEmpty(pw) || string.IsNullOrEmpty(nickname))
+            return "メールアドレス・パスワード・ニックネームを入力してください";
+        if (_busy) return "処理中です。少しお待ちください";
+
+        _busy = true;
+        bool created = false;
+        try
+        {
+            var auth = Firebase.Auth.FirebaseAuth.DefaultInstance;
+            var result = await auth.CreateUserWithEmailAndPasswordAsync(mail, pw).AsUniTask();
+            created = true;
+            Debug.Log("Register Success!");
+            await _checkUserSaveData.SaveAndEnterAsync(result.User.UserId, mail, pw, nickname, isLogin: false,
+                characterTicket: 1);
+            LocalHistoryLog.Add("coupon", "キャラクターチケット を1枚 入手（アカウント作成特典）");
+            await UserDataManager.instance.FetchUserDataByUIDForReload(true); // 新ホームへ
+            return null;
+        }
+        catch (System.Exception ex)
+        {
+            Debug.LogError($"アカウント作成失敗: {ex}");
+            // アカウントはできたが初期データを書けなかった: もう一度ログインすれば初期データを作り直す（SaveAndEnterAsync）
+            return created
+                ? "通信に失敗しました\n「ログイン」から同じメールアドレスでお進みください"
+                : RegisterErrorMessage(ex);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
 
     private async UniTask LoginAsync()
     {

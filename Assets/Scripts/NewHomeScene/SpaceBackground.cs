@@ -1,0 +1,253 @@
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.UI;
+
+/// <summary>
+/// 宇宙の背景（コード生成）。キャンバスの最背面に敷く。
+///   ・星雲（グラデーション＋雲）と星 … 静止画（RawImage 2枚）
+///   ・リング付き惑星・小さな衛星・瞬く星・ときどき流れる流れ星 … 動く層
+/// 動く層は専用のサブキャンバスに分け、毎フレームの変化がメインUIの再構築を起こさないようにしている。
+/// 小さな衛星（左の中段のピンクの星）は EnableMoonButton で押せるようにできる（新ホームのお知らせ）。
+/// お知らせに見ていない内容があるときは、衛星から「New」の吹き出しを出す（SetMoonBadge）。
+/// </summary>
+public class SpaceBackground : MonoBehaviour
+{
+    /// <summary>吹き出しの文字（新ホームの起動時にフォントへ登録する。SpaceNewsPage.GlyphText に含めている）</summary>
+    public const string T_NEW = "New";
+
+    private const int TWINKLE_COUNT = 20;
+    private const float STREAK_DURATION = 0.9f;
+    // 吹き出し（120x62）は衛星の右上。しっぽ（三角形）の先が衛星のふちの少し外に来るようにし、
+    // 吹き出しの基準点をしっぽの先に置く（出るときに衛星からふくらんで見える）
+    private static readonly Vector2 BADGE_SIZE = new Vector2(120f, 62f);
+    private static readonly Vector2 BADGE_POS = new Vector2(30f, 31f);       // 衛星の中心から見たしっぽの先
+    private static readonly Vector2 TAIL_TIP = new Vector2(-46f, -49f);      // 吹き出しの中心から見たしっぽの先
+    private static readonly Vector2 TAIL_SIZE = new Vector2(40f, 25f);       // しっぽの画像（BubbleTail）の大きさ
+    private static readonly Vector2 BADGE_PIVOT = new Vector2(
+        0.5f + TAIL_TIP.x / BADGE_SIZE.x, 0.5f + TAIL_TIP.y / BADGE_SIZE.y); // しっぽの先（吹き出しの外）
+    private static readonly Color BADGE_FILL = SpaceTheme.Hex(0xFFF4FB);     // 吹き出し（白に近い桃色）
+    private static readonly Color BADGE_TEXT = SpaceTheme.Hex(0xE83E9A);     // 文字（濃い桃色）
+
+    private class Twinkle
+    {
+        public RectTransform Rt;
+        public Image Img;
+        public float BaseAlpha, Speed, Phase;
+    }
+
+    private readonly List<Twinkle> _twinkles = new List<Twinkle>();
+    private readonly System.Random _rnd = new System.Random();
+    private RectTransform _planet, _moon, _streak, _anim, _badge;
+    private Image _streakImg, _moonGlow;
+    private Color _moonGlowColor;
+    private Vector2 _planetBase, _moonBase, _size, _streakFrom, _streakTo;
+    private float _nextStreak, _streakT = -1f, _badgeShownAt;
+
+    /// <param name="canvas">ルートキャンバス</param>
+    /// <param name="size">キャンバスの実寸</param>
+    /// <param name="safeTop">セーフエリア外の上余白（惑星の位置合わせ用）</param>
+    public static SpaceBackground Create(RectTransform canvas, Vector2 size, float safeTop)
+    {
+        var root = SpaceTheme.Rect("__SpaceBackground", canvas);
+        SpaceTheme.Stretch(root);
+        root.SetAsFirstSibling();
+        var bg = root.gameObject.AddComponent<SpaceBackground>();
+        bg.Build(size, safeTop);
+        return bg;
+    }
+
+    private void Build(Vector2 size, float safeTop)
+    {
+        _size = size;
+        var root = (RectTransform)transform;
+
+        // 星雲: 低解像度（1/6）で作って引き伸ばす
+        var neb = SpaceTheme.Rect("Nebula", root);
+        SpaceTheme.Stretch(neb);
+        var nebImg = neb.gameObject.AddComponent<RawImage>();
+        nebImg.texture = SpaceSprites.Nebula(Mathf.Max(32, Mathf.RoundToInt(size.x / 6f)),
+                                             Mathf.Max(32, Mathf.RoundToInt(size.y / 6f)));
+        nebImg.raycastTarget = false;
+
+        // 星: キャンバスの半分の解像度・同じ縦横比で作るので歪まない
+        var stars = SpaceTheme.Rect("Stars", root);
+        SpaceTheme.Stretch(stars);
+        var starImg = stars.gameObject.AddComponent<RawImage>();
+        starImg.texture = SpaceSprites.Stars(Mathf.Max(16, Mathf.RoundToInt(size.x / 2f)),
+                                             Mathf.Max(16, Mathf.RoundToInt(size.y / 2f)));
+        starImg.raycastTarget = false;
+
+        // ---- 動く層（サブキャンバス）----
+        var anim = SpaceTheme.Rect("Animated", root);
+        SpaceTheme.Stretch(anim);
+        SpaceTheme.SubCanvas(anim.gameObject, false);
+        _anim = anim;
+
+        // 瞬く星（位置は固定シードで毎回同じ配置）
+        var seeded = new System.Random(3);
+        for (int i = 0; i < TWINKLE_COUNT; i++)
+        {
+            float s = 14f + (float)seeded.NextDouble() * 26f;
+            var rt = SpaceTheme.Rect("Twinkle", anim, Vector2.zero,
+                new Vector2((float)seeded.NextDouble() * size.x, (float)seeded.NextDouble() * size.y),
+                new Vector2(s, s));
+            var img = SpaceTheme.Img(rt, SpaceSprites.Sparkle, Color.white);
+            _twinkles.Add(new Twinkle
+            {
+                Rt = rt,
+                Img = img,
+                BaseAlpha = 0.35f + (float)seeded.NextDouble() * 0.6f,
+                Speed = 0.6f + (float)seeded.NextDouble() * 1.6f,
+                Phase = (float)seeded.NextDouble() * Mathf.PI * 2f,
+            });
+        }
+
+        // 小さな衛星（左の中段）。絵は子に置く（押せるようにしたとき、後ろに光を差し込めるように）
+        _moon = SpaceTheme.Rect("Moon", anim, new Vector2(0f, 1f), new Vector2(120f, -(safeTop + 760f)),
+            new Vector2(92f, 92f));
+        var moonBody = SpaceTheme.Rect("Body", _moon);
+        SpaceTheme.Stretch(moonBody);
+        SpaceTheme.Img(moonBody, SpaceSprites.Moon, Color.white);
+        _moonBase = _moon.anchoredPosition;
+
+        // リング付きの惑星（右上・一部は画面外）
+        _planet = SpaceTheme.Rect("Planet", anim, new Vector2(1f, 1f), new Vector2(-120f, -(safeTop + 64f)),
+            new Vector2(600f, 600f));
+        SpaceTheme.Img(_planet, SpaceSprites.Planet, Color.white);
+        _planetBase = _planet.anchoredPosition;
+
+        // 流れ星（頭＝右端を基準点にして、進行方向へ回転させる）
+        _streak = SpaceTheme.Rect("ShootingStar", anim, Vector2.zero, Vector2.zero, new Vector2(300f, 18f),
+            new Vector2(1f, 0.5f));
+        _streakImg = SpaceTheme.Img(_streak, SpaceSprites.Streak, new Color(1f, 1f, 1f, 0f));
+        _streak.gameObject.SetActive(false);
+        _nextStreak = Time.unscaledTime + 3f;
+    }
+
+    /// <summary>
+    /// 左の小さな衛星を押せるようにする（新ホームのお知らせ）。後ろの光がゆっくり明滅して、押せるものだと分かるようにする。
+    /// 背景の動く層はふだん当たり判定を持たないので、ここで初めて受け付ける（衛星の位置にはホームの部品が重ならない）。
+    /// </summary>
+    public void EnableMoonButton(UnityEngine.Events.UnityAction onTap, Color glow)
+    {
+        if (_moonGlow != null) return;
+        _anim.gameObject.AddComponent<GraphicRaycaster>();
+        var glowRt = SpaceTheme.Rect("Glow", _moon, SpaceTheme.CENTER, Vector2.zero, new Vector2(204f, 204f));
+        glowRt.SetAsFirstSibling(); // 衛星の絵の後ろ
+        _moonGlowColor = glow;
+        _moonGlow = SpaceTheme.Img(glowRt, SpaceSprites.Glow, SpaceTheme.A(glow, 0.25f));
+        var hit = SpaceTheme.Rect("Hit", _moon, SpaceTheme.CENTER, Vector2.zero, new Vector2(176f, 176f));
+        SpaceTheme.Clickable(_moon.gameObject, SpaceTheme.HitArea(hit), onTap);
+    }
+
+    /// <summary>
+    /// 衛星から「New」の吹き出しを出す／消す（お知らせに見ていない内容があるとき）。
+    /// 衛星の子なので一緒に漂い、吹き出しを押しても衛星を押したのと同じ（お知らせが開く）。
+    /// </summary>
+    public void SetMoonBadge(bool on)
+    {
+        if (_moon == null) return;
+        bool shown = _badge != null && _badge.gameObject.activeSelf;
+        if (on == shown) return;
+        if (!on)
+        {
+            _badge.gameObject.SetActive(false);
+            return;
+        }
+        if (_badge == null) BuildBadge();
+        _badge.SetAsLastSibling();
+        _badge.gameObject.SetActive(true);
+        _badgeShownAt = Time.unscaledTime;
+        _badge.localScale = Vector3.zero; // ぽんと膨らんで出る（Update）
+    }
+
+    /// <summary>白い角丸＋衛星を指す三角形のしっぽ＋「New」。後ろに桃色の光</summary>
+    private void BuildBadge()
+    {
+        _badge = SpaceTheme.Rect("NewBadge", _moon, SpaceTheme.CENTER, BADGE_POS, BADGE_SIZE, BADGE_PIVOT);
+        var glow = SpaceTheme.Rect("Glow", _badge, SpaceTheme.CENTER, Vector2.zero, new Vector2(230f, 160f));
+        SpaceTheme.Img(glow, SpaceSprites.Glow, SpaceTheme.A(SpaceTheme.PINK, 0.5f));
+        // しっぽ: 左下の角（先端）を TAIL_TIP に合わせる。上辺は吹き出しの中に入るので、つなぎ目は見えない
+        var tail = SpaceTheme.Rect("Tail", _badge, SpaceTheme.CENTER, TAIL_TIP, TAIL_SIZE, Vector2.zero);
+        SpaceTheme.Img(tail, SpaceSprites.BubbleTail, BADGE_FILL);
+        var body = SpaceTheme.Rect("Body", _badge);
+        SpaceTheme.Stretch(body);
+        SpaceTheme.Rounded(body, BADGE_FILL, 30f, true); // 吹き出しを押してもお知らせが開くように
+        var label = SpaceTheme.Text(_badge, "Label", T_NEW, 32, BADGE_TEXT, TMPro.FontStyles.Bold);
+        SpaceTheme.Stretch(label.rectTransform);
+    }
+
+    private static float EaseOutBack(float x)
+    {
+        const float c1 = 1.70158f, c3 = c1 + 1f;
+        return 1f + c3 * Mathf.Pow(x - 1f, 3f) + c1 * Mathf.Pow(x - 1f, 2f);
+    }
+
+    private void Update()
+    {
+        float t = Time.unscaledTime;
+
+        for (int i = 0; i < _twinkles.Count; i++)
+        {
+            var tw = _twinkles[i];
+            float s = 0.5f + 0.5f * Mathf.Sin(t * tw.Speed + tw.Phase);
+            s *= s;
+            var c = tw.Img.color;
+            c.a = tw.BaseAlpha * (0.25f + 0.75f * s);
+            tw.Img.color = c;
+            float sc = 0.8f + 0.2f * s;
+            tw.Rt.localScale = new Vector3(sc, sc, 1f);
+        }
+
+        // 惑星と衛星はゆっくり漂う
+        _planet.anchoredPosition = _planetBase + new Vector2(0f, Mathf.Sin(t * 0.25f) * 6f);
+        _moon.anchoredPosition = _moonBase + new Vector2(Mathf.Sin(t * 0.21f + 1f) * 5f, Mathf.Sin(t * 0.33f + 1f) * 4f);
+        if (_moonGlow != null)
+            _moonGlow.color = SpaceTheme.A(_moonGlowColor, 0.18f + 0.14f * (0.5f + 0.5f * Mathf.Sin(t * 1.4f + 1.5f)));
+
+        // New の吹き出し: 出たときにぽんと膨らみ、そのあとはふわふわ上下する
+        if (_badge != null && _badge.gameObject.activeSelf)
+        {
+            float k = Mathf.Clamp01((t - _badgeShownAt) / 0.35f);
+            float s = Mathf.LerpUnclamped(0.4f, 1f, EaseOutBack(k));
+            _badge.localScale = new Vector3(s, s, 1f);
+            _badge.anchoredPosition = BADGE_POS + new Vector2(0f, Mathf.Sin(t * 2.4f) * 3f);
+        }
+
+        UpdateStreak(t);
+    }
+
+    private void UpdateStreak(float now)
+    {
+        if (_streakT < 0f)
+        {
+            if (now < _nextStreak) return;
+            // 画面上半分の右寄りから左下へ
+            var from = new Vector2(Rand(0.35f, 1.05f) * _size.x, Rand(0.55f, 0.95f) * _size.y);
+            float ang = Rand(200f, 218f) * Mathf.Deg2Rad;
+            var dir = new Vector2(Mathf.Cos(ang), Mathf.Sin(ang));
+            _streakFrom = from;
+            _streakTo = from + dir * (Rand(0.45f, 0.65f) * _size.x);
+            _streak.localEulerAngles = new Vector3(0f, 0f, ang * Mathf.Rad2Deg);
+            _streak.anchoredPosition = from;
+            _streak.gameObject.SetActive(true);
+            _streakT = 0f;
+        }
+
+        _streakT += Time.unscaledDeltaTime;
+        float k = _streakT / STREAK_DURATION;
+        if (k >= 1f)
+        {
+            _streak.gameObject.SetActive(false);
+            _streakT = -1f;
+            _nextStreak = now + Rand(5f, 10f);
+            return;
+        }
+        float e = 1f - (1f - k) * (1f - k);
+        _streak.anchoredPosition = Vector2.Lerp(_streakFrom, _streakTo, e);
+        float a = Mathf.Clamp01(k / 0.15f) * Mathf.Clamp01((1f - k) / 0.4f);
+        _streakImg.color = new Color(1f, 1f, 1f, a * 0.9f);
+    }
+
+    private float Rand(float min, float max) => min + (float)_rnd.NextDouble() * (max - min);
+}

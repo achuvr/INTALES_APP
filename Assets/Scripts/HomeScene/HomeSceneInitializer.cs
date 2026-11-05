@@ -113,6 +113,8 @@ public class HomeSceneInitializer : MonoBehaviour
         // 自動クローズが発生した場合は、共有していた在店状態も解除する
         if (LocalVisitLog.AutoCloseStaleVisits() > 0)
             PresenceService.SetCheckedInAsync(false).Forget();
+        // 入店中でないのに、入店中の人数の記録（StoreVisitors）がこの端末に残っていたら消す
+        if (!LocalVisitLog.HasOpenVisit() && StoreVisitors.HasRecord) StoreVisitors.CheckOutAsync().Forget();
 
         // キャラクター0体でも動くようにする（アカウント作成時に「あとで作る」を選んだ場合）。
         // キャラクターチケットで作成するまではプレースホルダを表示する

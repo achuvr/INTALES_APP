@@ -6,11 +6,20 @@
  * 内容ハッシュが前回と変わっていた場合のみ
  *   - master/boardgames … JSON本文（クライアントがそのまま保存して使う）・version・hash
  *   - master/config.boardgames_version … クライアントの差分同期判定用
- * を更新する。変わっていなければ Firestore への書き込みは行わない
- * （＝ユーザー側の追加読み取りも発生しない）。
+ * を更新する。変わっていなければ一覧は書き込まない
+ * （＝ユーザー側の追加読み取りも発生しない。登録日の記録 master/boardgames_seen だけは毎回書く）。
  *
  * ハッシュは URL でソートしたゲーム配列から計算する（表示順の揺れや
  * updated 日付ではバージョンが上がらない）。
+ *
+ * 新着の情報（アプリの図鑑の「新着順」と「NEW」の印）:
+ *   - added_rank … お店の一覧で何番目に新しく登録されたか（1=いちばん新しい）。
+ *                  一覧を何も指定せずに開いたときの並び＝お店が登録した順（新しいものが先）をそのまま使う
+ *                  （2026-11-05 確認。並び替えの「データベース登録順」(order_type=created_desc) は
+ *                  ゲームそのものがボドゲーマに登録された順で、お店の登録順ではない）
+ *   - added_on   … 毎朝の同期でそのゲームを初めて見つけた日（YYYY-MM-DD）。ボドゲーマには日付が出ないため自前で記録する。
+ *                  一度見つけたゲームの日付は master/boardgames_seen に覚えておく（一覧から消えたゲームも忘れない）。
+ *                  この仕組みを入れる前からあるゲームは "" (不明)
  *
  * 使い方:
  *   node sync-boardgames.js                 # スクレイプして同期（GitHub Actions が毎日実行）
@@ -55,7 +64,10 @@ async function fetchHtml(url) {
   return res.text();
 }
 
-/** 一覧ページを全ページたどってゲームを収集する（ジャンル以外）。 */
+/**
+ * 一覧ページを全ページたどってゲームを収集する（ジャンル以外）。
+ * 並び替えを指定しない一覧はお店が登録した順（新しいものが先）なので、読んだ順番を added_rank にする。
+ */
 async function scrapeList() {
   const games = [];
   const seen = new Set();
@@ -84,6 +96,7 @@ async function scrapeList() {
         year: match(data, /([0-9]{4}年)/),
         genre: [],
         designer: [],
+        added_rank: games.length + 1, // 1=お店がいちばん新しく登録したゲーム
         url: gameUrl,
       });
       added++;
@@ -152,6 +165,8 @@ function canonicalize(games) {
     genre: Array.isArray(g.genre) ? g.genre : [],
     designer: Array.isArray(g.designer) ? g.designer : [],
     popularity: Number.isFinite(g.popularity) ? g.popularity : 0, // 当店ユーザーの「お気に入り」数（人気順ソート用）
+    added_rank: Number.isFinite(g.added_rank) ? g.added_rank : 0, // お店が登録した順（1=いちばん新しい。0=不明）
+    added_on: g.added_on || "", // 同期で初めて見つけた日（""=不明）
     url: g.url || "",
   }));
 }
@@ -180,6 +195,66 @@ async function fetchFavoriteCounts(db) {
     for (const key of arr) counts.set(key, (counts.get(key) || 0) + 1);
   });
   return counts;
+}
+
+/**
+ * 登録日（added_on）を付ける。登録日 = 毎朝の同期でそのゲームを初めて見つけた日。
+ *
+ * 一度見つけたゲームとその日付は master/boardgames_seen（json 文字列。{ゲームキー: "YYYY-MM-DD" か ""}）に覚えておく。
+ * 一覧から消えたゲームも忘れないので、スクレイプが一時的に欠けた日があっても、戻ってきたゲームを
+ * 「新しく入った」と取り違えない（お店が登録し直したゲームも元の日付のまま）。
+ *
+ * 日付は実行した時刻の UTC の日付にする: 毎朝4時（日本時間）の同期で見つかるのは前日の営業中に登録された
+ * ゲームなので、日本時間から9時間戻した日（＝UTC の日付）がちょうど登録した日になる。
+ *
+ * 日付が分からないときは付けない（"" のまま。アプリでは NEW を出さない）:
+ *   - 初めて動かすとき（master/boardgames_seen が無い）… 今あるゲームはいつ登録されたか分からない
+ *   - 前回の同期から GAP_MAX_HOURS より空いたとき … その間に増えたゲームは、空いていた間のどの日か分からない
+ *     （2026-07〜11 は GitHub Actions が動いておらず、一覧が4か月止まっていた）
+ *   - 半分以上が「新しい」とき … URL の形が変わった等の異常
+ * 最後に同期した時刻は master/boardgames_seen の checked_at に毎回書く。
+ */
+const GAP_MAX_HOURS = 72;
+
+function applyFirstSeen(games, seenSnap) {
+  const now = new Date();
+  const day = now.toISOString().slice(0, 10);
+
+  const seen = new Map();
+  let unknownReason = "";
+  if (!seenSnap.exists) {
+    unknownReason = "登録日の記録を始めるので、今あるゲームは日付不明にします";
+  } else {
+    let saved = {};
+    try {
+      saved = JSON.parse(seenSnap.get("json") || "{}");
+    } catch (e) {
+      console.warn(`[seen] master/boardgames_seen を読めませんでした（${e.message}）`);
+    }
+    for (const [k, v] of Object.entries(saved)) seen.set(k, typeof v === "string" ? v : "");
+    const last = seenSnap.get("checked_at");
+    const gapHours = last && typeof last.toDate === "function" ? (now - last.toDate()) / 36e5 : Infinity;
+    if (gapHours > GAP_MAX_HOURS)
+      unknownReason = `前回の同期から${Number.isFinite(gapHours) ? Math.round(gapHours / 24) + "日" : "長く"}空いたので、` +
+        "その間に増えたゲームは日付不明にします";
+  }
+
+  const fresh = games.filter((g) => !seen.has(keyOf(g)));
+  if (!unknownReason && fresh.length > games.length * 0.5)
+    unknownReason = `新しいゲームが${fresh.length}/${games.length}件あり、異常の可能性があるので日付不明にします`;
+  if (unknownReason && fresh.length > 0) console.warn(`[seen] ${unknownReason}（${fresh.length}件）`);
+  for (const g of fresh) seen.set(keyOf(g), unknownReason ? "" : day);
+  for (const g of games) g.added_on = seen.get(keyOf(g)) || "";
+
+  const sorted = Object.fromEntries([...seen.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
+  return {
+    day,
+    now,
+    fresh: unknownReason ? [] : fresh,
+    unknown: unknownReason ? fresh.length : 0,
+    count: seen.size,
+    json: JSON.stringify(sorted),
+  };
 }
 
 /** 表示順・updated 日付に依存しない内容ハッシュ。 */
@@ -215,12 +290,21 @@ async function main() {
   const favTotal = [...favCounts.values()].reduce((a, b) => a + b, 0);
   console.log(`お気に入り集計: ${favCounts.size}タイトル / 計${favTotal}件`);
 
+  const bgRef = db.doc("master/boardgames");
+  const seenRef = db.doc("master/boardgames_seen");
+  const [snap, seenSnap] = await Promise.all([bgRef.get(), seenRef.get()]);
+
+  // 新着の情報（登録順は一覧を読んだ順番で付いている。登録日はここで付ける）
+  const firstSeen = applyFirstSeen(games, seenSnap);
+  console.log(`新着の情報: 登録順あり${games.filter((g) => g.added_rank > 0).length}件 / ` +
+    `登録日あり${games.filter((g) => g.added_on).length}件 / 記録${firstSeen.count}件`);
+  if (firstSeen.fresh.length > 0)
+    console.log(`新しく見つけたゲーム${firstSeen.fresh.length}件（登録日 ${firstSeen.day}）: ` +
+      firstSeen.fresh.map((g) => g.title).join("、"));
+
   const canon = canonicalize(games);
   const hash = contentHash(canon);
   console.log(`取得完了: ${canon.length}件, hash=${hash.slice(0, 12)}…`);
-
-  const bgRef = db.doc("master/boardgames");
-  const snap = await bgRef.get();
 
   const changed = !(snap.exists && snap.get("hash") === hash);
   const version = (snap.exists ? snap.get("version") || 0 : 0) + (changed ? 1 : 0);
@@ -239,30 +323,42 @@ async function main() {
     console.log(`ローカルにも書き出し: ${OUT_PATH} (v${version})`);
   }
 
-  if (!changed) {
-    console.log(`変更なし (v${version}) → 書き込みスキップ`);
-    return;
-  }
   const newVersion = version;
-
-  const bytes = Buffer.byteLength(json, "utf8");
-  console.log(`変更あり → v${newVersion} を配信 (${canon.length}件, ${(bytes / 1024).toFixed(0)}KB)`);
-  if (bytes > SIZE_WARN_BYTES)
-    console.warn(`警告: JSONが${(bytes / 1024).toFixed(0)}KBあり、1MiBのドキュメント上限に近づいています`);
+  if (changed) {
+    const bytes = Buffer.byteLength(json, "utf8");
+    console.log(`変更あり → v${newVersion} を配信 (${canon.length}件, ${(bytes / 1024).toFixed(0)}KB)`);
+    if (bytes > SIZE_WARN_BYTES)
+      console.warn(`警告: JSONが${(bytes / 1024).toFixed(0)}KBあり、1MiBのドキュメント上限に近づいています`);
+  } else {
+    // 一覧は書かない（ユーザー側の追加読み取りも発生しない）。登録日の記録（最後に同期した時刻）だけ書く
+    console.log(`一覧は変更なし (v${version}) → 一覧の書き込みはスキップ`);
+  }
 
   if (DRY_RUN) {
     console.log("--dry-run のため書き込みません");
     return;
   }
 
+  // 一覧と登録日の記録は一緒に書く（片方だけ書かれて食い違うことがないように）。
+  // 登録日の記録は毎回書く（checked_at で、同期が何日も止まっていたことに気づけるように）
   const batch = db.batch();
-  batch.set(bgRef, { version: newVersion, count: canon.length, updated, hash, json });
-  batch.set(db.doc("master/config"), { boardgames_version: newVersion }, { merge: true });
+  if (changed) {
+    batch.set(bgRef, { version: newVersion, count: canon.length, updated, hash, json });
+    batch.set(db.doc("master/config"), { boardgames_version: newVersion }, { merge: true });
+  }
+  batch.set(seenRef, { count: firstSeen.count, checked_at: firstSeen.now, json: firstSeen.json });
   await batch.commit();
-  console.log(`更新完了: master/boardgames v${newVersion} / master/config.boardgames_version=${newVersion}`);
+  console.log(changed
+    ? `更新完了: master/boardgames v${newVersion} / master/config.boardgames_version=${newVersion} / 登録日の記録${firstSeen.count}件`
+    : `更新完了: 登録日の記録${firstSeen.count}件（master/boardgames_seen）`);
 }
 
-main().catch((e) => {
-  console.error(e);
-  process.exit(1);
-});
+// 直接実行したときだけ同期する（テストから関数だけを読み込めるように）
+if (require.main === module) {
+  main().catch((e) => {
+    console.error(e);
+    process.exit(1);
+  });
+}
+
+module.exports = { applyFirstSeen, canonicalize, keyOf };

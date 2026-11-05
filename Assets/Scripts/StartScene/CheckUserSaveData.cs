@@ -9,6 +9,7 @@ using YokeijoAssets;
 /// <summary>
 /// ログイン情報のローカル保存（user.txt）と、それを使った自動ログイン。
 /// 認証・Firestoreの完了待ちはすべて AsUniTask でメインスレッドに戻して行う。
+/// 画面は宇宙デザインの SpaceStartScreen（起動時にここで作る。旧デザインの画面は隠す）。
 /// </summary>
 public class CheckUserSaveData : MonoBehaviour
 {
@@ -16,6 +17,8 @@ public class CheckUserSaveData : MonoBehaviour
 
     private const string FILE_NAME = "user.txt";
     [SerializeField] private GameObject _whitePanel;
+
+    private SpaceStartScreen _screen;
 
     private void Start()
     {
@@ -27,6 +30,10 @@ public class CheckUserSaveData : MonoBehaviour
         _path = Path.Combine(Application.persistentDataPath, "TestUser");
         Debug.Log("path = " +  _path);
         #endif
+
+        // 宇宙デザインの画面を作る（ログイン情報があれば「ログインしています…」で出す）
+        bool saved = File.Exists(Path.Combine(_path, FILE_NAME));
+        _screen = SpaceStartScreen.Create(FindFirstObjectByType<FirebaseAuth>(), saved);
         AutoLoginAsync().Forget();
     }
 
@@ -41,28 +48,29 @@ public class CheckUserSaveData : MonoBehaviour
         if (!File.Exists(path)) return;
 
         Debug.Log("Past Login... File exists");
-        _whitePanel.SetActive(true);
+        SetWhitePanel(true);
 
-        string uid, mail, pw;
-        using (var sr = new StreamReader(path, Encoding.GetEncoding("utf-8")))
-        {
-            uid = sr.ReadLine();
-            mail = sr.ReadLine();
-            pw = DecryptAES256.Decrypt(sr.ReadLine());
-        }
-
+        string uid = null;
         try
         {
+            string mail, pw;
+            using (var sr = new StreamReader(path, Encoding.GetEncoding("utf-8")))
+            {
+                uid = sr.ReadLine();
+                mail = sr.ReadLine();
+                pw = DecryptAES256.Decrypt(sr.ReadLine());
+            }
             var auth = Firebase.Auth.FirebaseAuth.DefaultInstance;
             await auth.SignInWithEmailAndPasswordAsync(mail, pw).AsUniTask();
             Debug.Log("Login Success!");
         }
         catch (System.Exception ex)
         {
-            // パスワード変更・通信不良などで自動ログインできないときはログイン画面に戻す
+            // パスワード変更・通信不良・ファイルの破損などで自動ログインできないときはログインの入力に戻す
             Debug.LogError($"自動ログイン失敗: {ex}");
-            FriendMenuController.ShowToast("自動ログインできませんでした\nもう一度ログインしてください");
-            _whitePanel.SetActive(false);
+            if (_screen != null) _screen.OnAutoLoginFailed();
+            else FriendMenuController.ShowToast(SpaceStartScreen.T_AUTO_FAILED);
+            SetWhitePanel(false);
             return;
         }
 
@@ -72,24 +80,18 @@ public class CheckUserSaveData : MonoBehaviour
 
     /// <summary>
     /// ログイン／アカウント作成の成功後に呼ぶ（メインスレッド前提）。
-    /// user.txt を保存し、ユーザーデータを読み込んでHomeへ遷移する。
+    /// user.txt を保存し、ユーザーデータを読み込んでHomeへ遷移する（アカウント作成のときは遷移しない）。
+    /// characterTicket はアカウント作成のときに初期データへ入れるキャラクターチケットの枚数。
     /// 失敗時は例外を投げる（呼び出し元でLoading解除とエラー表示を行う）。
     /// </summary>
-    public async UniTask SaveAndEnterAsync(string uid, string mail, string pw, string nickname, bool isLogin)
+    public async UniTask SaveAndEnterAsync(string uid, string mail, string pw, string nickname, bool isLogin,
+        int characterTicket = 0)
     {
+        // ログイン情報は毎回保存し直す（以前の保存が残っていると、パスワードを変えたあとも古い情報で
+        // 自動ログインしようとして毎回失敗する。アカウント作成で初期データを作らずに進むこともあった）
         var path = Path.Combine(_path, FILE_NAME);
         FirebaseFirestore db = FirebaseFirestore.DefaultInstance;
         DocumentReference docRef = db.Collection("users").Document(uid);
-
-        if (File.Exists(path))
-        {
-            Debug.Log("File exists");
-            SetUserDataSingleton(uid);
-            await UserDataManager.instance.FetchUserDataByUID();
-            return;
-        }
-
-        Debug.Log("File does not exist. Creating.");
 
         if (isLogin)
         {
@@ -97,14 +99,37 @@ public class CheckUserSaveData : MonoBehaviour
             // （先にファイルを作ると、途中で失敗したとき次回起動が壊れた自動ログインになる）
             SetUserDataSingleton(uid);
             DocumentSnapshot snapshot = await docRef.GetSnapshotAsync().AsUniTask();
-            var userData = snapshot.ConvertTo<UserData>();
-            WriteUserFile(path, uid, mail, pw, userData.Username);
+            string name;
+            if (snapshot.Exists)
+            {
+                name = snapshot.ConvertTo<UserData>().Username;
+            }
+            else
+            {
+                // アカウント作成の途中で初期データを書けなかったアカウント: ここで初期データを作る
+                // （名前は空。新ホームのフレンドの画面から付けられる）
+                Debug.LogWarning($"ユーザーの初期データがないので作ります: {uid}");
+                await docRef.SetAsync(InitialData("", 1), SetOptions.MergeAll).AsUniTask();
+                name = "";
+            }
+            WriteUserFile(path, uid, mail, pw, name);
             await UserDataManager.instance.FetchUserDataByUID();
             return;
         }
 
-        // 新規アカウント: 初期データをFirestoreに作成してからキャラ作成へ
-        Dictionary<string, object> settings = new Dictionary<string, object>
+        // 新規アカウント: 初期データをFirestoreに作成してから進む
+        await docRef.SetAsync(InitialData(nickname, characterTicket), SetOptions.MergeAll).AsUniTask();
+        WriteUserFile(path, uid, mail, pw, nickname);
+        Debug.Log("書き込み終了");
+
+        SetUserDataSingleton(uid);
+        UserDataManager.instance.FetchUserDataByUID('a');
+    }
+
+    /// <summary>新しいユーザーの初期データ</summary>
+    private static Dictionary<string, object> InitialData(string nickname, int characterTicket)
+    {
+        var settings = new Dictionary<string, object>
         {
             { "five_coupon", 0 },
             { "gp", 5 },
@@ -116,12 +141,8 @@ public class CheckUserSaveData : MonoBehaviour
             { "coffee_coupon", 0 },
             { "characters", new Dictionary<string, object>() } // キャラはこのマップに内蔵する（サブコレクション廃止）
         };
-        await docRef.SetAsync(settings, SetOptions.MergeAll).AsUniTask();
-        WriteUserFile(path, uid, mail, pw, nickname);
-        Debug.Log("書き込み終了");
-
-        SetUserDataSingleton(uid);
-        UserDataManager.instance.FetchUserDataByUID('a');
+        if (characterTicket > 0) settings["character_ticket"] = characterTicket;
+        return settings;
     }
 
     /// <summary>ログイン情報をローカルに保存する（パスワードはAES256で暗号化）</summary>
@@ -132,6 +153,12 @@ public class CheckUserSaveData : MonoBehaviour
         writer.WriteLine(mail);
         writer.WriteLine(EncryptAES256.Encrypt(pw));
         writer.WriteLine(nickname);
+    }
+
+    /// <summary>旧デザインの読み込み中の白い画面（宇宙デザインの画面では隠れているので見えない）</summary>
+    private void SetWhitePanel(bool on)
+    {
+        if (_whitePanel != null) _whitePanel.SetActive(on);
     }
 
     private void SetUserDataSingleton(string uid)

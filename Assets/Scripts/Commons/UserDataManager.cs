@@ -40,7 +40,9 @@ public class UserDataManager : SingletonBehaviour<UserDataManager>
         // FirebaseAuth 側の「キャラクターを作成しますか？」モーダルの選択に委ねる
         // （いいえ＝キャラクターチケットを受け取ってHomeへ）
         Debug.Log("FetchUserDataByUID: 新規アカウント初期化完了");
-        _loadingPanel.SetActive(false);
+        // このオブジェクトは DontDestroyOnLoad で残るため、ログアウト・退会で Start シーンに戻ったあとは
+        // 最初の Start シーンのパネルを指したまま（破棄済み）になる。パネルは FirebaseAuth 側でも閉じるので無ければ何もしない
+        if (_loadingPanel != null) _loadingPanel.SetActive(false);
     }
 
     public async UniTask FetchUserDataByUID()
@@ -57,7 +59,7 @@ public class UserDataManager : SingletonBehaviour<UserDataManager>
     public async UniTask FetchUserDataByUIDForReload(bool isStartScene)
     {
         await FetchAsync();
-        SceneManager.LoadScene("Home");
+        SceneManager.LoadScene(AppScenes.Home);
     }
 
     /// <summary>
@@ -100,8 +102,8 @@ public class UserDataManager : SingletonBehaviour<UserDataManager>
 
     private IEnumerator LoadSceneAsyncWithActivationControl()
     {
-        Debug.Log("LoadScene Home");
-        AsyncOperation asyncLoad = SceneManager.LoadSceneAsync("Home");
+        Debug.Log($"LoadScene {AppScenes.Home}");
+        AsyncOperation asyncLoad = SceneManager.LoadSceneAsync(AppScenes.Home);
         asyncLoad.allowSceneActivation = false;
 
         while (asyncLoad.progress < 0.9f) // ロード処理が9割完了するまで待機
@@ -242,6 +244,19 @@ public class UserData
         set => _favoriteBoardgames = value;
     }
     private List<string> _favoriteBoardgames;
+
+    /// <summary>
+    /// 解放済みの惑星ID（新ホームの中央に置ける惑星。アチーブメント報酬）。
+    /// ルミナは最初から持っているので入れない。店頭の惑星QRを読むと ArrayUnion で1つずつ増える
+    /// （CallMethodFromQR.UnlockPlanet）。判定は SpacePlanets.IsOwned 経由で行う。
+    /// </summary>
+    [FirestoreProperty("planets")]
+    public List<string> Planets
+    {
+        get => _planets ?? (_planets = new List<string>());
+        set => _planets = value;
+    }
+    private List<string> _planets;
 
     /// <summary>スロット番号順に並べたキャラクター一覧（ローカル用）</summary>
     public List<Character> Characters { get; set; }

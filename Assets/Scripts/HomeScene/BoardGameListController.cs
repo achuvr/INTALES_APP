@@ -1618,6 +1618,25 @@ public class BoardGameListController : MonoBehaviour
         _detailThumbTextures.Clear();
     }
 
+    /// <summary>
+    /// 図鑑を開く（Canvas の上に全画面で作る）。新ホームのボードゲーム図鑑の小さな惑星から呼ぶ
+    /// （旧ホームの「ゲーム一覧」ボタンと同じ開き方）
+    /// </summary>
+    public static BoardGameListController Open() =>
+        new GameObject("BoardGameListRoot").AddComponent<BoardGameListController>();
+
+    /// <summary>
+    /// 戻る操作（Android の戻るボタン）: 手前から閉じる（写真 → 詳細 → 絞り込みの選択肢 → 図鑑）
+    /// </summary>
+    public void HandleBack()
+    {
+        var viewer = _overlay != null ? _overlay.transform.Find("__PhotoViewer") : null;
+        if (viewer != null) Destroy(viewer.gameObject);
+        else if (_detailModal != null) CloseDetail();
+        else if (_filterPopup != null) CloseFilterPopup();
+        else Close();
+    }
+
     // ================================================================
     // 閉じる（Homeに戻る）
     // ================================================================

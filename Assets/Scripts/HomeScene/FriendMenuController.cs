@@ -838,6 +838,13 @@ public class FriendMenuController : MonoBehaviour
     /// </summary>
     public static void ShowToast(string message, float bottomY = 320f)
     {
+        // 新ホーム（宇宙デザイン）表示中は宇宙デザインのトーストで出す（QR読み取り後のお知らせなど）
+        if (SpaceTheme.InUse)
+        {
+            SpaceTheme.Toast(message, null, bottomY);
+            return;
+        }
+
         var canvas = GetMainCanvas();
         if (canvas == null)
         {

@@ -4,9 +4,10 @@ using System.IO;
 using UnityEngine;
 
 /// <summary>
-/// 端末ローカルの行動履歴（ダイスの出目・ガチャ結果・フレンド登録・滞在時間・クーポン使用）。
+/// 端末ローカルの行動履歴（ダイスの出目・ガチャ結果・フレンド登録・滞在時間・クーポンの入手と使用・惑星の解放）。
 /// Application.persistentDataPath/history_log.json に保存する（Firestore不使用）。
 /// 最大50件まで蓄積し、超えた分は古いものから削除する。
+/// 表示は旧ホームの HistoryController と、新ホームの SpaceHistoryPanel（中央の惑星の右下の金色の小さな惑星）。
 /// </summary>
 public static class LocalHistoryLog
 {
@@ -18,7 +19,7 @@ public static class LocalHistoryLog
     [Serializable]
     public class HistoryEntry
     {
-        public string type; // dice / gacha / friend / visit / coupon
+        public string type; // dice / gacha / friend / visit / coupon / group / planet
         public string text;
         public string date; // "yyyy/MM/dd HH:mm"
     }

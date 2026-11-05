@@ -455,6 +455,7 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 1014611583}
+  - component: {fileID: 1014611584}
   m_Layer: 0
   m_Name: QR
   m_TagString: QR
@@ -746,6 +747,22 @@ CanvasRenderer:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 2021100683}
   m_CullTransparentMesh: 1
+--- !u!114 &1014611584
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1014611582}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 20f89ef5e7944b0b824bfc4b9af13137, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  _canvas: {fileID: 1925456071}
+  _background: {fileID: 2021100685}
+  _camera: {fileID: 1217274871}
+  _closeButton: {fileID: 157457686}
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
   m_ObjectHideFlags: 0

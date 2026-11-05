@@ -4294,7 +4294,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   _isDebugMode: 0
-  _isCardTransferMode: 0
+  _isCardTransferMode: 1
   _jobImage: {fileID: 882528413}
   _nameText: {fileID: 98561794}
   _statusText: {fileID: 421038971}

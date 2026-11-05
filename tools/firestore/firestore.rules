@@ -75,6 +75,95 @@ service cloud.firestore {
     }
 
     // ================================================================
+    // 入店中の人数（新ホームの惑星のいちばん外の円を、入店中の人数ぶんの球が回る）
+    //   visitors/{ランダムなID} = { p: 惑星ID, at: 入店した時刻 }
+    //     名前もUIDも入れない（だれが入店中かはわからない。わかるのは人数と惑星の色だけ）
+    //     読み取り: ログインユーザー
+    //     作る・惑星の変更・消す: 自分の鍵（visitor_keys/自分のUID）が指している記録だけ
+    //       作るときは同じ書き込みで鍵をその記録へ向ける。入店した時刻はサーバーの時刻のみで、あとから変えられない
+    //     消す: ほかに管理者（毎朝の掃除はサービスアカウントで動くのでルールは通らない）
+    //   visitor_keys/{uid} = { id: 自分の記録のID }（本人しか読み書きできない）
+    //     指せるのは、まだない記録のIDだけ（ほかの人の記録を指して消したり書き換えたりできないように）
+    //     付け替える・消すときは、前の記録も同じ書き込みで消すこと
+    //     （記録を置き去りにして人数を水増しできないように。1人が持てる記録は常に1件まで）
+    //   掃除: tools/firestore/cleanup-visitors.js（毎朝、営業終了後に残った記録と鍵を消す）
+    // ================================================================
+    function visitorKeyPath() {
+      return /databases/$(database)/documents/visitor_keys/$(request.auth.uid);
+    }
+
+    function validVisitorPlanet() {
+      return request.resource.data.p is string && request.resource.data.p.size() <= 32;
+    }
+
+    function validVisitorKey() {
+      return request.resource.data.keys().hasOnly(['id'])
+        && request.resource.data.id is string
+        && request.resource.data.id.matches('^[0-9a-f]{32}$')
+        && !exists(/databases/$(database)/documents/visitors/$(request.resource.data.id));
+    }
+
+    match /visitors/{id} {
+      allow read: if signedIn();
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly(['p', 'at'])
+        && validVisitorPlanet()
+        && request.resource.data.at == request.time
+        && getAfter(visitorKeyPath()).data.id == id;
+      allow update: if signedIn()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['p'])
+        && validVisitorPlanet()
+        && get(visitorKeyPath()).data.id == id;
+      allow delete: if isAdmin()
+        || (signedIn() && get(visitorKeyPath()).data.id == id);
+    }
+
+    match /visitor_keys/{uid} {
+      allow read: if signedIn() && request.auth.uid == uid;
+      allow create: if signedIn() && request.auth.uid == uid && validVisitorKey();
+      allow update: if signedIn() && request.auth.uid == uid && validVisitorKey()
+        && !existsAfter(/databases/$(database)/documents/visitors/$(resource.data.id));
+      allow delete: if signedIn() && request.auth.uid == uid
+        && !existsAfter(/databases/$(database)/documents/visitors/$(resource.data.id));
+    }
+
+    // ================================================================
+    // 1か月遊び放題パス（店頭で購入 → 管理者が受け取りQRを表示 → お客様のアプリで読み取って受け取る）
+    //   passes/{ランダムなID} = { type: weekday|weekend|allday, issued_at, issued_by,
+    //                             claimed_by: null→受け取った人のUID, claimed_at: null→受け取った時刻,
+    //                             holder_name: 受け取った人のユーザー名（受け取ったときに入る） }
+    //   受け取りQRの中身は "pass:{ID}"。1回だけ、発行から60分以内に受け取れる。
+    //   有効期間は受け取った日を1日目として30日間（アプリ側で計算。Assets/Scripts/Commons/StorePasses.cs）
+    //   発行: 管理者のみ（受け取る前の形だけ）
+    //   一覧: 管理者（購入者・期限・種類の確認）と、自分が受け取ったパスの検索
+    //   読み取り: 管理者・まだだれも受け取っていないパス（QRを読んだとき）・自分が受け取ったパス
+    //   受け取り: まだだれも受け取っていない・発行から60分以内のパスに、自分のUID・サーバーの時刻・
+    //             自分のユーザー名（users の name と同じもの）だけを入れられる
+    //   取り消し（削除）: 管理者が、まだだれも受け取っていないパスだけ（受け取られたあとは消せない）
+    // ================================================================
+    match /passes/{passId} {
+      allow get: if isAdmin() || (signedIn() && (resource == null
+        || resource.data.claimed_by == null || resource.data.claimed_by == request.auth.uid));
+      allow list: if isAdmin() || (signedIn() && resource.data.claimed_by == request.auth.uid);
+      allow create: if isAdmin()
+        && request.resource.data.keys().hasOnly(['type', 'issued_at', 'issued_by', 'claimed_by', 'claimed_at'])
+        && request.resource.data.type in ['weekday', 'weekend', 'allday']
+        && request.resource.data.issued_at == request.time
+        && request.resource.data.issued_by == request.auth.uid
+        && request.resource.data.claimed_by == null
+        && request.resource.data.claimed_at == null;
+      allow update: if signedIn()
+        && resource.data.claimed_by == null
+        && request.time < resource.data.issued_at + duration.value(60, 'm')
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['claimed_by', 'claimed_at', 'holder_name'])
+        && request.resource.data.claimed_by == request.auth.uid
+        && request.resource.data.claimed_at == request.time
+        && request.resource.data.holder_name ==
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('name', '');
+      allow delete: if isAdmin() && resource.data.claimed_by == null;
+    }
+
+    // ================================================================
     // 紙の会員証の引き継ぎコード
     //   発行・編集・削除・一覧: 管理者のみ
     //   個別取得(get): ログインユーザー（QRで読んだコードの照会用）

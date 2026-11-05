@@ -80,16 +80,17 @@ public class RecruitBoardController : MonoBehaviour
     public const int SLOT_MAX = 1350;
     public const int SLOT_STEP = 30;
 
-    private const int MAX_TAGS = 4;        // 1つの募集に付けられるタグ数
-    private const int MAX_SEATS = 9;       // 募集できる人数の上限（ルールの seats <= 9 と対）
-    private const int GRACE_MINUTES = 30;  // 開始時刻を過ぎても30分は表示し続ける
-    private const int MAX_DAYS_AHEAD = 90; // 何日先まで募集を出せるか＝約3か月（ルールの92日制限と対）
+    // 以下の定数・表示用の関数は新ホームの相席募集（SpaceNewsPage / SpaceRecruitForm）でも共用する
+    internal const int MAX_TAGS = 4;        // 1つの募集に付けられるタグ数
+    internal const int MAX_SEATS = 9;       // 募集できる人数の上限（ルールの seats <= 9 と対）
+    internal const int GRACE_MINUTES = 30;  // 開始時刻を過ぎても30分は表示し続ける
+    internal const int MAX_DAYS_AHEAD = 90; // 何日先まで募集を出せるか＝約3か月（ルールの92日制限と対）
 
     /// <summary>
     /// 「持ち込みゲーム」を表す game フィールドの内部値。
     /// カタログのタイトルと衝突しないよう '!' 始まりにする（表示は GameDisplay が変換）。
     /// </summary>
-    private const string GAME_BRING_OWN = "!bring_own";
+    internal const string GAME_BRING_OWN = "!bring_own";
 
     private const string WEEKDAYS = "日月火水木金土";
 
@@ -182,8 +183,9 @@ public class RecruitBoardController : MonoBehaviour
         public int ReportCount;
     }
 
-    private static string DateStr(DateTime d) => d.ToString("yyyy-MM-dd");
-    private static string SlotText(int slot) => $"{slot / 60}:{slot % 60:00}";
+    internal static string DateStr(DateTime d) => d.ToString("yyyy-MM-dd");
+    /// <summary>時間枠（0時からの分）→ "19:30"。新ホームのお知らせ（SpaceNewsPage）の募集の概要でも使う</summary>
+    internal static string SlotText(int slot) => $"{slot / 60}:{slot % 60:00}";
     private static FirebaseFirestore Db => FirebaseFirestore.DefaultInstance;
     private static string MyUid => UserDataManager.instance != null ? UserDataManager.instance.UID : null;
     private static string MyName
@@ -355,12 +357,15 @@ public class RecruitBoardController : MonoBehaviour
         _rebuild = StartCoroutine(RebuildList());
     }
 
-    private static bool IsPastSlot(Post p, DateTime now)
+    private static bool IsPastSlot(Post p, DateTime now) => IsPastSlot(p.Date, p.Slot, now);
+
+    /// <summary>集合時刻＋猶予を過ぎた募集か（新ホームのお知らせの募集の概要でも同じ基準で落とす）</summary>
+    internal static bool IsPastSlot(string date, int slot, DateTime now)
     {
         string today = DateStr(now);
-        if (string.CompareOrdinal(p.Date, today) > 0) return false;
-        if (string.CompareOrdinal(p.Date, today) < 0) return true;
-        return now.Hour * 60 + now.Minute > p.Slot + GRACE_MINUTES;
+        if (string.CompareOrdinal(date, today) > 0) return false;
+        if (string.CompareOrdinal(date, today) < 0) return true;
+        return now.Hour * 60 + now.Minute > slot + GRACE_MINUTES;
     }
 
     private static string Str(Dictionary<string, object> d, string k)
@@ -659,7 +664,8 @@ public class RecruitBoardController : MonoBehaviour
         rt.anchoredPosition = new Vector2(xFromRight, 24f);
     }
 
-    private static string DateLabel(string date)
+    /// <summary>"yyyy-MM-dd" → 今日 / 明日 / "7/15(水)"</summary>
+    internal static string DateLabel(string date)
     {
         var now = DateTime.Now;
         if (date == DateStr(now)) return "今日";
@@ -677,7 +683,7 @@ public class RecruitBoardController : MonoBehaviour
     }
 
     /// <summary>作成フォームの日にち表示（今日・明日は日付も添える）。</summary>
-    private static string FormDateDisplay(string date)
+    internal static string FormDateDisplay(string date)
     {
         var now = DateTime.Now;
         if (date == DateStr(now)) return $"今日 {MonthDayLabel(date)}";
@@ -694,14 +700,17 @@ public class RecruitBoardController : MonoBehaviour
     /// hasOnly/affectedKeys 制約によりクライアントからは作成時も更新時も
     /// 一切書き込めないため、そのまま表示してよい唯一のゲーム名文字列。
     /// </summary>
-    private static string GameDisplay(Post p)
+    private static string GameDisplay(Post p) => GameDisplay(p.Game, p.GameCustom);
+
+    /// <summary>game / game_custom フィールドからゲーム名の表示を作る（新ホームのお知らせの募集の概要でも使う）</summary>
+    internal static string GameDisplay(string game, string gameCustom)
     {
-        if (!string.IsNullOrEmpty(p.GameCustom))
-            return p.Game == GAME_BRING_OWN ? $"『{p.GameCustom}』（持ち込み）" : $"『{p.GameCustom}』";
-        if (string.IsNullOrEmpty(p.Game)) return "ゲームはお店できめる";
-        if (p.Game == GAME_BRING_OWN) return "持ち込みゲームであそぶ";
+        if (!string.IsNullOrEmpty(gameCustom))
+            return game == GAME_BRING_OWN ? $"『{gameCustom}』（持ち込み）" : $"『{gameCustom}』";
+        if (string.IsNullOrEmpty(game)) return "ゲームはお店できめる";
+        if (game == GAME_BRING_OWN) return "持ち込みゲームであそぶ";
         var data = BoardGameCatalog.Load();
-        var hit = data?.games?.FirstOrDefault(g => g.title == p.Game);
+        var hit = data?.games?.FirstOrDefault(g => g.title == game);
         return hit != null ? $"『{hit.title}』" : "（取り扱い外のゲーム）";
     }
 
@@ -1299,32 +1308,43 @@ public class RecruitBoardController : MonoBehaviour
         return false;
     }
 
+    /// <summary>
+    /// 新しい募集の書き込み内容（ルール tools/firestore/firestore.rules の create と対）。
+    /// 新ホームのお知らせページの作成フォーム（SpaceRecruitForm）も同じものを書く。
+    /// </summary>
+    internal static Dictionary<string, object> NewPostData(string uid, string name, string game, string date,
+        int slot, int seats, IEnumerable<int> tags)
+    {
+        // 期限 = 集合時刻 + 猶予30分（ルール側で「92日以内」を強制）
+        var day = DateTime.ParseExact(date, "yyyy-MM-dd", null);
+        var expires = new DateTime(day.Year, day.Month, day.Day, 0, 0, 0, DateTimeKind.Local)
+            .AddMinutes(slot + GRACE_MINUTES);
+
+        return new Dictionary<string, object>
+        {
+            { "uid", uid },
+            { "name", name },
+            { "game", game ?? "" },
+            { "date", date },
+            { "slot", slot },
+            { "seats", seats },
+            { "tags", tags.OrderBy(t => t).ToList() },
+            { "status", "open" },
+            { "participants", new Dictionary<string, object>() },
+            { "reports", new Dictionary<string, object>() },
+            { "created_at", FieldValue.ServerTimestamp },
+            { "expires_at", Timestamp.FromDateTime(expires.ToUniversalTime()) },
+        };
+    }
+
     private async UniTask CreateAsync()
     {
         if (_busy) return;
         _busy = true;
         try
         {
-            // 期限 = 集合時刻 + 猶予30分（ルール側で「2日以内」を強制）
-            var day = DateTime.ParseExact(_formDate, "yyyy-MM-dd", null);
-            var expires = new DateTime(day.Year, day.Month, day.Day, 0, 0, 0, DateTimeKind.Local)
-                .AddMinutes(_formSlot + GRACE_MINUTES);
-
-            await Db.Collection("recruits").AddAsync(new Dictionary<string, object>
-            {
-                { "uid", MyUid },
-                { "name", MyName },
-                { "game", _formGame },
-                { "date", _formDate },
-                { "slot", _formSlot },
-                { "seats", _formSeats },
-                { "tags", _formTags.OrderBy(t => t).ToList() },
-                { "status", "open" },
-                { "participants", new Dictionary<string, object>() },
-                { "reports", new Dictionary<string, object>() },
-                { "created_at", FieldValue.ServerTimestamp },
-                { "expires_at", Timestamp.FromDateTime(expires.ToUniversalTime()) },
-            }).AsUniTask();
+            await Db.Collection("recruits").AddAsync(
+                NewPostData(MyUid, MyName, _formGame, _formDate, _formSlot, _formSeats, _formTags)).AsUniTask();
 
             ClosePopup();
             FriendMenuController.ShowToast("募集を出しました！");
@@ -1337,17 +1357,27 @@ public class RecruitBoardController : MonoBehaviour
         finally { _busy = false; }
     }
 
+    /// <summary>
+    /// 参加表明の書き込み内容（participants の自分のキーだけ。{name, msg}。ルール update(2) と対）。
+    /// 新ホームのお知らせページ（SpaceNewsPage）の「参加する」も同じものを書く。
+    /// </summary>
+    internal static Dictionary<FieldPath, object> JoinUpdate(string uid, string name, int msg) =>
+        new Dictionary<FieldPath, object>
+        {
+            { new FieldPath("participants", uid), new Dictionary<string, object> { { "name", name }, { "msg", msg } } },
+        };
+
+    /// <summary>参加の取り消し（participants の自分のキーを消す。新ホームの「参加をやめる」も同じ）</summary>
+    internal static Dictionary<FieldPath, object> LeaveUpdate(string uid) =>
+        new Dictionary<FieldPath, object> { { new FieldPath("participants", uid), FieldValue.Delete } };
+
     private async UniTask JoinAsync(Post p, int msg)
     {
         if (_busy) return;
         _busy = true;
         try
         {
-            await Db.Collection("recruits").Document(p.Id).UpdateAsync(new Dictionary<FieldPath, object>
-            {
-                { new FieldPath("participants", MyUid), new Dictionary<string, object>
-                    { { "name", MyName }, { "msg", msg } } },
-            }).AsUniTask();
+            await Db.Collection("recruits").Document(p.Id).UpdateAsync(JoinUpdate(MyUid, MyName, msg)).AsUniTask();
             CloseSubPopup();
             FriendMenuController.ShowToast("参加を伝えました！\n当日お店で声をかけてね");
         }
@@ -1365,10 +1395,7 @@ public class RecruitBoardController : MonoBehaviour
         _busy = true;
         try
         {
-            await Db.Collection("recruits").Document(p.Id).UpdateAsync(new Dictionary<FieldPath, object>
-            {
-                { new FieldPath("participants", MyUid), FieldValue.Delete },
-            }).AsUniTask();
+            await Db.Collection("recruits").Document(p.Id).UpdateAsync(LeaveUpdate(MyUid)).AsUniTask();
             FriendMenuController.ShowToast("参加を取り消しました");
         }
         catch (Exception ex)

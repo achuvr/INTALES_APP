@@ -46,3 +46,12 @@ jobs:
         working-directory: tools/firestore
         env:
           GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/sa.json
+
+      # 入店中の人数（新ホームの惑星のまわりを回る球）の掃除。営業終了後に残った記録（退店し忘れ）と、
+      # 記録がなくなった鍵を消す。詳細: tools/firestore/cleanup-visitors.js
+      - name: Cleanup stale visitors
+        if: always()
+        run: node cleanup-visitors.js
+        working-directory: tools/firestore
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/sa.json

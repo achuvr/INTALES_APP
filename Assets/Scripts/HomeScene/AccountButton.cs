@@ -410,30 +410,9 @@ public class AccountButton : MonoBehaviour
 
     /// <summary>
     /// ログアウト: 端末の自動ログイン情報（user.txt）を削除し、
-    /// Firebase Auth からサインアウトして Start シーンへ戻る。
+    /// Firebase Auth からサインアウトして Start シーンへ戻る（処理は新ホームと共通の AccountSession）。
     /// </summary>
-    private void Logout()
-    {
-        try
-        {
-#if UNITY_EDITOR
-            string path = Path.Combine(Application.dataPath, "TestUser", "user.txt");
-#else
-            string path = Path.Combine(Application.persistentDataPath, "TestUser", "user.txt");
-#endif
-            if (File.Exists(path)) File.Delete(path);
-            Debug.Log("[Account] user.txt を削除しました（自動ログイン解除）");
-        }
-        catch (System.Exception ex)
-        {
-            Debug.LogError($"[Account] user.txt 削除エラー: {ex.Message}");
-        }
-
-        try { Firebase.Auth.FirebaseAuth.DefaultInstance.SignOut(); }
-        catch (System.Exception ex) { Debug.LogWarning($"[Account] サインアウトエラー: {ex.Message}"); }
-
-        SceneManager.LoadScene("Start");
-    }
+    private void Logout() => AccountSession.Logout();
 
     // ================================================================
     // UI部品ヘルパー
