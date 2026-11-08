@@ -72,6 +72,16 @@ public static class StoreVisitors
     /// <summary>この端末が入店中の記録を持っているか</summary>
     public static bool HasRecord => !string.IsNullOrEmpty(PlayerPrefs.GetString(PREF_DOC, ""));
 
+    /// <summary>この端末の入店中の記録のID（いちばん外の円の自分の球。入店中でなければ null）</summary>
+    public static string SelfDocId
+    {
+        get
+        {
+            string id = PlayerPrefs.GetString(PREF_DOC, "");
+            return string.IsNullOrEmpty(id) ? _selfId : id;
+        }
+    }
+
     /// <summary>
     /// 入店のQRを読んだ直後の自分の記録のID。新ホームが受け取って（ConsumeArrival）、自分の惑星が
     /// いちばん外の円の自分の場所へ飛んでいく演出をする。読んでから ARRIVAL_SECONDS を過ぎたら null

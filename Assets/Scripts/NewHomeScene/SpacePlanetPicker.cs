@@ -28,10 +28,15 @@ public class SpacePlanetPicker : MonoBehaviour
     private const string T_LOCKED = "まだ解放されていません";
     private const string T_LOCKED_SUB = "お店で条件を達成すると、QRコードで解放できます";
     private const string T_UNLOCKED = "解放";
+    private const string T_CONDITION = "解放の条件：";
+    private const string T_ABILITY_SEP = "：";
+    private const string T_POWER = "パワー ";
+    private const string T_POWER_MAX = "パワー MAX";
 
     /// <summary>この画面で表示しうる文字（惑星の名前・説明は SpacePlanets.GlyphText）</summary>
     public static string GlyphText =>
-        T_CAPTION + T_TITLE + T_CHOOSE + T_CURRENT + T_LOCKED + T_LOCKED_SUB + T_UNLOCKED + "0123456789/";
+        T_CAPTION + T_TITLE + T_CHOOSE + T_CURRENT + T_LOCKED + T_LOCKED_SUB + T_UNLOCKED + T_CONDITION + T_ABILITY_SEP
+        + T_POWER + T_POWER_MAX + "0123456789/";
 
     // 配置（セーフエリア基準）
     private const int COLS = 4;
@@ -40,7 +45,7 @@ public class SpacePlanetPicker : MonoBehaviour
     private const float PREVIEW = 480f;        // プレビューの惑星の枠（球の直径 384）
     private const float HEADER_H = 170f;       // 見出しの高さ
     private const float BLOCK_PLANET = 430f;   // プレビューの惑星が占める高さ
-    private const float BLOCK_TEXT = 162f;     // 名前・説明の高さ
+    private const float BLOCK_TEXT = 214f;     // 名前・説明・能力の高さ
     private const float BTN_H = 120f, BOTTOM = 56f, BTN_GAP = 30f;
     private const float LIST_PAD_TOP = 24f, LIST_PAD_BOTTOM = 36f, LIST_PAD_SIDE = 40f;
 
@@ -55,7 +60,9 @@ public class SpacePlanetPicker : MonoBehaviour
     private CanvasGroup _group;
     private RectTransform _previewHolder, _previewSlot, _orbit;
     private SpacePlanetView _preview;
-    private TextMeshProUGUI _enText, _nameText, _descText;
+    private TextMeshProUGUI _enText, _nameText, _descText, _abilityText, _lockedSub, _powerText;
+    private GameObject _powerChip;
+    private Image _powerChipBg;
     private GameObject _chooseWrap, _currentWrap, _lockedWrap;
     private readonly List<Cell> _cells = new List<Cell>();
     private SpacePlanetDef _current, _selected;
@@ -124,7 +131,7 @@ public class SpacePlanetPicker : MonoBehaviour
         // 見出し（QR画面と同じ並び）と閉じるボタン（ホームの歯車と同じ位置）
         var caption = SpaceTheme.Text(safe, "Caption", T_CAPTION, 24, SpaceTheme.A(SpaceTheme.CYAN, 0.85f),
             new Vector2(0.5f, 1f), new Vector2(0f, -70f), new Vector2(700f, 36f), FontStyles.Bold);
-        caption.characterSpacing = 18f;
+        SpaceTheme.Tracking(caption, 18f);
         SpaceTheme.Text(safe, "Title", T_TITLE, 44, SpaceTheme.TEXT, new Vector2(0.5f, 1f), new Vector2(0f, -124f),
             new Vector2(800f, 60f), FontStyles.Bold);
         BuildCloseButton(safe);
@@ -144,14 +151,28 @@ public class SpacePlanetPicker : MonoBehaviour
         _previewHolder = SpaceTheme.Rect("Preview", safe, new Vector2(0.5f, 1f), new Vector2(0f, planetY),
             new Vector2(PREVIEW, PREVIEW));
 
+        // パワー（プレビューの惑星の右。解放済みの惑星だけ）
+        var chip = SpaceTheme.Rect("Power", safe, new Vector2(0.5f, 1f), new Vector2(330f, planetY),
+            new Vector2(220f, 56f));
+        _powerChipBg = SpaceTheme.Rounded(chip, SpaceTheme.A(SpaceTheme.GOLD, 0.12f), 28f);
+        _powerText = SpaceTheme.Text(chip, "Label", "", 26, SpaceTheme.TEXT, FontStyles.Bold);
+        SpaceTheme.Stretch(_powerText.rectTransform);
+        _powerChip = chip.gameObject;
+
         float textTop = HEADER_H + BLOCK_PLANET;
         _enText = SpaceTheme.Text(safe, "En", "", 26, SpaceTheme.A(SpaceTheme.CYAN, 0.9f), new Vector2(0.5f, 1f),
             new Vector2(0f, -(textTop + 16f)), new Vector2(900f, 36f), FontStyles.Bold);
-        _enText.characterSpacing = 24f;
+        SpaceTheme.Tracking(_enText, 24f);
         _nameText = SpaceTheme.Text(safe, "Name", "", 56, SpaceTheme.TEXT, new Vector2(0.5f, 1f),
             new Vector2(0f, -(textTop + 68f)), new Vector2(900f, 74f), FontStyles.Bold);
         _descText = SpaceTheme.Text(safe, "Desc", "", 30, SpaceTheme.TEXT_SUB, new Vector2(0.5f, 1f),
             new Vector2(0f, -(textTop + 126f)), new Vector2(980f, 44f), FontStyles.Bold);
+        // 能力（★お店の特典／☆アプリの能力。効くのは中央に置いた1つだけ）
+        _abilityText = SpaceTheme.Text(safe, "Ability", "", 26, SpaceTheme.GOLD, new Vector2(0.5f, 1f),
+            new Vector2(0f, -(textTop + 178f)), new Vector2(980f, 40f), FontStyles.Bold);
+        _abilityText.enableAutoSizing = true;
+        _abilityText.fontSizeMin = 18f;
+        _abilityText.fontSizeMax = 26f;
 
         // 下: 決定ボタン
         float gridW = COLS * CELL_W + (COLS - 1) * GAP;
@@ -186,7 +207,7 @@ public class SpacePlanetPicker : MonoBehaviour
         var rt = SpaceTheme.Rect("Counter", safe, new Vector2(0f, 1f), new Vector2(64f, -84f), new Vector2(200f, 64f),
             new Vector2(0f, 0.5f));
         SpaceTheme.Glass(rt, 30f, new Color(0.05f, 0.07f, 0.19f, 0.85f));
-        int owned = SpacePlanets.OwnedCount, total = SpacePlanets.All.Length;
+        int owned = SpacePlanets.OwnedCount, total = SpacePlanets.Visible.Length;
         var t = SpaceTheme.Text(rt, "Label",
             $"<size=70%><color={SpaceTheme.SUB_HEX}>{T_UNLOCKED}</color></size> {owned}<size=70%><color={SpaceTheme.SUB_HEX}>/{total}</color></size>",
             32, SpaceTheme.TEXT, FontStyles.Bold);
@@ -220,8 +241,11 @@ public class SpacePlanetPicker : MonoBehaviour
         SpaceTheme.Img(icon, SpaceSprites.Lock, SpaceTheme.TEXT_MUTED);
         SpaceTheme.Text(locked, "Label", T_LOCKED, 32, SpaceTheme.TEXT_SUB, SpaceTheme.CENTER, new Vector2(20f, 18f),
             new Vector2(width - 160f, 46f), FontStyles.Bold);
-        SpaceTheme.Text(locked, "Sub", T_LOCKED_SUB, 22, SpaceTheme.TEXT_MUTED, SpaceTheme.CENTER, new Vector2(20f, -24f),
-            new Vector2(width - 160f, 34f), FontStyles.Bold);
+        _lockedSub = SpaceTheme.Text(locked, "Sub", T_LOCKED_SUB, 22, SpaceTheme.TEXT_MUTED, SpaceTheme.CENTER,
+            new Vector2(20f, -24f), new Vector2(width - 160f, 34f), FontStyles.Bold);
+        _lockedSub.enableAutoSizing = true;
+        _lockedSub.fontSizeMin = 16f;
+        _lockedSub.fontSizeMax = 22f;
         _lockedWrap = locked.gameObject;
     }
 
@@ -230,7 +254,7 @@ public class SpacePlanetPicker : MonoBehaviour
     /// </summary>
     private void BuildList(RectTransform safe, float gridW, float listTop, float listBottom, float viewH)
     {
-        var all = SpacePlanets.All;
+        var all = SpacePlanets.Visible; // 古参の惑星は持っている人にだけ出す
         int rows = Mathf.CeilToInt(all.Length / (float)COLS);
         float contentH = LIST_PAD_TOP + rows * CELL_H + (rows - 1) * GAP + LIST_PAD_BOTTOM;
 
@@ -385,8 +409,26 @@ public class SpacePlanetPicker : MonoBehaviour
         _enText.text = _selected.En;
         _nameText.text = _selected.Name;
         _descText.text = _selected.Desc;
+        var power = PlanetPowers.Of(_selected);
+        if (power != null && power.HasAbility)
+        {
+            _abilityText.text = PlanetPowers.KindLabel(power) + T_ABILITY_SEP + power.AbilityText;
+            _abilityText.color = power.Store ? SpaceTheme.GOLD : SpaceTheme.MINT;
+        }
+        else
+        {
+            _abilityText.text = PlanetPowers.T_NONE;
+            _abilityText.color = SpaceTheme.TEXT_MUTED;
+        }
+        _lockedSub.text = power != null ? T_CONDITION + power.UnlockText : T_LOCKED_SUB;
         bool owned = SpacePlanets.IsOwned(_selected);
         bool isCurrent = _selected == _current;
+        int charge = JourneyService.PowerOf(_selected.Id);
+        bool powerMax = charge >= JourneyRules.POWER_MAX;
+        _powerChip.SetActive(owned);
+        _powerText.text = powerMax ? T_POWER_MAX : T_POWER + charge + "/" + JourneyRules.POWER_MAX;
+        _powerText.color = powerMax ? SpaceTheme.GOLD : SpaceTheme.TEXT_SUB;
+        _powerChipBg.color = SpaceTheme.A(SpaceTheme.GOLD, powerMax ? 0.22f : 0.08f);
         _nameText.color = owned ? SpaceTheme.TEXT : SpaceTheme.TEXT_SUB;
         _chooseWrap.SetActive(owned && !isCurrent);
         _currentWrap.SetActive(owned && isCurrent);

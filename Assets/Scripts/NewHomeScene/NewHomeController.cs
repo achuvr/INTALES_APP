@@ -42,11 +42,18 @@ public class NewHomeController : MonoBehaviour
     private const string T_WELCOME_BACK = "WELCOME BACK";  // 来店したことがある
     private const string T_SAN = "さん";
     private const string T_VISITS = "来店回数";
+    private const string T_ORBIT = "公転";
+    private const string T_STREAK_UNIT = " 連続";
     private const string T_LAST_VISIT = "前回の来店";
     private const string T_STAY = "滞在時間";
     private const string T_IN_STORE = "入店中";
     private const string T_CAMERA = "カメラを起動";
     private const string T_CAMERA_SUB = "QRコードを読み取る";
+    // 小さな惑星の名前（中央の惑星の「カメラを起動」のように、惑星のすぐ下に出す。2026-11-06 ユーザー指定）
+    private const string T_MOON_HISTORY = "履歴";
+    private const string T_MOON_ZUKAN = "ボードゲーム図鑑";
+    private const string T_MOON_PRICE = "料金表";
+    private const string T_MOON_NEWS = "お知らせ";
     private const string T_BAG = "所持品";
     private const string T_BAG_PASS = "パス"; // 所持品ボタンの小さな文字（使える1か月パスの枚数）
     private const string T_GUEST = "ゲスト";
@@ -90,7 +97,9 @@ public class NewHomeController : MonoBehaviour
     private const float ARRIVAL_R0 = 110f;        // 飛び出す位置（中央の惑星の中心からの距離）
     private const float ARRIVAL_SWEEP = 80f;      // 円の回る向き（反時計回り）に回り込みながら着く角度
     private const float ARRIVAL_SPHERE0 = 150f;   // 飛ぶ惑星の球の直径（飛び出した直後）
-    private const float ARRIVAL_SPHERE1 = 34f;    // 〃（着く直前。円の上の球より少し大きい）
+    private const float ARRIVAL_SPHERE1 = 34f;
+    private const float AWAY_HIDE = 0.22f;        // 入店で飛び出すとき、中央の惑星が消えるまでの割合（飛ぶ時間に対して）
+    private const float RETURN_DURATION = 1.2f;   // 退店して円から中央へ戻る時間    // 〃（着く直前。円の上の球より少し大きい）
     private const float TRAIL_LIFE = 0.55f;       // 光の尾の1粒が消えるまで
     private const float TRAIL_STEP = 0.025f;      // 光の尾の粒を出す間隔
 
@@ -107,6 +116,9 @@ public class NewHomeController : MonoBehaviour
     private RectTransform _headerRt;
     private CanvasGroup _planetHolderGroup, _cameraIconGroup, _badgeGroup, _historyGroup;
     private TextMeshProUGUI _avatarText, _captionText, _nameText, _visitValue, _statusLabel, _statusValue, _bagSub;
+    private TextMeshProUGUI _orbitValue;  // ユーザーカードの「公転」（続いている数）
+    private SpaceOrbitPanel _orbitPanel;  // 公転の画面（開いている間）
+    private SpaceSnow _snow;              // 冬にグラシアの人が入店中なら、店内の円に雪
     private GameObject _inStorePill, _tiltBack, _tiltFront, _planetBtnDot;
     private Image _pillGlow, _orbGlow, _flashImg, _historyGlow;
     private RectTransform _priceMoon;   // 料金表の水色の小さな惑星（漂う絵）
@@ -131,6 +143,7 @@ public class NewHomeController : MonoBehaviour
         public string Id, Planet;     // 記録のID（だれかはわからない）・選んでいる惑星
         public RectTransform Rt;
         public Image Glow, Core;
+        public Image Disk;            // ノワールの人の球だけ、光の円盤をまとう
         public float Angle, Target;   // 円の上の位置（度。円ごと回すので、円の中での角度）
         public float Show;            // 0→1 で膨らんで出る、いなくなったら 1→0 でしぼんで消える
         public bool Leaving;
@@ -152,6 +165,11 @@ public class NewHomeController : MonoBehaviour
 
     // ---- 状態 ----
     private bool _built, _wasQrOpen, _dotIsFront, _tiltOrbitOn = true, _landing;
+    // 入店中は中央の惑星をいちばん外の円に出しているので、中央から消す（2026-11-07 ユーザー指定）。
+    // 退店したら円から中央へ戻ってくる（FlyReturn）
+    private bool _planetAway, _returning;
+    private float _returnReadyAt = -1f;
+    private float _selfAngle = 90f; // 円の上の自分の球の角度（円の回転を含まない。戻るときの出発点）
     private Color _glowColor = SpaceTheme.CYAN, _shownGlow = SpaceTheme.CYAN;
     private float _qrGuardUntil, _nextPoll;
     private int[] _couponSnapshot;
@@ -181,6 +199,7 @@ public class NewHomeController : MonoBehaviour
         StoreVisitors.Changed -= RefreshVisitors;
         StoreVisitors.StopListening();
         StorePasses.Changed -= RefreshBagSub;
+        JourneyService.Changed -= OnJourneyChanged;
     }
 
     private IEnumerator Start()
@@ -214,6 +233,7 @@ public class NewHomeController : MonoBehaviour
         var size = SpaceTheme.CanvasSize(_canvas);
         var insets = SpaceTheme.SafeInsets(size);
         _background = SpaceBackground.Create(canvasRt, size, insets.top);
+        _background.EnableConstellations(); // 完成した星座を空に並べる
 
         // 中央の惑星の表面テクスチャは裏のスレッドで作るので、文字の登録・UIの組み立てと並行して先に始めておく
         var planet = SpacePlanets.Current;
@@ -236,6 +256,7 @@ public class NewHomeController : MonoBehaviour
         BuildPriceMoon(); // 中央の惑星の輪より手前に描く（輪の上でも押せるように）
         _accountMenu = SpaceAccountMenu.Create(_canvas); // ホームの上に重ねる（右上の歯車）
         _background.EnableMoonButton(OpenNews, SpaceNewsPage.ACCENT); // 左上のピンクの小さな惑星＝お知らせ
+        _background.SetMoonLabel(T_MOON_NEWS);
         _built = true;
 
         RefreshUser();
@@ -248,8 +269,12 @@ public class NewHomeController : MonoBehaviour
         SpaceZukan.Changed += OnZukanChanged;        // 図鑑をダウンロード・削除したら、図鑑の惑星を出し入れ
         StoreVisitors.Changed += RefreshVisitors;    // 入店中の人数ぶんの球（いちばん外の円）
         StoreVisitors.StartListening();
+        AppNotifications.Start(); // お店からの通知の購読と、公転・誕生月の通知の予約（2026-11-07）
         StorePasses.Changed += RefreshBagSub;        // 1か月パスを読み込んだ・受け取ったら所持品ボタンの枚数を更新
         StorePasses.LoadMineAsync().Forget();
+        JourneyService.Changed += OnJourneyChanged;  // 入店・退店で公転・来店回数が変わったら表示を更新
+        // 入店中にフレンドから届いた「一緒に来店」などがあれば処理する（流れ星・新しい惑星のお知らせ）
+        JourneyService.ProcessAndReport(r => SpaceNotice.ShowJourneyRewards(r, true)).Forget();
 
         // 惑星を選ぶ画面の一覧用（小さいテクスチャ）を、登場の演出が落ち着いてから裏で作っておく
         yield return new WaitForSecondsRealtime(1.5f);
@@ -261,13 +286,19 @@ public class NewHomeController : MonoBehaviour
         var sb = new StringBuilder();
         sb.Append(T_WORDMARK).Append(T_WELCOME_BACK).Append(T_SAN).Append(T_VISITS).Append(T_LAST_VISIT)
           .Append(T_STAY).Append(T_IN_STORE).Append(T_CAMERA).Append(T_CAMERA_SUB).Append(T_BAG)
+          .Append(T_MOON_HISTORY).Append(T_MOON_ZUKAN).Append(T_MOON_PRICE).Append(T_MOON_NEWS)
           .Append(T_GUEST).Append(T_GAINED).Append(T_GAINED_MANY).Append(GLYPH_EXTRA)
           .Append(SpaceInventoryPanel.GlyphText).Append(SpaceAccountMenu.GlyphText).Append(SpaceNotice.GlyphText)
           .Append(SpaceQRScreen.GlyphText).Append(SpacePlanets.GlyphText).Append(SpacePlanetPicker.GlyphText)
           .Append(SpaceAdminQrList.GlyphText).Append(SpaceHistoryPanel.GlyphText).Append(SpaceNewsPage.GlyphText)
           .Append(SpaceFriendPanel.GlyphText).Append(StorePasses.GlyphText).Append(SpacePassCard.GlyphText)
           .Append(SpacePassViewer.GlyphText).Append(SpaceAdminPassList.GlyphText).Append(SpaceAdminNewsImages.GlyphText).Append(SpacePricePage.GlyphText).Append(T_BAG_PASS)
-          .Append(SpaceBoardGameZukan.GlyphText);
+          .Append(SpaceBoardGameZukan.GlyphText).Append(SpaceConstellationPage.GlyphText)
+          .Append(SpaceMemberView.GlyphText).Append(Referral.GlyphText).Append(SpaceNotice.GiftGlyphText)
+          .Append(SpaceMonthPicker.GlyphText).Append(SpaceQrSheet.T_CLOSE).Append(SpacePlayRecords.GlyphText)
+          .Append(SpaceNotice.CertifyGlyphText).Append(BoardGameCertify.GlyphText).Append(SpaceNotice.ConstellationGlyphText)
+          .Append(T_ORBIT).Append(T_STREAK_UNIT).Append(PlanetPowers.GlyphText).Append(SpaceNotice.JourneyGlyphText)
+          .Append(SpaceOrbitPanel.GlyphText);
         var d = Data;
         if (d != null && !string.IsNullOrEmpty(d.Username)) sb.Append(d.Username);
         return sb.ToString();
@@ -289,7 +320,7 @@ public class NewHomeController : MonoBehaviour
         var t = SpaceTheme.Text(_headerRt, "Wordmark", T_WORDMARK, 40, SpaceTheme.A(SpaceTheme.TEXT, 0.92f),
             FontStyles.Bold, TextAlignmentOptions.Left);
         SpaceTheme.Stretch(t.rectTransform);
-        t.characterSpacing = 32f;
+        SpaceTheme.Tracking(t, 32f);
         t.enableAutoSizing = true;
         t.fontSizeMin = 28f;
         t.fontSizeMax = 40f;
@@ -320,7 +351,7 @@ public class NewHomeController : MonoBehaviour
         _captionText = SpaceTheme.Text(_cardRt, "Caption", T_WELCOME, 24, SpaceTheme.A(SpaceTheme.CYAN, 0.85f),
             FontStyles.Bold, TextAlignmentOptions.Left);
         SpaceTheme.TopBand(_captionText.rectTransform, 52f, 36f, 200f, 240f);
-        _captionText.characterSpacing = 18f;
+        SpaceTheme.Tracking(_captionText, 18f);
         _nameText = SpaceTheme.Text(_cardRt, "Name", "", 60, SpaceTheme.TEXT, FontStyles.Bold, TextAlignmentOptions.Left);
         SpaceTheme.TopBand(_nameText.rectTransform, 86f, 80f, 200f, 230f);
         _nameText.enableAutoSizing = true;
@@ -347,27 +378,40 @@ public class NewHomeController : MonoBehaviour
         var div = SpaceTheme.Rect("Divider", _cardRt);
         SpaceTheme.TopBand(div, 199f, 2f, 44f, 44f);
         SpaceTheme.Img(div, SpaceSprites.FadeLine, SpaceTheme.A(SpaceTheme.LINE, 0.32f));
-        var vdiv = SpaceTheme.Rect("DividerV", _cardRt, new Vector2(0.5f, 0f), new Vector2(0f, 66f), new Vector2(80f, 2f));
-        vdiv.localEulerAngles = new Vector3(0f, 0f, 90f);
-        SpaceTheme.Img(vdiv, SpaceSprites.FadeLine, SpaceTheme.A(SpaceTheme.LINE, 0.28f));
+        for (int i = 1; i <= 2; i++)
+        {
+            var vdiv = SpaceTheme.Rect("DividerV" + i, _cardRt, new Vector2(i / 3f, 0f), new Vector2(0f, 66f),
+                new Vector2(80f, 2f));
+            vdiv.localEulerAngles = new Vector3(0f, 0f, 90f);
+            SpaceTheme.Img(vdiv, SpaceSprites.FadeLine, SpaceTheme.A(SpaceTheme.LINE, 0.28f));
+        }
 
-        // 統計（左: 来店回数 / 右: 滞在時間 or 前回の来店）
-        _visitValue = StatCell("Visits", 0f, T_VISITS, out _);
-        _statusValue = StatCell("Status", 0.5f, T_LAST_VISIT, out _statusLabel);
+        // 統計（左: 公転 / 中: 来店回数 / 右: 滞在時間 or 前回の来店）。押すと公転の画面
+        _orbitValue = StatCell("Orbit", 0f, T_ORBIT, out _);
+        _visitValue = StatCell("Visits", 1f / 3f, T_VISITS, out _);
+        _statusValue = StatCell("Status", 2f / 3f, T_LAST_VISIT, out _statusLabel);
+        var statsHit = SpaceTheme.Rect("StatsHit", _cardRt);
+        statsHit.anchorMin = new Vector2(0f, 0f);
+        statsHit.anchorMax = new Vector2(1f, 0f);
+        statsHit.pivot = new Vector2(0.5f, 0f);
+        statsHit.sizeDelta = new Vector2(0f, 132f);
+        statsHit.anchoredPosition = Vector2.zero;
+        SpaceTheme.Clickable(statsHit.gameObject, SpaceTheme.HitArea(statsHit), OpenOrbit);
     }
 
     private TextMeshProUGUI StatCell(string name, float x0, string label, out TextMeshProUGUI labelText)
     {
+        const float W = 1f / 3f;
         var cell = SpaceTheme.Rect(name, _cardRt);
         cell.anchorMin = new Vector2(x0, 0f);
-        cell.anchorMax = new Vector2(x0 + 0.5f, 0f);
+        cell.anchorMax = new Vector2(x0 + W, 0f);
         cell.pivot = new Vector2(0.5f, 0f);
         cell.sizeDelta = new Vector2(0f, 120f);
         cell.anchoredPosition = new Vector2(0f, 8f);
         labelText = SpaceTheme.Text(cell, "Label", label, 24, SpaceTheme.TEXT_MUTED, new Vector2(0.5f, 1f),
-            new Vector2(0f, -26f), new Vector2(420f, 36f), FontStyles.Bold);
+            new Vector2(0f, -26f), new Vector2(290f, 36f), FontStyles.Bold);
         var value = SpaceTheme.Text(cell, "Value", "", 50, SpaceTheme.TEXT, new Vector2(0.5f, 0f),
-            new Vector2(0f, 40f), new Vector2(420f, 70f), FontStyles.Bold);
+            new Vector2(0f, 40f), new Vector2(290f, 70f), FontStyles.Bold);
         value.enableAutoSizing = true;
         value.fontSizeMin = 32f;
         value.fontSizeMax = 50f;
@@ -492,6 +536,7 @@ public class NewHomeController : MonoBehaviour
         var body = SpaceTheme.Rect("Body", _historyMoon);
         SpaceTheme.Stretch(body);
         SpaceTheme.Img(body, SpaceSprites.GoldMoon, Color.white);
+        MoonLabel(btn, T_MOON_HISTORY, HISTORY_SIZE);
         SpaceTheme.Clickable(btn.gameObject, hit, OpenHistory);
     }
 
@@ -512,6 +557,7 @@ public class NewHomeController : MonoBehaviour
         var body = SpaceTheme.Rect("Body", _zukanMoon);
         SpaceTheme.Stretch(body);
         SpaceTheme.Img(body, SpaceSprites.GreenMoon, Color.white);
+        MoonLabel(_zukanBtn, T_MOON_ZUKAN, HISTORY_SIZE);
         SpaceTheme.Clickable(_zukanBtn.gameObject, hit, OpenZukan);
         _zukanBtn.gameObject.SetActive(SpaceZukan.Installed);
     }
@@ -533,7 +579,22 @@ public class NewHomeController : MonoBehaviour
         var body = SpaceTheme.Rect("Body", _priceMoon);
         SpaceTheme.Stretch(body);
         SpaceTheme.Img(body, SpaceSprites.CyanMoon, Color.white);
+        MoonLabel(btn, T_MOON_PRICE, PRICE_SIZE);
         SpaceTheme.Clickable(btn.gameObject, hit, OpenPrices);
+    }
+
+    /// <summary>
+    /// 小さな惑星の名前を惑星のすぐ下に出す（中央の惑星の「カメラを起動」と同じ白い太字で、ひと回り小さく）。
+    /// ボタンの子に置くので一緒に出し入れされるが、惑星の漂いには付いていかない（文字が揺れないように）
+    /// </summary>
+    internal static TextMeshProUGUI MoonLabel(RectTransform parent, string text, float moonSize)
+    {
+        var t = SpaceTheme.Text(parent, "Label", text, 26, SpaceTheme.A(SpaceTheme.TEXT, 0.92f), SpaceTheme.CENTER,
+            new Vector2(0f, -(moonSize * 0.5f + 26f)), new Vector2(280f, 38f), FontStyles.Bold);
+        t.enableAutoSizing = true;
+        t.fontSizeMin = 20f;
+        t.fontSizeMax = 26f;
+        return t;
     }
 
     /// <summary>図鑑をダウンロード・削除した: 惑星をふくらませて出す／しぼませて消す</summary>
@@ -596,6 +657,19 @@ public class NewHomeController : MonoBehaviour
         _cameraBadge.gameObject.SetActive(!def.IsOrb);
         SetTiltOrbit(!def.Ring);
         _glowColor = def.Accent;
+        if (_planetAway) ShowAwayCenter();
+    }
+
+    /// <summary>
+    /// 入店中の中央: 惑星を消して、カメラのアイコンだけを置く（ここを押すとカメラが開くのは同じ）
+    /// </summary>
+    private void ShowAwayCenter()
+    {
+        _planetHolderGroup.alpha = 0f;
+        _cameraIcon.gameObject.SetActive(true);
+        _cameraIconGroup.alpha = 1f;
+        _cameraBadge.gameObject.SetActive(false);
+        SetTiltOrbit(false);
     }
 
     /// <summary>傾いた楕円軌道と紫の衛星の表示（環のある惑星では環と重なるので消す）</summary>
@@ -812,8 +886,15 @@ public class NewHomeController : MonoBehaviour
     {
         var log = LocalVisitLog.Load();
         int count = log.visits != null ? log.visits.Count : 0;
-        _visitValue.text = $"{count}<size=55%><color={SpaceTheme.SUB_HEX}> 回</color></size>";
-        _captionText.text = count > 0 ? T_WELCOME_BACK : T_WELCOME;
+        // 来店回数・公転はサーバーの来店の記録（JourneyService）から。記録がまだなければ端末の来店記録の日数
+        int visits = JourneyService.DisplayVisits;
+        _visitValue.text = $"{visits}<size=55%><color={SpaceTheme.SUB_HEX}> 回</color></size>";
+        _orbitValue.text = JourneyService.Journey != null
+            ? $"{JourneyService.DisplayStreak}<size=55%><color={SpaceTheme.SUB_HEX}>{T_STREAK_UNIT}</color></size>"
+            : "ー";
+        _orbitValue.color = JourneyService.Journey == null || JourneyService.VisitedThisOrbit
+            ? SpaceTheme.TEXT : SpaceTheme.GOLD; // この公転にまだ来ていなければ金色
+        _captionText.text = visits > 0 || count > 0 ? T_WELCOME_BACK : T_WELCOME;
 
         _checkInTime = null;
         for (int i = count - 1; i >= 0; i--)
@@ -872,6 +953,86 @@ public class NewHomeController : MonoBehaviour
         }
         _couponSnapshot = now;
         RefreshBagSub();
+        if (announce) CheckLegacyGift();
+        if (announce && !_giftBusy) UpdateGifts();
+    }
+
+    // ---- 贈りもの（誕生月・友だち紹介。2026-11-07）----
+    private bool _giftBusy;
+    private float _nextReferrerCheck = 5f; // 紹介した人の特典の確認（起動して少したってから。以後5分ごと）
+    private const float REFERRER_CHECK_INTERVAL = 300f;
+
+    private void UpdateGifts()
+    {
+        if (SpaceNoticeQueue.Running || SpaceNotice.AnyOpen || PanelOpen || _arrivalFlying || _returning) return;
+        if (GameObject.FindWithTag("QR") != null) return;
+        bool referrer = Time.unscaledTime >= _nextReferrerCheck;
+        if (!BirthdayGift.Due && !Referral.CanTakeNewcomerGift && !referrer) return;
+        GiftsAsync(referrer).Forget();
+    }
+
+    private async UniTaskVoid GiftsAsync(bool referrer)
+    {
+        _giftBusy = true;
+        try
+        {
+            var drink = SpaceCoupons.ByField("drink_coupon");
+            if (BirthdayGift.Due && await BirthdayGift.TakeAsync())
+            {
+                SyncCouponSnapshot();
+                await ShowAndWait(SpaceNotice.Gift(SpaceNotice.T_BIRTHDAY_TITLE, SpaceNotice.T_BIRTHDAY_BODY, drink,
+                    SpaceTheme.PINK));
+            }
+            if (Referral.CanTakeNewcomerGift && await Referral.TakeNewcomerGiftAsync())
+            {
+                SyncCouponSnapshot();
+                await ShowAndWait(SpaceNotice.Gift(SpaceNotice.T_REFERRAL_TITLE_NEW, SpaceNotice.T_REFERRAL_BODY_NEW, drink,
+                    SpaceTheme.CYAN));
+            }
+            if (referrer)
+            {
+                _nextReferrerCheck = Time.unscaledTime + REFERRER_CHECK_INTERVAL;
+                var names = await Referral.ClaimReferrerGiftsAsync();
+                foreach (var n in names)
+                {
+                    SyncCouponSnapshot();
+                    await ShowAndWait(SpaceNotice.Gift(SpaceNotice.T_REFERRAL_TITLE_FROM,
+                        SpaceTheme.NoParse(SpaceTheme.Safe(n)) + SpaceNotice.T_REFERRAL_BODY_FROM, drink, SpaceTheme.MINT));
+                }
+            }
+        }
+        finally
+        {
+            _giftBusy = false;
+        }
+    }
+
+    /// <summary>贈りもので増えたクーポンを「○○を入手しました」と二重に知らせないよう、いまの枚数を覚え直す</summary>
+    private void SyncCouponSnapshot()
+    {
+        _couponSnapshot = SpaceCoupons.Snapshot(Data);
+        RefreshBagSub();
+    }
+
+    private static async UniTask ShowAndWait(GameObject notice)
+    {
+        if (notice == null) return;
+        await UniTask.WaitUntil(() => notice == null);
+    }
+
+    /// <summary>
+    /// 古参の惑星（レガシア）を持っていて、贈りもののお知らせをまだ見ていなければ1回だけ出す。
+    /// ふだんは店頭のQRで配る（そのときは QR の処理がお知らせを出す）。ここはスクリプト
+    /// tools/firestore/grant-legacy-planet.js で配ったときや、QRを読んだのが別の端末だったとき用
+    /// </summary>
+    private void CheckLegacyGift()
+    {
+        var def = SpacePlanets.Find(SpacePlanets.LEGACY_ID);
+        if (def == null || !SpacePlanets.IsOwned(def)) return;
+        if (SpaceNoticeQueue.Running || SpaceNotice.AnyOpen) return;
+        if (!SpacePlanets.TakeLegacyGift()) return;
+        SpacePlanets.MarkNews();
+        SpaceNotice.PlanetUnlocked(def, SpacePlanets.T_LEGACY_TITLE, SpacePlanets.T_LEGACY_NOTE);
     }
 
     /// <summary>所持品ボタンの小さな文字: 「クーポン 5枚」。使える1か月パスがあれば「パス 1枚・クーポン 5枚」</summary>
@@ -888,6 +1049,9 @@ public class NewHomeController : MonoBehaviour
         if (gains.Count == 0) return;
         // 引き継ぎ・イベントガチャなどは結果モーダルで告知済みなので重ねない
         if (GameObject.Find("__InfoModal") != null) return;
+        // 流れ星（入店・R キー）の当たりは、ガチャの演出と当たりのカードで知らせるので重ねない
+        // （演出の途中に「○○を1枚入手しました」が出ると、結果が先にわかってしまう）
+        if (SpaceNoticeQueue.Running || SpaceNotice.AnyOpen) return;
 
         string msg = gains.Count == 1 ? $"{gains[0].def.Name}を{gains[0].n}枚入手しました" : T_GAINED_MANY;
         SpaceTheme.Toast(msg, _canvas);
@@ -915,7 +1079,21 @@ public class NewHomeController : MonoBehaviour
     /// <summary>ホームの上に何か開いているか（重ねて開かない・カメラも起動しない）</summary>
     private bool PanelOpen => _inventory != null || _history != null || _news != null || _friends != null
                               || _picker != null || _qrList != null || _passList != null || _zukan != null
-                              || _prices != null || _accountMenu.IsOpen;
+                              || _prices != null || _orbitPanel != null || _accountMenu.IsOpen
+                              || SpaceConstellationPage.Instance != null;
+
+    /// <summary>公転の画面（ユーザーカードの公転・来店回数・入店状況を押す）</summary>
+    private void OpenOrbit()
+    {
+        if (PanelOpen || _landing) return;
+        _orbitPanel = SpaceOrbitPanel.Open(_canvas, () => _orbitPanel = null);
+    }
+
+    private void OnJourneyChanged()
+    {
+        if (this == null || !_built) return;
+        RefreshVisit();
+    }
 
     /// <summary>フレンド（右上の人のアイコン）</summary>
     private void OpenFriends()
@@ -1019,6 +1197,13 @@ public class NewHomeController : MonoBehaviour
 
     private IEnumerator LandPlanet(SpacePlanetDef def, SpacePlanetView flying)
     {
+        if (_planetAway)
+        {
+            // 入店中は惑星が円の上にいるので中央には降ろさない（円の上の自分の球の色は StoreVisitors が変える）
+            ApplyPlanet(def);
+            if (flying != null) Destroy(flying.gameObject);
+            yield break;
+        }
         _landing = true;
         ApplyPlanet(def);
         _planetHolderGroup.alpha = 0f;
@@ -1123,7 +1308,30 @@ public class NewHomeController : MonoBehaviour
                 var def = SpacePlanets.Find(v.Planet) ?? SpacePlanets.All[0]; // 知らない惑星（新しい版で増えた惑星など）はルミナの色
                 o.Glow.color = SpaceTheme.A(def.Accent, 0.85f);
                 o.Core.color = Color.Lerp(def.Accent, Color.white, 0.5f);
+                // ノワールの能力: 店内の円で光の円盤をまとって回る（ほかの人にも見える）
+                // レガシアの能力: 白銀の光の輪をまとう（円盤と同じ部品を、つぶさない丸い輪にして使う）
+                bool legacy = def.Id == SpacePlanets.LEGACY_ID;
+                o.Disk.gameObject.SetActive(def.Id == "noir" || legacy);
+                o.Disk.color = SpaceTheme.A(Color.Lerp(def.Accent, Color.white, 0.25f), 0.9f);
+                o.Disk.rectTransform.sizeDelta = legacy
+                    ? new Vector2(VISITOR_GLOW * 0.95f, VISITOR_GLOW * 0.95f)
+                    : new Vector2(VISITOR_GLOW * 1.5f, VISITOR_GLOW * 0.5f);
             }
+        }
+
+        // グラシアの能力: 冬のあいだ、グラシアの人が入店中なら店内の円に雪が舞う
+        bool snow = StoreCalendar.CurrentSeason == StoreCalendar.Season.Winter && now.Exists(v => v.Planet == "glacia");
+        if (snow && _snow == null)
+        {
+            var layer = SpaceTheme.Rect("Snow", _orbRt, SpaceTheme.CENTER, Vector2.zero,
+                new Vector2(VISITOR_RADIUS * 2.3f, VISITOR_RADIUS * 2.3f));
+            layer.SetAsFirstSibling();
+            _snow = layer.gameObject.AddComponent<SpaceSnow>();
+        }
+        else if (!snow && _snow != null)
+        {
+            _snow.FadeOut();
+            _snow = null;
         }
     }
 
@@ -1132,12 +1340,17 @@ public class NewHomeController : MonoBehaviour
         var rt = SpaceTheme.Rect("Visitor", _visitorRing, SpaceTheme.CENTER, Vector2.zero,
             new Vector2(VISITOR_GLOW, VISITOR_GLOW));
         var core = SpaceTheme.Rect("Core", rt, SpaceTheme.CENTER, Vector2.zero, new Vector2(VISITOR_CORE, VISITOR_CORE));
+        var disk = SpaceTheme.Rect("Disk", rt, SpaceTheme.CENTER, Vector2.zero,
+            new Vector2(VISITOR_GLOW * 1.5f, VISITOR_GLOW * 0.5f));
+        disk.localEulerAngles = new Vector3(0f, 0f, -18f);
         var o = new VisitorOrb
         {
             Id = id, Rt = rt, Angle = angle, Target = angle,
             Glow = SpaceTheme.Img(rt, SpaceSprites.Glow, Color.clear),
             Core = SpaceTheme.Img(core, SpaceSprites.Circle, Color.clear),
+            Disk = SpaceTheme.Img(disk, SpaceSprites.RingSmall, Color.clear),
         };
+        disk.gameObject.SetActive(false);
         PlaceVisitorOrb(o);
         return o;
     }
@@ -1205,6 +1418,8 @@ public class NewHomeController : MonoBehaviour
         _arrivalFlying = true;
         _arrivalId = id;
         var def = SpacePlanets.Current;
+        bool wasAway = _planetAway;
+        _planetAway = true; // 中央の惑星が円へ出ていく
         var trailColor = Color.Lerp(def.Accent, Color.white, 0.35f);
 
         // 尾 → 惑星のまわりの光 → 惑星の順に重ねる（いちばん手前の層）
@@ -1225,6 +1440,7 @@ public class NewHomeController : MonoBehaviour
         for (float t = 0f; ; t += Time.unscaledDeltaTime)
         {
             float p = Mathf.Clamp01(t / ARRIVAL_DURATION);
+            if (!wasAway && !_landing) HideCenterStep(p);
             if (p < 1f)
             {
                 // 行き先は毎フレーム取り直す（円は回っていて、自分の場所もほかの人の出入りで少し動く）
@@ -1291,6 +1507,206 @@ public class NewHomeController : MonoBehaviour
         }
         Destroy(holder.gameObject);
         _arrivalFlying = false;
+    }
+
+    /// <summary>
+    /// 入店で飛び出すときの中央: 惑星がしぼんで消え（飛んでいく惑星と入れ替わる）、そのあとカメラのアイコンが出る
+    /// </summary>
+    private void HideCenterStep(float p)
+    {
+        float k = Mathf.Clamp01(p / AWAY_HIDE);
+        float s = Mathf.Lerp(1f, 0.55f, EaseOutCubic(k));
+        _planetHolder.localScale = new Vector3(s, s, 1f);
+        _planetHolderGroup.alpha = 1f - k;
+        _badgeGroup.alpha = 1f - k;
+        if (k >= 1f)
+        {
+            _planetHolder.localScale = Vector3.one;
+            ShowAwayCenter();
+            _cameraIconGroup.alpha = Mathf.Clamp01((p - AWAY_HIDE) / 0.25f);
+            if (p >= 1f) _cameraIconGroup.alpha = 1f;
+        }
+        else if (!_planet.IsOrb)
+        {
+            _cameraIconGroup.alpha = 0f;
+        }
+    }
+
+    /// <summary>
+    /// 入店中は中央の惑星を消しておき、退店したら（入店中でなくなったら）円から中央へ戻す。
+    /// 入店のQRを読んだ直後は FlyArrival が飛び出しと一緒に消すので待つ。起動したときにもう入店中なら、演出なしで消す
+    /// </summary>
+    private void UpdatePlanetAway(bool qrOpen)
+    {
+        if (_arrivalFlying || _returning) return;
+        bool inStore = _checkInTime.HasValue;
+
+        // 円の上の自分の球の場所を覚えておく（退店すると球はすぐ消えるので、戻るときの出発点にする）
+        string self = StoreVisitors.SelfDocId;
+        if (!string.IsNullOrEmpty(self))
+        {
+            var orb = _visitorOrbs.Find(o => o.Id == self && !o.Leaving);
+            if (orb != null) _selfAngle = orb.Angle;
+        }
+
+        if (inStore && !_planetAway)
+        {
+            if (StoreVisitors.ArrivalId != null) return; // もうすぐ飛び出す
+            _planetAway = true;
+            if (!_landing) ShowAwayCenter();
+            return;
+        }
+        if (!inStore && _planetAway)
+        {
+            bool covered = qrOpen || _landing || PanelOpen || SpaceNotice.AnyOpen || SpaceNoticeQueue.Running;
+            if (covered)
+            {
+                _returnReadyAt = -1f;
+                return;
+            }
+            if (_returnReadyAt < 0f) _returnReadyAt = Time.unscaledTime + ARRIVAL_DELAY;
+            if (Time.unscaledTime < _returnReadyAt) return;
+            _returnReadyAt = -1f;
+            StartCoroutine(FlyReturn());
+        }
+    }
+
+    /// <summary>
+    /// 退店したとき: 自分の惑星が、いちばん外の円の自分がいた場所から、来たときと逆向きに回り込みながら
+    /// 大きくなって中央へ戻り、中央にぽんと収まる（光の尾を引き、着いたら光の輪が広がる）
+    /// </summary>
+    private IEnumerator FlyReturn()
+    {
+        _returning = true;
+        var def = SpacePlanets.Current;
+        var trailColor = Color.Lerp(def.Accent, Color.white, 0.35f);
+        float startAngle = _visitorRing.localEulerAngles.z + _selfAngle;
+
+        var holder = SpaceTheme.Rect("Return", _orbRt, SpaceTheme.CENTER, Vector2.zero, Vector2.zero);
+        var trailLayer = SpaceTheme.Rect("Trail", holder, SpaceTheme.CENTER, Vector2.zero, Vector2.zero);
+        var glowRt = SpaceTheme.Rect("Glow", holder, SpaceTheme.CENTER, Vector2.zero, Vector2.one);
+        var glowImg = SpaceTheme.Img(glowRt, SpaceSprites.Glow, Color.clear);
+        float frame0 = ARRIVAL_SPHERE0 / SpacePlanetView.SPHERE_RATIO;
+        var view = SpacePlanetView.Create(holder, def, frame0, SpacePlanetView.Quality.Thumb, false);
+        var viewRt = (RectTransform)view.transform;
+        var viewGroup = view.GetComponent<CanvasGroup>();
+        viewRt.localScale = Vector3.zero;
+
+        // 円の上の場所に光の輪（ここから出発する）
+        StartCoroutine(FlashAt(new Vector2(Mathf.Cos(startAngle * Mathf.Deg2Rad), Mathf.Sin(startAngle * Mathf.Deg2Rad))
+                               * VISITOR_RADIUS, def.Accent));
+
+        var trail = new List<TrailDot>();
+        float nextTrail = 0f;
+        int trailCount = 0;
+        bool landed = false;
+        for (float t = 0f; ; t += Time.unscaledDeltaTime)
+        {
+            float p = Mathf.Clamp01(t / RETURN_DURATION);
+            if (p < 1f)
+            {
+                float e = EaseInOutSine(p);
+                float r = Mathf.Lerp(VISITOR_RADIUS, ARRIVAL_R0 * 0.3f, EaseInOutSine(p));
+                float ang = (startAngle - ARRIVAL_SWEEP * e) * Mathf.Deg2Rad; // 来たときと逆向きに回り込む
+                var pos = new Vector2(Mathf.Cos(ang), Mathf.Sin(ang)) * r;
+                float sphere = Mathf.Lerp(ARRIVAL_SPHERE1, ARRIVAL_SPHERE0, p * p)
+                               * EaseOutBack(Mathf.Clamp01(p / 0.12f)); // 円の上でぽんと膨らんで出発
+                float alpha = p < 0.88f ? 1f : 1f - (p - 0.88f) / 0.12f;
+                viewRt.anchoredPosition = pos;
+                float s = sphere / ARRIVAL_SPHERE0;
+                viewRt.localScale = new Vector3(s, s, 1f);
+                if (viewGroup != null) viewGroup.alpha = alpha;
+                glowRt.anchoredPosition = pos;
+                glowRt.sizeDelta = Vector2.one * Mathf.Max(1f, sphere * 1.6f);
+                glowImg.color = SpaceTheme.A(def.Accent, 0.45f * alpha);
+                _cameraIconGroup.alpha = def.IsOrb ? 1f : 1f - Mathf.Clamp01((p - 0.6f) / 0.25f);
+
+                if (t >= nextTrail)
+                {
+                    nextTrail = t + TRAIL_STEP;
+                    trailCount++;
+                    trail.Add(NewTrailDot(trailLayer, pos, Mathf.Max(8f, sphere * 0.75f), t, alpha, false));
+                    if (trailCount % 3 == 0)
+                    {
+                        var jitter = new Vector2(Mathf.Sin(trailCount * 2.1f), Mathf.Cos(trailCount * 1.7f)) * 9f;
+                        trail.Add(NewTrailDot(trailLayer, pos + jitter, 40f, t, 1f, true));
+                    }
+                }
+            }
+            else
+            {
+                viewRt.gameObject.SetActive(false);
+                glowRt.gameObject.SetActive(false);
+            }
+
+            // 着く少し前に、中央の惑星をぽんと膨らませて戻す
+            if (!landed && p >= 0.85f)
+            {
+                landed = true;
+                StartCoroutine(LandCenter(def));
+            }
+
+            for (int i = trail.Count - 1; i >= 0; i--)
+            {
+                var d = trail[i];
+                float age = (t - d.Born) / TRAIL_LIFE;
+                if (age >= 1f)
+                {
+                    Destroy(d.Rt.gameObject);
+                    trail.RemoveAt(i);
+                    continue;
+                }
+                float size = d.Spark ? d.Size * (1f - age) : d.Size * (1f - 0.6f * age);
+                d.Rt.sizeDelta = Vector2.one * Mathf.Max(1f, size);
+                d.Img.color = d.Spark
+                    ? new Color(1f, 1f, 1f, 0.9f * (1f - age))
+                    : SpaceTheme.A(trailColor, d.Alpha * (1f - age));
+            }
+            if (p >= 1f && trail.Count == 0) break;
+            yield return null;
+        }
+        Destroy(holder.gameObject);
+        _returning = false;
+    }
+
+    /// <summary>戻ってきた惑星が中央に収まる（ふくらんで出て、光の輪が広がる）</summary>
+    private IEnumerator LandCenter(SpacePlanetDef def)
+    {
+        _planetAway = false;
+        if (def != _planet) ApplyPlanet(def);
+        _cameraIcon.gameObject.SetActive(def.IsOrb);
+        _cameraBadge.gameObject.SetActive(!def.IsOrb);
+        SetTiltOrbit(!def.Ring);
+        _badgeGroup.alpha = 0f;
+        StartCoroutine(FlashRing(def.Accent));
+        yield return SpaceTheme.Tween(0.45f, 0f, k =>
+        {
+            _planetHolderGroup.alpha = Mathf.Clamp01(k * 2f);
+            float s = Mathf.LerpUnclamped(0.5f, 1f, EaseOutBack(k));
+            _planetHolder.localScale = new Vector3(s, s, 1f);
+        });
+        _planetHolder.localScale = Vector3.one;
+        _planetHolderGroup.alpha = 1f;
+        _cameraIconGroup.alpha = 1f;
+        yield return SpaceTheme.Tween(0.35f, 0f, k =>
+        {
+            _badgeGroup.alpha = k;
+            float s = Mathf.LerpUnclamped(0.5f, 1f, EaseOutBack(k));
+            _cameraBadge.localScale = new Vector3(s, s, 1f);
+        });
+    }
+
+    /// <summary>いちばん外の円の上の1点に光の輪（円の回転とは関係なく、その場に出す）</summary>
+    private IEnumerator FlashAt(Vector2 pos, Color color)
+    {
+        var rt = SpaceTheme.Rect("ReturnFlash", _orbRt, SpaceTheme.CENTER, pos, new Vector2(40f, 40f));
+        var img = SpaceTheme.Img(rt, SpaceSprites.RingSmall, Color.clear);
+        yield return SpaceTheme.Tween(0.5f, 0f, k =>
+        {
+            rt.sizeDelta = Vector2.one * Mathf.Lerp(40f, 150f, EaseOutCubic(k));
+            img.color = SpaceTheme.A(color, 0.9f * (1f - k));
+        });
+        Destroy(rt.gameObject);
     }
 
     /// <summary>光の尾の1粒（Spark＝ところどころの白い小さな光）</summary>
@@ -1378,10 +1794,13 @@ public class NewHomeController : MonoBehaviour
 
         // 入店のQRを読んだら、ホームが見えてから自分の惑星をいちばん外の円へ飛ばす
         UpdateArrival(qrOpen);
+        // 入店中は中央の惑星を消し、退店したら円から中央へ戻す
+        UpdatePlanetAway(qrOpen);
 
         // QR画面・惑星を選ぶ画面・お知らせで隠れている間は中央の惑星の自転を止める（毎フレームの再描画を省く）
         if (_planetView != null)
             _planetView.Animate = !qrOpen && _news == null && _zukan == null && _prices == null
+                                  && SpaceConstellationPage.Instance == null
                                   && (_picker == null || _landing);
 
         // 惑星を解放したお知らせで「この惑星にする」が押されたら、中央の惑星を入れ替える
@@ -1407,11 +1826,13 @@ public class NewHomeController : MonoBehaviour
             // 手前から閉じる: QR読み取り後のお知らせ → QRコード一覧（管理者）→ 惑星を選ぶ画面 → 所持品 → 履歴
             // → お知らせページ → 設定メニュー
             if (SpaceNotice.CloseTop()) { }
+            else if (SpaceConstellationPage.Instance != null) SpaceConstellationPage.Instance.HandleBack();
             else if (_zukan != null) _zukan.HandleBack();
             else if (_prices != null) _prices.HandleBack();
             else if (_qrList != null) _qrList.HandleBack();
             else if (_passList != null) _passList.HandleBack();
             else if (_picker != null) _picker.HandleBack();
+            else if (_orbitPanel != null) _orbitPanel.HandleBack();
             else if (_inventory != null) _inventory.HandleBack();
             else if (_history != null) _history.HandleBack();
             else if (_news != null) _news.HandleBack();
@@ -1422,12 +1843,14 @@ public class NewHomeController : MonoBehaviour
 #if UNITY_EDITOR
         if (DebugTogglePressed())
         {
-            // エディタ専用: N キーで入退店（QRの "checkin" と同じ処理）
+            // エディタ専用: N キーで入退店（お店の画面の入店QRを読んだときと同じ処理）
             var caller = GetComponent<CallMethodFromQR>();
             if (caller == null) caller = gameObject.AddComponent<CallMethodFromQR>();
-            caller.ToggleVisit();
+            caller.ToggleVisitSigned(StoreCheckinQr.Payload(StoreCheckinQr.Today));
             RefreshVisit();
         }
+        // エディタ専用: R キーで流れ星を1回引く（当たりはログイン中のアカウントに本当に足す）
+        if (DebugStarPressed() && !SpaceNoticeQueue.Running && !_debugDrawing) DebugDrawAsync().Forget();
 #endif
     }
 
@@ -1511,5 +1934,122 @@ public class NewHomeController : MonoBehaviour
 #endif
         return pressed;
     }
+
+    private bool _debugDrawing;
+
+    /// <summary>
+    /// エディタ専用: R キーで流れ星を1回引く。当たりをアカウントに書き込んでから（JourneyService.DebugDrawAsync）
+    /// ガチャの演出 → 当たりのカード（ノワールなら新しい惑星も）を出す
+    /// </summary>
+    private async UniTaskVoid DebugDrawAsync()
+    {
+        _debugDrawing = true;
+        try
+        {
+            var r = await JourneyService.DebugDrawAsync();
+            if (this == null) return;
+            if (r == null)
+            {
+                SpaceTheme.Toast("ログインしていません", _canvas);
+                return;
+            }
+            Debug.Log($"[Debug] 流れ星: {string.Join(",", r.Prizes)}（アカウントに追加）");
+            SpaceNotice.ShowJourney(r, false, null);
+        }
+        catch (Exception ex)
+        {
+            Debug.LogError($"[Debug] 流れ星の書き込みに失敗: {ex.Message}");
+            if (this != null) SpaceTheme.Toast("流れ星の書き込みに失敗しました", _canvas);
+        }
+        finally
+        {
+            _debugDrawing = false;
+        }
+    }
+
+    /// <summary>エディタ専用: R キー（流れ星を引く）</summary>
+    private static bool DebugStarPressed()
+    {
+        bool pressed = false;
+#if ENABLE_INPUT_SYSTEM
+        var kb = UnityEngine.InputSystem.Keyboard.current;
+        if (kb != null && kb.rKey.wasPressedThisFrame) pressed = true;
 #endif
+#if ENABLE_LEGACY_INPUT_MANAGER
+        if (Input.GetKeyDown(KeyCode.R)) pressed = true;
+#endif
+        return pressed;
+    }
+#endif
+}
+
+/// <summary>
+/// 店内の円に舞う雪（冬にグラシアを中央に置いた人が入店中のとき）。円の中だけに、小さな光の粒がゆっくり降る
+/// </summary>
+public class SpaceSnow : MonoBehaviour
+{
+    private const int COUNT = 26;
+
+    private struct Flake
+    {
+        public RectTransform Rt;
+        public UnityEngine.UI.Image Img;
+        public float X, Y, Speed, Sway, Phase, Alpha;
+    }
+
+    private readonly Flake[] _flakes = new Flake[COUNT];
+    private float _radius, _show, _target = 1f;
+
+    private void Start()
+    {
+        var rt = (RectTransform)transform;
+        _radius = rt.sizeDelta.x * 0.5f;
+        for (int i = 0; i < COUNT; i++)
+        {
+            float size = UnityEngine.Random.Range(8f, 18f);
+            var f = SpaceTheme.Rect("Flake", rt, SpaceTheme.CENTER, Vector2.zero, new Vector2(size, size));
+            _flakes[i] = new Flake
+            {
+                Rt = f,
+                Img = SpaceTheme.Img(f, SpaceSprites.Glow, Color.clear),
+                X = UnityEngine.Random.Range(-_radius, _radius),
+                Y = UnityEngine.Random.Range(-_radius, _radius),
+                Speed = UnityEngine.Random.Range(22f, 48f),
+                Sway = UnityEngine.Random.Range(8f, 22f),
+                Phase = UnityEngine.Random.Range(0f, 6.28f),
+                Alpha = UnityEngine.Random.Range(0.45f, 0.9f),
+            };
+        }
+    }
+
+    /// <summary>ゆっくり消えてから片づける</summary>
+    public void FadeOut() => _target = 0f;
+
+    private void Update()
+    {
+        float dt = Time.unscaledDeltaTime;
+        _show = Mathf.MoveTowards(_show, _target, dt * 0.8f);
+        if (_target <= 0f && _show <= 0f)
+        {
+            Destroy(gameObject);
+            return;
+        }
+        float t = Time.unscaledTime;
+        for (int i = 0; i < COUNT; i++)
+        {
+            var f = _flakes[i];
+            if (f.Rt == null) continue;
+            f.Y -= f.Speed * dt;
+            if (f.Y < -_radius)
+            {
+                f.Y = _radius;
+                f.X = UnityEngine.Random.Range(-_radius, _radius);
+            }
+            float x = f.X + Mathf.Sin(t * 0.8f + f.Phase) * f.Sway;
+            f.Rt.anchoredPosition = new Vector2(x, f.Y);
+            float d = Mathf.Clamp01(new Vector2(x, f.Y).magnitude / _radius);
+            f.Img.color = new Color(0.92f, 0.97f, 1f, f.Alpha * (1f - d * d) * _show);
+            _flakes[i] = f;
+        }
+    }
 }

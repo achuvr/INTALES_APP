@@ -54,9 +54,16 @@ public class SpaceBoardGameZukan : MonoBehaviour
     private const string T_OLDEST = "古い順";
     private const string T_SHOOT = "撮影";
     private const string T_CLOSE = "とじる";
+    private const string T_PLAY_RECORDS = "戦績メモ";
     private const string T_DASH = "—";
     private const string T_NEW = "NEW";
     private const string T_ADDED = "登録日";
+    private const string T_CONSTELLATION = "星座";
+    private const string T_GENRE_BTN = "ジャンル";
+    private const string T_GENRE_TITLE = "ジャンル（星座）で絞り込む";
+    private const string T_GENRE_ANY = "指定なし";
+    private const string T_GENRE_OTHER = "その他";
+    private const string T_GENRE_OTHER_SUB = "どの星座のジャンルにも入らないゲーム";
     private static readonly string[] PLAYER_LABELS = { "指定なし", "1人", "2人", "3人", "4人", "5人", "6人", "7人", "8人以上" };
     private static readonly int[] PLAYER_VALUES = { 0, 1, 2, 3, 4, 5, 6, 7, 8 };
     private static readonly string[] TIME_LABELS =
@@ -77,7 +84,8 @@ public class SpaceBoardGameZukan : MonoBehaviour
               .Append(T_PLAYED_ONLY).Append(T_FAV_ONLY).Append(T_NO_NAME).Append(T_GENRE).Append(T_PLAYERS).Append(T_TIME)
               .Append(T_YEAR).Append(T_DESIGNER).Append(T_POPULAR).Append(T_POPULAR_B).Append(T_PLAYED_ON)
               .Append(T_PLAYED_OFF).Append(T_FAV_ON).Append(T_FAV_OFF).Append(T_RECORD).Append(T_NEWEST)
-              .Append(T_OLDEST).Append(T_SHOOT).Append(T_CLOSE).Append(T_DASH).Append(T_NEW).Append(T_ADDED).Append("時間並び順▼✕：: 0123456789月日以上超内分人")
+              .Append(T_OLDEST).Append(T_SHOOT).Append(T_CLOSE).Append(T_DASH).Append(T_NEW).Append(T_ADDED).Append(T_CONSTELLATION).Append(BoardGameCertify.T_MARK).Append(T_GENRE_BTN).Append(T_GENRE_TITLE)
+              .Append(T_GENRE_ANY).Append(T_GENRE_OTHER).Append(T_GENRE_OTHER_SUB).Append(Constellations.GlyphText).Append("時間並び順▼✕：: 0123456789月日以上超内分人")
               .Append("撮影日時年保存中端末の写真にしました失敗権限を確認してください本当に削除？もう一度タップすると削除します読み込めませんでした");
             foreach (var s in PLAYER_LABELS) sb.Append(s);
             foreach (var s in TIME_LABELS) sb.Append(s);
@@ -100,6 +108,7 @@ public class SpaceBoardGameZukan : MonoBehaviour
     private const int BUFFER = 2;                     // 画面外に余分に出しておく行数
     private const float MARK_SIZE = 72f, THUMB = 128f;
     private const float NEW_W = 84f, NEW_H = 38f;     // 「NEW」の札
+    private const float CERT_W = 30f;                 // アチーブメントの金色の丸（文字なし。2026-11-06 ユーザー指定）
     private const int NEW_DAYS = 30;                  // 登録から何日「NEW」を出すか
     private const int THUMB_CACHE_MAX = 64;           // 256pxのサムネイル≒0.2MB/枚 → 上限でも十数MB
 
@@ -131,11 +140,13 @@ public class SpaceBoardGameZukan : MonoBehaviour
     private string _query = "";
     // 人数（0=指定なし、1〜7=その人数、8=8人以上）・時間（15〜90=〜分以内、999=60分超、-90=90分以上）・並び順
     private int _playersFilter, _timeFilter, _sortMode = DEFAULT_SORT;
+    private ConstellationDef _genreFilter; // 星座のジャンルでの絞り込み（null=指定なし。2026-11-06 ユーザー指定）
+    private bool _genreOther;              // 「その他」＝どの星座のジャンルにも入らないゲームだけ
     private bool _playedOnly, _favOnly;
     private string _tagFilter;   // デザイナー/ジャンルでの絞り込み（null=なし）
     private bool _tagIsDesigner;
 
-    private Pill _playersBtn, _timeBtn, _sortBtn, _playedBtn, _favBtn;
+    private Pill _playersBtn, _timeBtn, _sortBtn, _genreBtn, _playedBtn, _favBtn;
 
     private struct ParsedRange { public int PMin, PMax, TMax; }
     private readonly Dictionary<BoardGameEntry, ParsedRange> _parsed = new Dictionary<BoardGameEntry, ParsedRange>();
@@ -151,6 +162,7 @@ public class SpaceBoardGameZukan : MonoBehaviour
         public RectTransform Rt;
         public TextMeshProUGUI Title, Meta, Genre;
         public GameObject NewBadge;
+        public RectTransform CertBadge;
         public Mark Played, Fav;
         public GameObject ThumbGo;
         public RawImage ThumbRaw;
@@ -203,6 +215,7 @@ public class SpaceBoardGameZukan : MonoBehaviour
     {
         var viewer = transform.Find("__PhotoViewer");
         if (viewer != null) Destroy(viewer.gameObject);
+        else if (_playRecords != null) _playRecords.HandleBack();
         else if (_detail != null) CloseDetail();
         else if (_popup != null) ClosePopup();
         else Close();
@@ -254,10 +267,11 @@ public class SpaceBoardGameZukan : MonoBehaviour
         var caption = SpaceTheme.Text(_safe, "Caption", T_CAPTION, 24, SpaceTheme.A(ACCENT, 0.9f), new Vector2(0f, 1f),
             new Vector2(SIDE + 16f, -70f), new Vector2(500f, 36f), FontStyles.Bold, TextAlignmentOptions.Left,
             new Vector2(0f, 0.5f));
-        caption.characterSpacing = 18f;
+        SpaceTheme.Tracking(caption, 18f);
         SpaceTheme.Text(_safe, "Title", T_TITLE, 52, SpaceTheme.TEXT, new Vector2(0f, 1f), new Vector2(SIDE + 16f, -126f),
             new Vector2(700f, 66f), FontStyles.Bold, TextAlignmentOptions.Left, new Vector2(0f, 0.5f));
         CloseButton(_safe, -84f, Close);
+        ConstellationButton();
 
         var data = BoardGameCatalog.Load();
         _all.AddRange(data.games ?? Array.Empty<BoardGameEntry>());
@@ -347,9 +361,11 @@ public class SpaceBoardGameZukan : MonoBehaviour
         _playersBtn = MakePill(bar, "Players", 44f, 30f, () => ShowPopup(0));
         _timeBtn = MakePill(bar, "Time", 44f, 30f, () => ShowPopup(1));
         _sortBtn = MakePill(bar, "Sort", 44f, 30f, () => ShowPopup(2));
-        Split(_playersBtn.Rt, 0f, 1f / 3f);
-        Split(_timeBtn.Rt, 1f / 3f, 2f / 3f);
-        Split(_sortBtn.Rt, 2f / 3f, 1f);
+        _genreBtn = MakePill(bar, "Genre", 44f, 30f, ShowGenrePopup);
+        Split(_playersBtn.Rt, 0f, 0.25f);
+        Split(_timeBtn.Rt, 0.25f, 0.5f);
+        Split(_genreBtn.Rt, 0.5f, 0.75f);
+        Split(_sortBtn.Rt, 0.75f, 1f);
 
         var checks = TopBar("Checks", CHECK_TOP, CHECK_H);
         _playedBtn = MakePill(checks, "PlayedOnly", 40f, 30f, () =>
@@ -382,6 +398,8 @@ public class SpaceBoardGameZukan : MonoBehaviour
         // いまの並び順を出す。開いたときの並び順（新着順）以外を選んでいるときだけ光らせる
         _sortBtn.Label.text = SORT_SHORT[Mathf.Clamp(_sortMode, 0, SORT_SHORT.Length - 1)] + " ▼";
         SetPill(_sortBtn, _sortMode != DEFAULT_SORT, ACCENT);
+        _genreBtn.Label.text = (_genreOther ? T_GENRE_OTHER : _genreFilter == null ? T_GENRE_BTN : _genreFilter.GenreLabel) + " ▼";
+        SetPill(_genreBtn, _genreFilter != null || _genreOther, ACCENT);
         _playedBtn.Label.text = T_PLAYED_ONLY;
         SetPill(_playedBtn, _playedOnly, SpaceTheme.MINT);
         _favBtn.Label.text = T_FAV_ONLY;
@@ -503,6 +521,8 @@ public class SpaceBoardGameZukan : MonoBehaviour
             var tags = _tagIsDesigner ? g.designer : g.genre;
             if (tags == null || Array.IndexOf(tags, _tagFilter) < 0) return false;
         }
+        if (_genreFilter != null && !Constellations.Matches(_genreFilter, g)) return false;
+        if (_genreOther && Constellations.Of(g).Count > 0) return false;
         if (_playedOnly && !BoardGameMarks.IsPlayed(g)) return false;
         if (_favOnly && !BoardGameMarks.IsFavorite(g)) return false;
         return true;
@@ -586,6 +606,64 @@ public class SpaceBoardGameZukan : MonoBehaviour
             opt.Label.text = labels[i];
             SetPill(opt, value == current, ACCENT);
         }
+        root.gameObject.AddComponent<SpacePopIn>().Target = card;
+    }
+
+    /// <summary>
+    /// ジャンル（星座）の選択肢: 「指定なし」＋16の星座を2列で＋「その他」。ジャンル名を大きく、下に小さく星座の名前
+    /// （2026-11-06 ユーザー指定）。選ぶと、その星座のジャンルのゲームだけ（その他＝どの星座にも入らないゲームだけ）を出す
+    /// </summary>
+    private void ShowGenrePopup()
+    {
+        ClosePopup();
+        var all = Constellations.All;
+        var root = SpaceTheme.Rect("Popup", transform);
+        SpaceTheme.Stretch(root);
+        _popup = root.gameObject;
+        var dim = SpaceTheme.Rect("Dim", root);
+        SpaceTheme.Stretch(dim);
+        var dimImg = SpaceTheme.Img(dim, null, SpaceTheme.DIM, true);
+        SpaceTheme.Clickable(dim.gameObject, dimImg, ClosePopup, false);
+
+        const float W = 920f, OPT_W = 410f, OPT_H = 100f, STEP = 112f, TOP = 130f;
+        int rows = Mathf.CeilToInt(all.Length / 2f) + 2; // 1行目は「指定なし」、最後の行は「その他」
+        float h = TOP + rows * STEP + 30f;
+        var card = SpaceTheme.Rect("Card", root, SpaceTheme.CENTER, Vector2.zero, new Vector2(W, h));
+        SpaceTheme.Glass(card, 48f, SpaceTheme.GLASS_DEEP, SpaceTheme.A(ACCENT, 0.4f), true);
+        SpaceTheme.Text(card, "Title", T_GENRE_TITLE, 38, SpaceTheme.TEXT, new Vector2(0.5f, 1f), new Vector2(0f, -70f),
+            new Vector2(W - 60f, 56f), FontStyles.Bold);
+
+        void Option(string name, string label, ConstellationDef def, bool other, Vector2 pos, float w, Color color)
+        {
+            var opt = MakePill(card, name, 40f, 32f, () =>
+            {
+                _genreFilter = def;
+                _genreOther = other;
+                UpdateFilterButtons();
+                RebuildList();
+                ClosePopup();
+            });
+            opt.Rt.anchorMin = opt.Rt.anchorMax = new Vector2(0.5f, 1f);
+            opt.Rt.pivot = new Vector2(0.5f, 1f);
+            opt.Rt.sizeDelta = new Vector2(w, OPT_H);
+            opt.Rt.anchoredPosition = pos;
+            opt.Label.richText = true;
+            opt.Label.lineSpacing = -10f;
+            opt.Label.text = label;
+            SetPill(opt, _genreFilter == def && _genreOther == other, color);
+        }
+
+        string Sub(string s) => $"<size=20><color={LABEL_HEX}>{s}</color></size>";
+        Option("Any", T_GENRE_ANY, null, false, new Vector2(0f, -TOP), W - 80f, ACCENT);
+        for (int i = 0; i < all.Length; i++)
+        {
+            var def = all[i];
+            float x = (i % 2 == 0 ? -1f : 1f) * (OPT_W * 0.5f + 10f);
+            float y = -(TOP + (1 + i / 2) * STEP);
+            Option("Genre_" + def.Id, def.GenreLabel + "\n" + Sub(def.Name), def, false, new Vector2(x, y), OPT_W, def.Color);
+        }
+        Option("Other", T_GENRE_OTHER + "\n" + Sub(T_GENRE_OTHER_SUB), null, true,
+            new Vector2(0f, -(TOP + (rows - 1) * STEP)), W - 80f, ACCENT);
         root.gameObject.AddComponent<SpacePopIn>().Target = card;
     }
 
@@ -678,10 +756,19 @@ public class SpaceBoardGameZukan : MonoBehaviour
         row.Rt.anchoredPosition = new Vector2(0f, -(PAD_T + index * ROW_STEP));
         row.Title.text = Plain(string.IsNullOrEmpty(g.title) ? T_NO_NAME : g.title);
         // 登録から30日は、タイトルの左に「NEW」（タイトルはその右から）
+        // お店に公認されたゲームは、その右（NEW が無ければ左端）に金色の「公認」
         bool isNew = IsNew(g);
         row.NewBadge.SetActive(isNew);
+        float left = isNew ? 40f + NEW_W + 14f : 40f;
+        bool cert = BoardGameCertify.IsCertified(g);
+        row.CertBadge.gameObject.SetActive(cert);
+        if (cert)
+        {
+            row.CertBadge.anchoredPosition = new Vector2(left, -50f);
+            left += CERT_W + 14f;
+        }
         var titleRt = row.Title.rectTransform;
-        titleRt.offsetMin = new Vector2(isNew ? 40f + NEW_W + 14f : 40f, titleRt.offsetMin.y);
+        titleRt.offsetMin = new Vector2(left, titleRt.offsetMin.y);
         row.Meta.text = Plain(Meta(g));
         row.Genre.text = Plain(g.genre != null && g.genre.Length > 0
             ? T_GENRE + ": " + string.Join("・", g.genre)
@@ -742,9 +829,21 @@ public class SpaceBoardGameZukan : MonoBehaviour
         SpaceTheme.Gradient(badgeFace, SpaceTheme.PINK, SpaceTheme.VIOLET);
         var badgeLabel = SpaceTheme.Text(badge, "Label", T_NEW, 22, SpaceTheme.TEXT_DARK, FontStyles.Bold);
         SpaceTheme.Stretch(badgeLabel.rectTransform);
-        badgeLabel.characterSpacing = 6f;
+        SpaceTheme.Tracking(badgeLabel, 6f);
         row.NewBadge = badge.gameObject;
         badge.gameObject.SetActive(false);
+
+        // アチーブメントの金色の丸（お店のQRで達成したゲームだけ。後ろにほのかな光）
+        var cert = SpaceTheme.Rect("Cert", rt, new Vector2(0f, 1f), new Vector2(40f, -50f), new Vector2(CERT_W, CERT_W),
+            new Vector2(0f, 0.5f));
+        var certGlow = SpaceTheme.Rect("Glow", cert, SpaceTheme.CENTER, Vector2.zero, new Vector2(CERT_W * 2.4f, CERT_W * 2.4f));
+        SpaceTheme.Img(certGlow, SpaceSprites.Glow, SpaceTheme.A(SpaceTheme.GOLD, 0.45f));
+        var certDot = SpaceTheme.Rect("Dot", cert);
+        SpaceTheme.Stretch(certDot);
+        var certFace = SpaceTheme.Img(certDot, SpaceSprites.Circle, Color.white);
+        SpaceTheme.Gradient(certFace, SpaceTheme.Hex(0xFFF0C2), SpaceTheme.GOLD);
+        row.CertBadge = cert;
+        cert.gameObject.SetActive(false);
 
         // ✓（遊んだ）と ★（お気に入り）。子のボタンが先に受けるので、ここを押しても詳細は開かない
         row.Played = MakeMark(rt, "✓", 40f, () => { if (row.Entry != null) TogglePlayed(row.Entry); });
@@ -893,6 +992,9 @@ public class SpaceBoardGameZukan : MonoBehaviour
         vlg.childControlHeight = true;
         vlg.childAlignment = TextAnchor.UpperLeft;
 
+        if (BoardGameCertify.TryCertifiedOn(g, out var certOn))
+            InfoRow(stack, BoardGameCertify.T_MARK,
+                $"<color=#{ColorUtility.ToHtmlStringRGB(SpaceTheme.GOLD)}>{certOn.Year}年{certOn.Month}月{certOn.Day}日</color>");
         InfoRow(stack, T_PLAYERS, Plain(string.IsNullOrEmpty(g.players) ? T_DASH : g.players));
         InfoRow(stack, T_TIME, Plain(string.IsNullOrEmpty(g.time) ? T_DASH : g.time));
         if (!string.IsNullOrEmpty(g.year)) InfoRow(stack, T_YEAR, Plain(g.year));
@@ -928,7 +1030,16 @@ public class SpaceBoardGameZukan : MonoBehaviour
 
         BuildPhotoRow(panel);
 
-        var close = BottomPill(panel, "Close", 0f, 24f, 360f, CloseDetail);
+        // 戦績メモ（2026-11-07）と、とじる
+        var records = BottomPill(panel, "PlayRecords", -206f, 24f, 396f, () =>
+        {
+            if (_playRecords == null) _playRecords = SpacePlayRecords.Open(transform, g);
+        });
+        int n = SpacePlayRecords.CountOf(BoardGameMarks.KeyOf(g));
+        records.Label.text = n > 0 ? $"{T_PLAY_RECORDS}（{n}）" : T_PLAY_RECORDS;
+        records.Label.color = SpaceTheme.GOLD;
+        records.Label.fontSizeMax = 36f;
+        var close = BottomPill(panel, "Close", 206f, 24f, 396f, CloseDetail);
         close.Label.text = T_CLOSE;
         close.Label.color = SpaceTheme.TEXT;
         close.Label.fontSizeMax = 36f;
@@ -1019,8 +1130,12 @@ public class SpaceBoardGameZukan : MonoBehaviour
         }
     }
 
+    private SpacePlayRecords _playRecords;
+
     private void CloseDetail()
     {
+        if (_playRecords != null) _playRecords.Close();
+        _playRecords = null;
         if (_detail != null) Destroy(_detail);
         _detail = null;
         _detailEntry = null;
@@ -1315,6 +1430,19 @@ public class SpaceBoardGameZukan : MonoBehaviour
         p.Face.color = on ? SpaceTheme.A(accent, 0.16f) : PILL_FILL;
         p.Edge.color = on ? SpaceTheme.A(accent, 0.75f) : SpaceTheme.STROKE;
         p.Label.color = on ? accent : SpaceTheme.TEXT_SUB;
+    }
+
+    /// <summary>見出しの右（閉じるの左）の「星座」ボタン。公認されたゲームで灯る星座の画面を開く</summary>
+    private void ConstellationButton()
+    {
+        var rt = SpaceTheme.Rect("Constellations", _safe, new Vector2(1f, 1f), new Vector2(-(SIDE + 56f + 52f + 24f), -84f),
+            new Vector2(196f, 88f), new Vector2(1f, 0.5f));
+        var face = SpaceTheme.Glass(rt, 44f, PILL_FILL, SpaceTheme.A(SpaceTheme.GOLD, 0.55f), true);
+        var icon = SpaceTheme.Rect("Icon", rt, new Vector2(0f, 0.5f), new Vector2(52f, 0f), new Vector2(46f, 46f));
+        SpaceTheme.Img(icon, SpaceSprites.Sparkle, SpaceTheme.GOLD);
+        SpaceTheme.Text(rt, "Label", T_CONSTELLATION, 32, SpaceTheme.TEXT, new Vector2(0f, 0.5f), new Vector2(124f, 0f),
+            new Vector2(110f, 50f), FontStyles.Bold);
+        SpaceTheme.Clickable(rt.gameObject, face, () => SpaceConstellationPage.Open(_canvas));
     }
 
     private static void CloseButton(RectTransform safe, float y, UnityEngine.Events.UnityAction onClick)

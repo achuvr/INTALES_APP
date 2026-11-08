@@ -13,10 +13,20 @@ public class CallMethodFromQR : MonoBehaviour
             .Document(UserDataManager.instance.UID);
 
     /// <summary>
-    /// レベルアップ。characters マップの該当キャラの lv だけを1回の書き込みで更新する。
-    /// 読み取りは発生しない（ローカルの UserData を直接更新する）。
+    /// 以前のレベルアップQR（"Lv+1"〜"Lv+6"）。プレイヤー（キャラクター）の概念はアプリから外したので、
+    /// レベルは上げない（2026-11-06 ユーザー指定）。読んでも「使えなくなりました」と出すだけ
     /// </summary>
-    public async UniTask LevelUp(int upLevel)
+    public UniTask LevelUp(int upLevel)
+    {
+        FriendMenuController.ShowToast(T_LEVEL_QR_RETIRED);
+        EndFromButton();
+        return UniTask.CompletedTask;
+    }
+
+    private const string T_LEVEL_QR_RETIRED = "このQRコードは使えなくなりました";
+
+    /// <summary>（使っていない）以前のレベルアップの書き込み。キャラクターの lv を上げる</summary>
+    private async UniTask LegacyLevelUpAsync(int upLevel)
     {
         var charIdx = UserDataManager.instance.CurrentSelectCharacterNumber;
         var chars = UserDataManager.instance.UserData.Characters;
@@ -57,6 +67,8 @@ public class CallMethodFromQR : MonoBehaviour
     public const string QR_SEVEN_COUPON  = "7";
     public const string QR_DRINK_COUPON  = "drink";
     public const string QR_COFFEE_COUPON = "coffee";
+    public const string QR_FREETIME_COUPON = "freetime";
+    public const string QR_FIVEHOUR_COUPON = "fivehour";
     public const string QR_ATK_COUPON    = "atk";
 
     // 最後の引数はクーポンの表示名（旧バッグ・新ホームの所持品と同じ名前。履歴に残す）
@@ -65,6 +77,8 @@ public class CallMethodFromQR : MonoBehaviour
     public UniTask Coffee() => AddCouponAsync("coffee_coupon", d => d.CoffeeCoupon++, "コーヒーチケット");
     public UniTask Five()   => AddCouponAsync("five_coupon",   d => d.FiveCoupon++,   "5%OFFチケット");
     public UniTask Seven()  => AddCouponAsync("seven_coupon",  d => d.SevenCoupon++,  "7%OFFチケット");
+    public UniTask FreeTime() => AddCouponAsync("freetime_coupon", d => d.FreeTimeCoupon++, "フリータイムチケット");
+    public UniTask FiveHour() => AddCouponAsync("fivehour_coupon", d => d.FiveHourCoupon++, "5時間無料チケット");
 
     /// <summary>
     /// クーポン入手の共通処理。
@@ -137,7 +151,10 @@ public class CallMethodFromQR : MonoBehaviour
             AssetsDatabase.instance?.PlayLevelUpSE();
             End();
             // 新ホームでは惑星が回るお祝いのお知らせ（その場で「この惑星にする」も選べる）
-            if (SpaceTheme.InUse) SpaceNotice.PlanetUnlocked(def);
+            // 古参の惑星（レガシア）は贈りものの言葉で（ホームでもう一度出ないよう、出したことを覚える）
+            if (SpaceTheme.InUse && def.Legacy && SpacePlanets.TakeLegacyGift())
+                SpaceNotice.PlanetUnlocked(def, SpacePlanets.T_LEGACY_TITLE, SpacePlanets.T_LEGACY_NOTE);
+            else if (SpaceTheme.InUse) SpaceNotice.PlanetUnlocked(def);
             else InfoModal.Show(SpacePlanets.T_UNLOCKED_TITLE, def.Name, SpacePlanets.T_HOW_TO_CHOOSE);
         }
         catch (System.Exception ex)
@@ -184,6 +201,132 @@ public class CallMethodFromQR : MonoBehaviour
         }
         InfoModal.Show(already ? "このパスは受け取り済みです" : "パスを受け取りました！",
             $"{StorePasses.T_SHORT}（{pass.Type.Label}）", $"{StorePasses.DateText(pass.Expiry)}まで遊び放題です");
+    }
+
+    /// <summary>
+    /// ボードゲームの公認QR（"play:{ゲームキー}:{営業日}:{署名}"。管理者の「お客様に見せるQRコード」の「ゲーム」で出す）。
+    /// その営業日のうちだけ使える。公認すると ✓ も付き、そのゲームのジャンルの星座に星が1つ灯る
+    /// </summary>
+    public async UniTask CertifyGame(string qrText)
+    {
+        var result = BoardGameCertify.Parse(qrText, System.DateTime.UtcNow, out var key);
+        if (result != BoardGameCertify.Result.Ok)
+        {
+            FriendMenuController.ShowToast(result == BoardGameCertify.Result.Expired
+                ? BoardGameCertify.T_EXPIRED : BoardGameCertify.T_INVALID);
+            EndFromButton();
+            return;
+        }
+
+        var game = BoardGameCertify.Find(key);
+        string title = game != null && !string.IsNullOrEmpty(game.title) ? game.title : key;
+        var candidates = Constellations.Of(game);
+        bool relight = false;
+        if (BoardGameCertify.IsCertified(key))
+        {
+            // 達成済みのゲーム: 灯した星座がすべて完成していれば、まだ灯していない別の星座にもう一度灯せる
+            // （2026-11-06 ユーザー指定）。灯した星座がまだ完成していなければ、その星座の名前を出して案内する
+            var progress = Constellations.Progress();
+            var lit = Constellations.LitBy(key, game, "");
+            var litIds = new HashSet<string>();
+            foreach (var (def, _) in lit) litIds.Add(def.Id);
+            var remaining = candidates.FindAll(d => !litIds.Contains(d.Id));
+            ConstellationProgress unfinished = null;
+            foreach (var p in progress)
+                if (litIds.Contains(p.Def.Id) && !p.Complete) unfinished = p;
+            if (remaining.Count == 0 || unfinished != null || game == null)
+            {
+                EndFromButton();
+                InfoModal.Show(BoardGameCertify.T_ALREADY, title,
+                    remaining.Count > 0 && unfinished != null
+                        ? $"{unfinished.Def.Name}{BoardGameCertify.T_RELIGHT_HINT}"
+                        : null);
+                return;
+            }
+            candidates = remaining;
+            relight = true;
+        }
+
+        // 星を灯す星座。ジャンルが2つ以上の星座に当てはまるゲームは、お客様に1つ選んでもらう
+        // （2026-11-06 ユーザー指定: 全部には灯らない）。旧ホームでは選ぶ画面がないので最初の1つ
+        if (candidates.Count >= 2 && SpaceTheme.InUse)
+        {
+            End();
+            var progress = Constellations.Progress();
+            var choices = new List<ConstellationProgress>();
+            foreach (var p in progress)
+                if (candidates.Contains(p.Def)) choices.Add(p);
+            bool again = relight;
+            SpaceNotice.ChooseConstellation(title, choices, id => FinishCertifyAsync(key, title, id, again).Forget(),
+                again);
+            return;
+        }
+        await FinishCertifyAsync(key, title, candidates.Count > 0 ? candidates[0].Id : null, relight);
+    }
+
+    /// <summary>
+    /// 公認の書き込みとお知らせ（星座 starId に星を1つ灯す。null ならどの星座にも入らない）。
+    /// 星座を選ぶお知らせの後から呼ばれることがあるので、QR画面（この部品）が消えていても動くよう static
+    /// </summary>
+    private static async UniTask FinishCertifyAsync(string key, string title, string starId, bool relight = false)
+    {
+        // この公認でちょうど完成・レベルアップする（あと1つだった）なら、その星座のチケットを1枚
+        // （2026-11-06 ユーザー指定: 完成でも、そのあとのレベルアップでも。ふつうはドリンク、職人座は7%OFF）
+        var rewards = new Dictionary<string, int>();
+        foreach (var p in Constellations.Progress())
+            if (p.Def.Id == starId && p.Partial == p.Def.Size - 1) rewards[p.Def.Reward] = 1;
+
+        try
+        {
+            await BoardGameCertify.CertifyAsync(key, starId, rewards, relight);
+        }
+        catch (System.Exception ex)
+        {
+            Debug.LogError($"[QR] 公認エラー ({key}): {ex.Message}");
+            FriendMenuController.ShowToast(BoardGameCertify.T_FAILED);
+            var qr = GameObject.FindWithTag("QR");
+            if (qr != null) Destroy(qr.gameObject);
+            return;
+        }
+
+        var starDef = System.Array.Find(Constellations.All, d => d.Id == starId);
+        LocalHistoryLog.Add("certify", relight && starDef != null
+            ? $"「{title}」で{starDef.Name}にも星を灯した"
+            : $"「{title}」のアチーブメントを達成");
+        AssetsDatabase.instance?.PlayLevelUpSE();
+        var qrRoot = GameObject.FindWithTag("QR");
+        if (qrRoot != null) Destroy(qrRoot.gameObject);
+        var cpm = GameObject.FindObjectOfType<CharacterPageManager>();
+        if (cpm != null) cpm.ChangePage();
+
+        // 星を灯した星座の進み具合（公認した後）
+        var mine = new List<ConstellationProgress>();
+        foreach (var p in Constellations.Progress())
+            if (p.Def.Id == starId) mine.Add(p);
+        foreach (var p in mine)
+        {
+            if (!p.JustLeveled) continue;
+            string ticket = SpaceCoupons.NameOf(p.Def.Reward);
+            LocalHistoryLog.Add("certify", p.Level == 1
+                ? $"{p.Def.Name}が完成（{ticket}を1枚 入手）"
+                : $"{p.Def.Name}が Lv.{p.Level} に上がった（{ticket}を1枚 入手）");
+        }
+
+        if (SpaceTheme.InUse)
+        {
+            // 星座が完成・レベルアップしたら、先に全画面の演出（閉じるとアチーブメントのお知らせ）
+            var leveled = mine.Find(p => p.JustLeveled);
+            if (leveled != null)
+                SpaceNotice.ConstellationReveal(leveled, () => SpaceNotice.GameCertified(title, mine, rewards, relight));
+            else SpaceNotice.GameCertified(title, mine, rewards, relight);
+        }
+        else
+        {
+            var parts = new List<string>();
+            foreach (var kv in rewards) parts.Add($"{SpaceCoupons.NameOf(kv.Key)}を{kv.Value}枚");
+            InfoModal.Show("アチーブメント達成！", title,
+                parts.Count > 0 ? $"星座のボーナス！ {string.Join("・", parts)} 入手しました" : null);
+        }
     }
 
     /// <summary>QRコードのフレンド登録プレフィックス。形式: "friend:{uid}:{name}"</summary>
@@ -426,6 +569,9 @@ public class CallMethodFromQR : MonoBehaviour
     /// <summary>紙の会員証引き継ぎQRのプレフィックス。形式: "transfer:{引き継ぎコード}"</summary>
     public const string TRANSFER_QR_PREFIX = "transfer:";
 
+    /// <summary>紙の会員証の引き継ぎを受け付けるか（2026-11-06 ユーザー指定で停止）</summary>
+    public static readonly bool TRANSFER_ENABLED = false;
+
     /// <summary>
     /// 紙の会員証の引き継ぎQRを読み取ったときの処理。
     /// 店側が CardTransfer シーンで発行した transfers/{code} を読み（1read）、
@@ -434,6 +580,14 @@ public class CallMethodFromQR : MonoBehaviour
     /// </summary>
     public async UniTask ClaimTransfer(string qrText)
     {
+        // プレイヤー（キャラクター）の概念をアプリから外したので、紙の会員証の引き継ぎもやめた（2026-11-06 ユーザー指定）。
+        // 読んでも何も書き込まない（transfers のコードも使用済みにしない）
+        if (!TRANSFER_ENABLED)
+        {
+            FriendMenuController.ShowToast(T_LEVEL_QR_RETIRED);
+            EndFromButton();
+            return;
+        }
         string code = qrText.Substring(TRANSFER_QR_PREFIX.Length).Trim();
         if (string.IsNullOrEmpty(code))
         {
@@ -570,8 +724,15 @@ public class CallMethodFromQR : MonoBehaviour
             EndFromButton();
             return;
         }
+        // 入店中にフレンドのQRを読んだ＝フレンドと一緒に来店（惑星オパーリアの条件。JourneyService）
+        bool together = JourneyService.InStoreToday;
         if (me.Friends.ContainsKey(friendUid))
         {
+            if (together)
+            {
+                await MarkTogetherAsync(friendUid, friendName);
+                return;
+            }
             FriendMenuController.ShowToast($"{friendName}さんとは既にフレンドです");
             EndFromButton();
             return;
@@ -582,27 +743,29 @@ public class CallMethodFromQR : MonoBehaviour
             var db = FirebaseFirestore.DefaultInstance;
             var now = Timestamp.GetCurrentTimestamp();
             var batch = db.StartBatch();
+            string today = StoreCalendar.TodayKey;
 
-            // 相手のdocに自分を追加
+            // 相手のdocに自分を追加（一緒に来店なら、その日も。自分が初めての来店ならそれも）
+            var theirs = new Dictionary<string, object> { { "name", me.Username ?? "" }, { "since", now } };
+            if (together)
+            {
+                theirs["met"] = today;
+                if (JourneyService.IsFirstTimerToday) theirs["first"] = today;
+            }
             batch.Update(
                 db.Collection("users").Document(friendUid),
-                new Dictionary<FieldPath, object>
-                {
-                    { new FieldPath("friends", manager.UID), new Dictionary<string, object>
-                        { { "name", me.Username ?? "" }, { "since", now } } },
-                });
+                new Dictionary<FieldPath, object> { { new FieldPath("friends", manager.UID), theirs } });
             // 自分のdocに相手を追加
+            var mine = new Dictionary<string, object> { { "name", friendName }, { "since", now } };
+            if (together) mine["met"] = today;
             batch.Update(
                 db.Collection("users").Document(manager.UID),
-                new Dictionary<FieldPath, object>
-                {
-                    { new FieldPath("friends", friendUid), new Dictionary<string, object>
-                        { { "name", friendName }, { "since", now } } },
-                });
+                new Dictionary<FieldPath, object> { { new FieldPath("friends", friendUid), mine } });
             await batch.CommitAsync().AsUniTask();
 
             // ローカルにも反映（再取得しない）
-            me.Friends[friendUid] = new FriendEntry { Name = friendName, Since = now };
+            me.Friends[friendUid] = new FriendEntry { Name = friendName, Since = now, Met = together ? today : null };
+            if (together) AfterTogether();
 
             // 履歴に記録（端末ローカル・最大50件）
             LocalHistoryLog.Add("friend", $"{friendName}さんとフレンドになった");
@@ -617,6 +780,40 @@ public class CallMethodFromQR : MonoBehaviour
             FriendMenuController.ShowToast("フレンド登録に失敗しました");
         }
         EndFromButton();
+    }
+
+    /// <summary>
+    /// すでにフレンドの人のQRを入店中に読んだ: 2人分の friends に「一緒に来店した日」を書き、
+    /// オパーリアの解放・流れ星のもう1回などを処理する
+    /// </summary>
+    private async UniTask MarkTogetherAsync(string friendUid, string friendName)
+    {
+        try
+        {
+            var batch = FirebaseFirestore.DefaultInstance.StartBatch();
+            JourneyService.AddMetMarks(batch, friendUid);
+            await batch.CommitAsync().AsUniTask();
+            JourneyService.ApplyMetLocal(friendUid);
+            AssetsDatabase.instance?.PlayLevelUpSE();
+            FriendMenuController.ShowToast($"{friendName}さんと一緒に来店しました！");
+            AfterTogether();
+        }
+        catch (System.Exception ex)
+        {
+            Debug.LogError($"[QR] 一緒に来店の記録エラー: {ex.Message}");
+            FriendMenuController.ShowToast("通信に失敗しました\nもう一度お試しください");
+        }
+        EndFromButton();
+    }
+
+    /// <summary>
+    /// 一緒に来店を書いたあと: 自分の側を処理し、しばらく自分の users を見て、相手のアプリから届く
+    /// 「初来店」「もう1回」も受け取る
+    /// </summary>
+    private static void AfterTogether()
+    {
+        JourneyService.ProcessAndReport(r => SpaceNotice.ShowJourneyRewards(r, false)).Forget();
+        JourneyService.WatchFriendMarks(90f, r => SpaceNotice.ShowJourneyRewards(r, false));
     }
 
     /// <summary>
@@ -686,6 +883,13 @@ public class CallMethodFromQR : MonoBehaviour
     /// </summary>
     public static bool CheckInBonusPending { get; private set; }
 
+    /// <summary>
+    /// プレイヤー（キャラクター）のレベルを上げるか。2026-11-06 ユーザー指定で、プレイヤーの概念をアプリから外したので false。
+    /// 来店ボーナス・5時間以上の滞在ボーナス・ボス討伐（旧ホーム）・レベルアップQR のどれでもレベルは上がらない。
+    /// キャラクターのデータ（users.characters）は消さずに残している
+    /// </summary>
+    public static readonly bool PLAYER_LEVELS = false;
+
     private async UniTaskVoid GrantCheckInBonusesAsync(System.DateTime? lastVisit)
     {
         CheckInBonusPending = true;
@@ -708,6 +912,8 @@ public class CallMethodFromQR : MonoBehaviour
     /// </summary>
     private async UniTask GrantCheckInBonusesCoreAsync(System.DateTime? lastVisit)
     {
+        // プレイヤー（キャラクター）の概念はアプリから外したので、来店でレベルを上げない（2026-11-06 ユーザー指定）
+        if (!PLAYER_LEVELS) return;
         var manager = UserDataManager.instance;
         var chars = manager?.UserData?.Characters;
         int idx = manager != null ? manager.CurrentSelectCharacterNumber : 0;
@@ -763,9 +969,9 @@ public class CallMethodFromQR : MonoBehaviour
     }
 
     /// <summary>
-    /// 入退店兼用QR。1枚のQRでチェックイン／チェックアウトを切り替える。
-    /// チェックイン中（未チェックアウトの来店あり）ならチェックアウト、
-    /// そうでなければチェックインを記録する。
+    /// 以前の固定の入退店QR（"checkin" / "checkout" / "visit"）。チェックイン中ならチェックアウト。
+    /// 新ホームでは、このQRでは入店できない（写真や手作りのQRで入店できてしまうため。2026-11 惑星と来店のしくみ）。
+    /// 入店は、お店の端末に出す1日1回変わるQR（ToggleVisitSigned）で行う。旧ホームでは従来どおり入店もできる
     /// </summary>
     public void ToggleVisit()
     {
@@ -773,9 +979,103 @@ public class CallMethodFromQR : MonoBehaviour
         LocalVisitLog.AutoCloseStaleVisits();
 
         if (LocalVisitLog.HasOpenVisit())
+        {
             CheckOut();   // 既にチェックイン中 → 退店
+            return;
+        }
+        if (SpaceTheme.InUse)
+        {
+            EndFromButton();
+            InfoModal.Show(T_LEGACY_TITLE, T_LEGACY_STRONG, T_LEGACY_SUB);
+            return;
+        }
+        CheckIn();    // チェックインしていない → 入店（旧ホーム）
+    }
+
+    private const string T_LEGACY_TITLE = "入店のQRコードが新しくなりました";
+    private const string T_LEGACY_STRONG = "お店の画面のQRコードを\n読み取ってください";
+    private const string T_LEGACY_SUB = "毎日変わるQRコードです";
+    private const string T_CHECKIN_EXPIRED = "今日の入店QRコードではありません\nお店の画面のQRコードを読み取ってください";
+    private const string T_CHECKIN_INVALID = "入店のQRコードを読み取れませんでした";
+    private const string T_JOURNEY_FAILED = "公転の記録に失敗しました\n通信のよいところで、もう一度入店のQRコードを読み取ってください";
+
+    /// <summary>
+    /// 入店・退店のQR（お店の端末に出す、1日1回変わるQR。StoreCheckinQr）。
+    /// 入店中（今日の入店が公転に数えられている）なら退店。端末に入店の記録はあるのに公転に数えていない
+    /// （以前の固定QRで入店した・前回の書き込みに失敗した）なら、入店の記録はそのままで公転の記録だけやり直す。
+    /// どちらでもなければ入店
+    /// </summary>
+    public void ToggleVisitSigned(string qrText)
+    {
+        var res = StoreCheckinQr.Parse(qrText, System.DateTime.UtcNow, out var visitUtc);
+        if (res != StoreCheckinQr.Result.Ok)
+        {
+            FriendMenuController.ShowToast(res == StoreCheckinQr.Result.Expired ? T_CHECKIN_EXPIRED : T_CHECKIN_INVALID);
+            EndFromButton();
+            return;
+        }
+
+        LocalVisitLog.AutoCloseStaleVisits();
+        bool open = LocalVisitLog.HasOpenVisit();
+        if (open && JourneyService.InStoreToday)
+        {
+            CheckOut();
+            return;
+        }
+        if (open)
+        {
+            // 入店の記録はあるが公転に数えていない → 公転の記録だけ
+            if (!StoreVisitors.HasRecord) StoreVisitors.CheckInAsync(SpacePlanets.Current.Id, arrival: true).Forget();
+            EndFromButton();
+            RecordJourneyAsync(visitUtc).Forget();
+            return;
+        }
+
+        LocalVisitLog.Record();
+        VisitChime.PlayCheckIn();
+        PresenceService.SetCheckedInAsync(true).Forget();
+        StoreVisitors.CheckInAsync(SpacePlanets.Current.Id, arrival: true).Forget();
+        PresenceIndicator.Refresh();
+        GroupController.RefreshVisibility();
+        EndFromButton();
+        RecordJourneyAsync(visitUtc).Forget();
+    }
+
+    /// <summary>
+    /// 公転・流れ星・惑星の解放を記録して（JourneyService）、結果のお知らせを順に出す。
+    /// 新ホームは、お知らせが全部閉じてから自分の惑星をいちばん外の円へ飛ばす（CheckInBonusPending）
+    /// </summary>
+    private async UniTaskVoid RecordJourneyAsync(System.DateTime visitUtc)
+    {
+        CheckInBonusPending = true;
+        JourneyResult r = null;
+        try
+        {
+            r = await JourneyService.CheckInAsync(visitUtc);
+        }
+        catch (System.Exception ex)
+        {
+            Debug.LogError($"[CheckIn] 公転の記録に失敗: {ex.Message}");
+        }
+        if (r == null)
+        {
+            CheckInBonusPending = false;
+            FriendMenuController.ShowToast(T_JOURNEY_FAILED);
+            return;
+        }
+
+        AssetsDatabase.instance?.PlayLevelUpSE();
+        if (SpaceTheme.InUse)
+        {
+            SpaceNotice.ShowJourney(r, true, () => CheckInBonusPending = false);
+        }
         else
-            CheckIn();    // チェックインしていない → 入店
+        {
+            InfoModal.Show("ご来店ありがとうございます！", $"公転 {r.Streak} 連続", $"来店回数 {r.Visits}回");
+            CheckInBonusPending = false;
+        }
+        // 先に届いていた「一緒に来店」など（入店前にフレンドのQRを読んだ場合はない）も処理する
+        JourneyService.ProcessAndReport(x => SpaceNotice.ShowJourneyRewards(x, true)).Forget();
     }
 
     /// <summary>
@@ -812,13 +1112,35 @@ public class CallMethodFromQR : MonoBehaviour
         // 滞在時間を履歴に記録（端末ローカル・最大50件）
         LocalHistoryLog.Add("visit", $"滞在時間 {record.stayText}");
 
+        if (SpaceTheme.InUse)
+        {
+            // 新ホーム: キャラクターのレベルアップはしない（惑星と来店のしくみ）。
+            // 5時間以上の滞在でイグニスを解放、秋にルブラを中央に置いて4時間以上なら流れ星をもう1回（退店のお知らせのあと）
+            CheckOutModal.Show(record.stayText);
+            JourneyCheckOutAsync(record.stayMinutes).Forget();
+            return;
+        }
+
         // 5時間（300分）以上の滞在で選択中キャラを1レベルアップ。
         // 書き込み完了後にレベルアップ込みのモーダルを出すため、ボーナス時のみ非同期処理に回す。
         const long BONUS_STAY_MINUTES = 5 * 60;
-        if (record.stayMinutes >= BONUS_STAY_MINUTES)
+        if (PLAYER_LEVELS && record.stayMinutes >= BONUS_STAY_MINUTES)
             GrantStayBonusAndShowAsync(record.stayText).Forget();
         else
             CheckOutModal.Show(record.stayText);
+    }
+
+    private static async UniTaskVoid JourneyCheckOutAsync(long stayMinutes)
+    {
+        try
+        {
+            var r = await JourneyService.CheckOutAsync(stayMinutes);
+            if (r != null) SpaceNotice.ShowJourneyRewards(r, false);
+        }
+        catch (System.Exception ex)
+        {
+            Debug.LogWarning($"[CheckOut] 退店の記録に失敗: {ex.Message}");
+        }
     }
 
     /// <summary>
@@ -866,6 +1188,43 @@ public class CallMethodFromQR : MonoBehaviour
 
         var cpm = GameObject.FindObjectOfType<CharacterPageManager>();
         if (cpm != null) cpm.ChangePage();
+    }
+
+    /// <summary>
+    /// 会員証QR（お会計用）を読んだ。管理者なら、そのお客様のパス・クーポン・★特典の画面を出す（SpaceMemberView）。
+    /// お客様どうしで読んでも何も見えない
+    /// </summary>
+    public void ShowMember(string qrText)
+    {
+        var r = MemberCard.Parse(qrText, out var info);
+        EndFromButton();
+        if (!AdminClaim.IsAdmin)
+        {
+            FriendMenuController.ShowToast("お会計用の会員証QRです（スタッフが読み取ります）");
+            return;
+        }
+        if (r == MemberCard.Result.Expired)
+        {
+            FriendMenuController.ShowToast("前の日の会員証QRです\nお客様に会員証を開き直してもらってください");
+            return;
+        }
+        if (r != MemberCard.Result.Ok)
+        {
+            FriendMenuController.ShowToast("読み取れない会員証QRです");
+            return;
+        }
+        SpaceMemberView.Show(info);
+    }
+
+    /// <summary>
+    /// 友だち紹介QRを読んだ（Referral）。まだ一度も来店していない人だけ、紹介を受け付ける
+    /// </summary>
+    public async UniTask AcceptInvite(string qrText)
+    {
+        EndFromButton();
+        string msg = await Referral.AcceptAsync(qrText);
+        if (SpaceTheme.InUse) SpaceTheme.Toast(msg, SpaceTheme.MainCanvas());
+        else FriendMenuController.ShowToast(msg);
     }
 
     public void EndFromButton()

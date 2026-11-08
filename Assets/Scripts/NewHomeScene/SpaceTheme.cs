@@ -301,8 +301,39 @@ public static class SpaceTheme
         tmp.raycastTarget = false;
         tmp.textWrappingMode = TextWrappingModes.NoWrap;
         tmp.overflowMode = TextOverflowModes.Overflow;
+        rt.gameObject.AddComponent<SpaceTextScaler>(); // 文字の大きさの設定（TextScale）を反映する
         return tmp;
     }
+
+    // ---------------------------------------------------------------- 文字の大きさの設定
+    private const string PREF_TEXT_SCALE = "space_text_scale";
+    /// <summary>文字の大きさの段階（いまの大きさ＝標準）。2026-11-07 ユーザー依頼</summary>
+    public static readonly float[] TEXT_SCALES = { 1f, 1.15f, 1.3f };
+    public static readonly string[] TEXT_SCALE_NAMES = { "標準", "大きめ", "とても大きい" };
+    private static int _textScaleIndex = -1;
+
+    /// <summary>いまの文字の大きさの段階（TEXT_SCALES の番号。端末に保存）</summary>
+    public static int TextScaleIndex
+    {
+        get
+        {
+            if (_textScaleIndex < 0)
+                _textScaleIndex = Mathf.Clamp(PlayerPrefs.GetInt(PREF_TEXT_SCALE, 0), 0, TEXT_SCALES.Length - 1);
+            return _textScaleIndex;
+        }
+        set
+        {
+            int v = Mathf.Clamp(value, 0, TEXT_SCALES.Length - 1);
+            if (v == TextScaleIndex) return;
+            _textScaleIndex = v;
+            PlayerPrefs.SetInt(PREF_TEXT_SCALE, v);
+            PlayerPrefs.Save();
+            SpaceTextScaler.ApplyAll(); // いま出ている文字にもすぐ反映
+        }
+    }
+
+    /// <summary>文字の大きさの倍率（標準=1）</summary>
+    public static float TextScale => TEXT_SCALES[TextScaleIndex];
 
     /// <summary>親の1点を基準に置くテキスト</summary>
     public static TextMeshProUGUI Text(Transform parent, string name, string text, float size, Color color,
@@ -316,6 +347,25 @@ public static class SpaceTheme
         rt.anchoredPosition = pos;
         rt.sizeDelta = box;
         return tmp;
+    }
+
+    /// <summary>
+    /// 字間を広げる（英字の見出しなど）。characterSpacing は直接いじらず、必ずこれを使う。
+    /// 字間を広げる文字はカーニング（文字の組ごとの間隔の調整）を切る:
+    /// TextMeshPro がフォントから読み込むカーニングの記録には、「字間の指定を無視する」印（IgnoreSpacingAdjustments）が
+    /// でたらめに付いている（初期化されていない値とみられる。jp.asset では英字の組の約6割。ビルドにもそのまま入る）。
+    /// 字間を広げると印の付いた組の前後だけ字間が消え、「INTALES Cafe」の ES・Ca のように所々だけ詰まって見えるため。
+    /// 字間を広げない文字（ふつうの文）ではこの印は効かないので、カーニングはそのまま使う
+    /// </summary>
+    public static void Tracking(TMP_Text t, float spacing)
+    {
+        if (t == null) return;
+        t.characterSpacing = spacing;
+        const UnityEngine.TextCore.OTL_FeatureTag KERN = UnityEngine.TextCore.OTL_FeatureTag.kern;
+        if (spacing == 0f || t.fontFeatures == null || !t.fontFeatures.Contains(KERN)) return;
+        var features = new List<UnityEngine.TextCore.OTL_FeatureTag>(t.fontFeatures);
+        features.Remove(KERN);
+        t.fontFeatures = features;
     }
 
     /// <summary>ユーザー入力の文字列をリッチテキストとして解釈させずに埋め込む</summary>

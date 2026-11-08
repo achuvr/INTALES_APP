@@ -62,6 +62,7 @@ public class SpaceHistoryPanel : MonoBehaviour
         new Kind { Key = "gacha",  Label = "ガチャ",   Color = SpaceTheme.VIOLET },
         new Kind { Key = "group",  Label = "グループ", Color = SpaceTheme.Hex(0x7FA8FF) },
         new Kind { Key = "dice",   Label = "バトル",   Color = SpaceTheme.Hex(0xFF9E7A) }, // 旧ホームのボス戦
+        new Kind { Key = "certify", Label = "アチーブメント", Color = SpaceTheme.Hex(0xFFE7A8) }, // ボードゲームの公認・星座の完成
     };
     private static readonly Kind OTHER = new Kind { Key = "", Label = "その他", Color = SpaceTheme.TEXT_SUB };
 
@@ -186,7 +187,7 @@ public class SpaceHistoryPanel : MonoBehaviour
         var caption = SpaceTheme.Text(_sheet, "Caption", T_CAPTION, 24, SpaceTheme.A(ACCENT, 0.9f),
             new Vector2(0f, 1f), new Vector2(56f, -70f), new Vector2(400f, 36f), FontStyles.Bold,
             TextAlignmentOptions.Left, new Vector2(0f, 0.5f));
-        caption.characterSpacing = 18f;
+        SpaceTheme.Tracking(caption, 18f);
         SpaceTheme.Text(_sheet, "Title", T_TITLE, 56, SpaceTheme.TEXT,
             new Vector2(0f, 1f), new Vector2(56f, -128f), new Vector2(560f, 72f), FontStyles.Bold,
             TextAlignmentOptions.Left, new Vector2(0f, 0.5f));

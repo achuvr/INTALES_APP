@@ -242,7 +242,7 @@ public class SpaceFriendPanel : MonoBehaviour
         var caption = SpaceTheme.Text(_sheet, "Caption", T_CAPTION, 24, SpaceTheme.A(SpaceTheme.CYAN, 0.85f),
             new Vector2(0f, 1f), new Vector2(SIDE, -70f), new Vector2(400f, 36f), FontStyles.Bold,
             TextAlignmentOptions.Left, new Vector2(0f, 0.5f));
-        caption.characterSpacing = 18f;
+        SpaceTheme.Tracking(caption, 18f);
         SpaceTheme.Text(_sheet, "Title", T_TITLE, 56, SpaceTheme.TEXT, new Vector2(0f, 1f), new Vector2(SIDE, -128f),
             new Vector2(560f, 72f), FontStyles.Bold, TextAlignmentOptions.Left, new Vector2(0f, 0.5f));
         CloseButton(_sheet, -96f, Close);
@@ -650,7 +650,7 @@ public class SpaceFriendPanel : MonoBehaviour
 
         var caption = SpaceTheme.Text(safe, "Caption", T_QR_CAPTION, 24, SpaceTheme.A(SpaceTheme.CYAN, 0.9f),
             new Vector2(0.5f, 1f), new Vector2(0f, -70f), new Vector2(700f, 36f), FontStyles.Bold);
-        caption.characterSpacing = 18f;
+        SpaceTheme.Tracking(caption, 18f);
         SpaceTheme.Text(safe, "Title", T_QR_TITLE, 44, SpaceTheme.TEXT, new Vector2(0.5f, 1f), new Vector2(0f, -124f),
             new Vector2(800f, 60f), FontStyles.Bold);
         CloseButtonTop(safe, CloseMyQr);
@@ -725,6 +725,16 @@ public class SpaceFriendPanel : MonoBehaviour
                 if (local.Friends.ContainsKey(kv.Key)) continue;
                 local.Friends[kv.Key] = kv.Value;
                 added.Add(kv.Value.Name ?? "");
+            }
+            // 入店中に相手がこのQRを読んだ＝一緒に来店（惑星オパーリアなど。すでにフレンドの人でも届く）
+            JourneyService.MergeFriendMarks(fresh);
+            if (JourneyService.HasPendingFriendMarks())
+            {
+                JourneyService.ProcessAndReport(r =>
+                {
+                    if (this != null && _qr != null && added.Count == 0) CloseMyQr();
+                    SpaceNotice.ShowJourneyRewards(r, true);
+                }).Forget();
             }
             if (added.Count == 0) return;
 

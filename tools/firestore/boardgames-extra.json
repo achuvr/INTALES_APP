@@ -1,0 +1,364 @@
+{
+  "_説明": "ボドゲーマに無い、お店で追加したボードゲーム。sync-boardgames.js がボドゲーマの一覧と合わせて配信する（毎日の同期でも消えない）。追加したら node sync-boardgames.js --extras-only で配信する。id は intales- で始まる英数字とハイフン（アプリでゲームを見分けるキー。あとから変えると、遊んだ・お気に入り・アチーブメントの記録が外れる）。title 以外は空でよい。genre は図鑑のジャンル名と同じ文字（星座に入れるときは星座のジャンル名）。added_on はお店に入った日（YYYY-MM-DD。登録から30日は図鑑で NEW、新着順でもその日の位置に並ぶ）",
+  "_例": {
+    "id": "intales-sample-game",
+    "title": "サンプルゲーム",
+    "title_en": "Sample Game",
+    "players": "2人～4人",
+    "time": "30分～60分",
+    "year": "2024年",
+    "genre": [
+      "カードゲーム",
+      "セットコレクション"
+    ],
+    "designer": [
+      "山田太郎"
+    ],
+    "added_on": "2026-11-06"
+  },
+  "games": [
+    {
+      "id": "intales-aqua-garden",
+      "title": "アクアガーデン",
+      "title_en": "Aqua Garden",
+      "players": "1人～4人",
+      "time": "40分～60分",
+      "year": "2021年",
+      "genre": [
+        "動物",
+        "パズル",
+        "場札の獲得（ドラフト / リミテッド）",
+        "タイムトラック（行動順変動）",
+        "セットコレクション"
+      ],
+      "designer": [
+        "Totsuca Chuo"
+      ],
+      "added_on": "2026-11-06"
+    },
+    {
+      "id": "intales-aqua-garden-promo",
+      "title": "アクアガーデン プロモ拡張",
+      "title_en": "Aqua Garden: Kickstarter Rewards",
+      "players": "1人～4人",
+      "time": "40分～60分",
+      "year": "2021年",
+      "genre": [
+        "動物",
+        "パズル",
+        "場札の獲得（ドラフト / リミテッド）",
+        "タイムトラック（行動順変動）",
+        "セットコレクション"
+      ],
+      "designer": [
+        "Totsuca Chuo"
+      ],
+      "added_on": "2026-11-06"
+    },
+    {
+      "id": "intales-aqua-garden-beach-combing",
+      "title": "アクアガーデン ビーチコーミング拡張",
+      "title_en": "Aqua Garden: Beach Combing Expansion",
+      "players": "1人～4人",
+      "time": "40分～60分",
+      "year": "2023年",
+      "genre": [
+        "動物",
+        "パズル",
+        "場札の獲得（ドラフト / リミテッド）",
+        "タイムトラック（行動順変動）",
+        "セットコレクション"
+      ],
+      "designer": [
+        "Totsuca Chuo"
+      ],
+      "added_on": "2026-11-06"
+    },
+    {
+      "id": "intales-aqua-garden-sea-jewelry",
+      "title": "アクアガーデン シージュエリー拡張",
+      "title_en": "Aqua Garden: Sea Jewelry Expansion",
+      "players": "1人～4人",
+      "time": "40分～60分",
+      "year": "2021年",
+      "genre": [
+        "動物",
+        "パズル",
+        "場札の獲得（ドラフト / リミテッド）",
+        "タイムトラック（行動順変動）",
+        "セットコレクション"
+      ],
+      "designer": [
+        "Totsuca Chuo"
+      ],
+      "added_on": "2026-11-06"
+    },
+    {
+      "id": "intales-aqua-garden-sea-king",
+      "title": "アクアガーデン シーキング拡張",
+      "title_en": "Aqua Garden: Sea King Expansion",
+      "players": "1人～4人",
+      "time": "40分～60分",
+      "year": "2021年",
+      "genre": [
+        "動物",
+        "パズル",
+        "場札の獲得（ドラフト / リミテッド）",
+        "タイムトラック（行動順変動）",
+        "セットコレクション"
+      ],
+      "designer": [
+        "Totsuca Chuo"
+      ],
+      "added_on": "2026-11-06"
+    },
+    {
+      "id": "intales-ostia",
+      "title": "オスティア",
+      "title_en": "Ostia",
+      "players": "1人～4人",
+      "time": "100分～120分",
+      "year": "2022年",
+      "genre": [
+        "古代",
+        "建物や都市建設",
+        "船/航海",
+        "ロンデル",
+        "セットコレクション"
+      ],
+      "designer": [
+        "Totsuca Chuo"
+      ],
+      "added_on": "2026-11-06"
+    },
+    {
+      "id": "intales-ostia-pirates",
+      "title": "オスティア パイレーツ拡張",
+      "title_en": "Ostia: Pirates",
+      "players": "1人～4人",
+      "time": "120分～140分",
+      "year": "2024年",
+      "genre": [
+        "古代",
+        "建物や都市建設",
+        "船/航海",
+        "ロンデル",
+        "セットコレクション"
+      ],
+      "designer": [
+        "Totsuca Chuo"
+      ],
+      "added_on": "2026-11-06"
+    },
+    {
+      "id": "intales-ostia-merchant",
+      "title": "オスティア 商人拡張",
+      "title_en": "Ostia: Merchant Expansion",
+      "players": "1人～4人",
+      "time": "100分～120分",
+      "year": "2022年",
+      "genre": [
+        "古代",
+        "建物や都市建設",
+        "船/航海",
+        "ロンデル",
+        "セットコレクション",
+        "交換/貿易"
+      ],
+      "designer": [
+        "Totsuca Chuo"
+      ],
+      "added_on": "2026-11-06"
+    },
+    {
+      "id": "intales-ostia-patronus",
+      "title": "オスティア パトローナス拡張",
+      "title_en": "Ostia: Patronus Expansion",
+      "players": "1人～4人",
+      "time": "100分～120分",
+      "year": "2022年",
+      "genre": [
+        "古代",
+        "建物や都市建設",
+        "船/航海",
+        "ロンデル",
+        "セットコレクション"
+      ],
+      "designer": [
+        "Totsuca Chuo"
+      ],
+      "added_on": "2026-11-06"
+    },
+    {
+      "id": "intales-sweet-lands",
+      "title": "スイーツランド",
+      "title_en": "Sweet Lands",
+      "players": "1人～4人",
+      "time": "100分～200分",
+      "year": "2025年",
+      "genre": [
+        "ファンタジー",
+        "領地拡大",
+        "建物や都市建設",
+        "文明",
+        "経済/経営",
+        "工業/製造",
+        "プレイヤー別固有能力",
+        "タイル・カード配置",
+        "ワーカープレイスメント"
+      ],
+      "designer": [
+        "Totsuca Chuo"
+      ],
+      "added_on": "2026-11-06"
+    },
+    {
+      "id": "intales-sky-garden",
+      "title": "スカイガーデン",
+      "title_en": "Sky Garden",
+      "players": "1人～4人",
+      "time": "60分～90分",
+      "year": "2026年",
+      "genre": [
+        "動物",
+        "パズル",
+        "セットコレクション",
+        "タイムトラック（行動順変動）"
+      ],
+      "designer": [
+        "Totsuca Chuo"
+      ],
+      "added_on": "2026-11-06"
+    },
+    {
+      "id": "intales-sky-garden-imitation-egg",
+      "title": "スカイガーデン イミテーションエッグ拡張",
+      "title_en": "Sky Garden: Imitation Egg",
+      "players": "1人～4人",
+      "time": "60分～90分",
+      "year": "2026年",
+      "genre": [
+        "動物",
+        "パズル",
+        "セットコレクション",
+        "タイムトラック（行動順変動）"
+      ],
+      "designer": [
+        "Totsuca Chuo"
+      ],
+      "added_on": "2026-11-06"
+    },
+    {
+      "id": "intales-sky-garden-bonded-pair",
+      "title": "スカイガーデン ボンデッドペア拡張",
+      "title_en": "Sky Garden: Bonded Pair",
+      "players": "1人～4人",
+      "time": "60分～90分",
+      "year": "2026年",
+      "genre": [
+        "動物",
+        "パズル",
+        "セットコレクション",
+        "タイムトラック（行動順変動）"
+      ],
+      "designer": [
+        "Totsuca Chuo"
+      ],
+      "added_on": "2026-11-06"
+    },
+    {
+      "id": "intales-dino-garden",
+      "title": "ディノガーデン",
+      "title_en": "Dino Garden",
+      "players": "1人～4人",
+      "time": "60分～90分",
+      "year": "2026年",
+      "genre": [
+        "動物",
+        "パズル",
+        "セットコレクション",
+        "タイムトラック（行動順変動）",
+        "恐竜"
+      ],
+      "designer": [
+        "Totsuca Chuo"
+      ],
+      "added_on": "2026-11-06"
+    },
+    {
+      "id": "intales-dino-garden-brute-hunters",
+      "title": "ディノガーデン ブルートハンター拡張",
+      "title_en": "Dino Garden: Brute Hunters",
+      "players": "1人～4人",
+      "time": "60分～90分",
+      "year": "2026年",
+      "genre": [
+        "動物",
+        "パズル",
+        "セットコレクション",
+        "タイムトラック（行動順変動）",
+        "恐竜"
+      ],
+      "designer": [
+        "Totsuca Chuo"
+      ],
+      "added_on": "2026-11-06"
+    },
+    {
+      "id": "intales-dino-garden-gentle-titans",
+      "title": "ディノガーデン ジェントルタイタンズ拡張",
+      "title_en": "Dino Garden: Gentle Titans",
+      "players": "1人～4人",
+      "time": "60分～90分",
+      "year": "2026年",
+      "genre": [
+        "動物",
+        "パズル",
+        "セットコレクション",
+        "タイムトラック（行動順変動）",
+        "恐竜"
+      ],
+      "designer": [
+        "Totsuca Chuo"
+      ],
+      "added_on": "2026-11-06"
+    },
+    {
+      "id": "intales-biohack",
+      "title": "バイオハック",
+      "title_en": "Biohack",
+      "players": "1人～4人",
+      "time": "60分～90分",
+      "year": "2024年",
+      "genre": [
+        "世界の神話",
+        "SF",
+        "科学者/研究",
+        "ワーカープレイスメント",
+        "場札の獲得（ドラフト / リミテッド）",
+        "セットコレクション"
+      ],
+      "designer": [
+        "Yofiandhy D Indrayana"
+      ],
+      "added_on": "2026-11-06"
+    },
+    {
+      "id": "intales-bremen",
+      "title": "ブレーメン",
+      "title_en": "Bremen",
+      "players": "3人～4人",
+      "time": "20分～30分",
+      "year": "2016年",
+      "genre": [
+        "カードゲーム",
+        "トリックテイキング",
+        "協力プレイ"
+      ],
+      "designer": [
+        "S. Ando"
+      ],
+      "added_on": "2026-11-06"
+    }
+  ]
+}

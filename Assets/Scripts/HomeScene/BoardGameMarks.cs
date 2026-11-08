@@ -51,6 +51,19 @@ public static class BoardGameMarks
     public static bool IsFavorite(BoardGameEntry g) => SetOf(Favorite).Contains(KeyOf(g));
 
     public static void SetPlayed(BoardGameEntry g, bool on) => SetMark(Played, g, on);
+
+    /// <summary>
+    /// 「遊んだ」をメモリ上にだけ付ける（Firestore へはほかの書き込みと一緒に済ませたとき用。
+    /// アチーブメントの達成 BoardGameCertify.CertifyAsync が played_boardgames を同じ1回の書き込みで足す）。
+    /// 図鑑の ✓ がアプリを開き直さなくてもすぐ付くように、判定用のセットにも足す
+    /// </summary>
+    public static void NotePlayed(string key)
+    {
+        if (string.IsNullOrEmpty(key)) return;
+        SetOf(Played).Add(key);
+        var ud = UserDataManager.instance != null ? UserDataManager.instance.UserData : null;
+        if (ud != null && !ud.PlayedBoardgames.Contains(key)) ud.PlayedBoardgames.Add(key);
+    }
     public static void SetFavorite(BoardGameEntry g, bool on) => SetMark(Favorite, g, on);
 
     /// <summary>マークを切り替える。ローカルへ即時反映し、Firestoreへは非同期で1回書き込む。</summary>

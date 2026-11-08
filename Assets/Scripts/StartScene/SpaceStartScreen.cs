@@ -15,6 +15,7 @@ using UnityEngine.UI;
 /// アカウント作成のあとのキャラクター作成は省いた（新ホームではキャラクターを使わないため。2026-11-05 ユーザー指定。
 /// 旧画面の「あとで作る」と同じく、キャラクターチケットを1枚付けて始める）。
 /// シーンに置いてある旧デザインの画面（Canvas）は、作るときに隠す（シーンには残してある）。
+/// 入力のカードは画面の上、惑星と見出しは下（下に置くとキーボードに隠れて見えなかったため。2026-11-05 ユーザー指定）。
 /// </summary>
 public class SpaceStartScreen : MonoBehaviour
 {
@@ -31,6 +32,9 @@ public class SpaceStartScreen : MonoBehaviour
     private const string T_PH_NEW_PASSWORD = "6文字以上";
     private const string T_PH_PASSWORD = "パスワードを入力";
     private const string T_PH_NICKNAME = "ニックネームを入力";
+    private const string T_BIRTH = "誕生月（誕生月に特典があります）";
+    private const string T_PH_BIRTH = "選んでください（月だけ・任意）";
+    private const string T_BIRTH_NONE = "答えない";
     private const string T_SHOW = "表示";
     private const string T_HIDE = "隠す";
     private const string T_SUBMIT_REGISTER = "アカウントを作成";
@@ -51,20 +55,24 @@ public class SpaceStartScreen : MonoBehaviour
             sb.Append(T_WORDMARK).Append(T_TAGLINE).Append(T_TAB_REGISTER).Append(T_TAB_LOGIN).Append(T_MAIL)
               .Append(T_PASSWORD).Append(T_NICKNAME).Append(T_PH_MAIL).Append(T_PH_NEW_PASSWORD).Append(T_PH_PASSWORD)
               .Append(T_PH_NICKNAME).Append(T_SHOW).Append(T_HIDE).Append(T_SUBMIT_REGISTER).Append(T_SUBMIT_LOGIN)
-              .Append(T_LOGGING_IN).Append(T_CREATING).Append(T_FAILED).Append(T_AUTO_FAILED);
+              .Append(T_LOGGING_IN).Append(T_CREATING).Append(T_FAILED).Append(T_AUTO_FAILED)
+              .Append(T_BIRTH).Append(T_PH_BIRTH).Append(T_BIRTH_NONE).Append(SpaceMonthPicker.GlyphText);
             for (char c = ' '; c <= '~'; c++) sb.Append(c);
             return sb.ToString();
         }
     }
 
-    // 配置（セーフエリアの上端・下端からの距離）
-    // 見出しは背景の左の小さな惑星（セーフエリアの上端から 760）より下に置き、同じ高さに並ばないようにする
-    private const float HERO_Y = 380f;          // 惑星の中心
-    private const float PLANET_FRAME = 500f;    // 惑星の枠（球の直径はその 0.8 倍）
-    private const float ORBIT = 600f;           // 衛星の円の直径
-    private const float WORDMARK_Y = 822f, TAGLINE_Y = 884f;
-    private const float AUTO_Y = 1070f;         // 自動ログイン中の表示
-    private const float CARD_W = 960f, CARD_BOTTOM = 48f, CARD_PAD = 40f;
+    // 配置（セーフエリアの上端・下端からの距離）。入力のカードは上端から、惑星と見出しは下端から決める
+    // （タブを切り替えてカードの高さが変わっても、惑星と見出しは動かない）
+    private const float CARD_TOP = 56f;           // カードの上端（上端から）
+    private const float HERO_BOTTOM = 500f;       // 惑星の中心（下端から）
+    private const float PLANET_FRAME = 500f;      // 惑星の枠（球の直径はその 0.8 倍）
+    private const float ORBIT = 600f;             // 衛星の円の直径
+    private const float WORDMARK_BOTTOM = 132f, TAGLINE_BOTTOM = 70f; // 見出し・ひとことの中心（下端から）
+    private const float AUTO_Y = 560f;            // 自動ログイン中の表示（上端から。カードのあたり）
+    private const float TOAST_H = 130f;           // 知らせの高さの見込み（1〜2行）
+    private const float MOON_Y = 1000f;           // 背景の左の小さな衛星（上端から。カードと惑星の間）
+    private const float CARD_W = 960f, CARD_PAD = 40f;
     private const float TAB_H = 88f, TAB_GAP = 16f, TABS_GAP = 30f;
     private const float LABEL_H = 40f, LABEL_GAP = 10f, FIELD_H = 100f, FIELD_GAP = 24f, SUBMIT_H = 120f;
     private static readonly Color FIELD_FILL = new Color(0.04f, 0.06f, 0.17f, 0.92f);
@@ -95,8 +103,9 @@ public class SpaceStartScreen : MonoBehaviour
     private Field _mail, _password, _nickname;
     private TextMeshProUGUI _submitLabel;
     private GameObject _busyDialog;
-    private float _cardLift;   // キーボードを避けるために持ち上げている量
     private string _keepMail = "", _keepPassword = "", _keepName = ""; // 切り替えても入力を残す
+    private int _birthMonth = -1; // 誕生月（-1＝まだ選んでいない、0＝答えない、1〜12）
+    private TextMeshProUGUI _birthText;
 
     // ================================================================
     // 作る
@@ -157,7 +166,7 @@ public class SpaceStartScreen : MonoBehaviour
         var canvasRt = (RectTransform)_canvas.transform;
         var size = SpaceTheme.CanvasSize(_canvas);
         var insets = SpaceTheme.SafeInsets(size);
-        SpaceBackground.Create(canvasRt, size, insets.top);
+        SpaceBackground.Create(canvasRt, size, insets.top).MoveMoon(MOON_Y);
 
         // 惑星の表面は裏のスレッドで作るので先に始めておく（新ホームでもそのまま使われる）
         var planet = SpacePlanets.Current;
@@ -172,8 +181,8 @@ public class SpaceStartScreen : MonoBehaviour
         _safe.gameObject.AddComponent<SpaceSafeArea>();
         BuildHero(planet);
         BuildAutoBox();
-        _card = SpaceTheme.Rect("Card", _safe, new Vector2(0.5f, 0f), new Vector2(0f, CARD_BOTTOM), new Vector2(CARD_W, 400f),
-            new Vector2(0.5f, 0f));
+        _card = SpaceTheme.Rect("Card", _safe, new Vector2(0.5f, 1f), new Vector2(0f, -CARD_TOP), new Vector2(CARD_W, 400f),
+            new Vector2(0.5f, 1f));
         _cardGroup = _card.gameObject.AddComponent<CanvasGroup>();
         SpaceTheme.Glass(_card, 56f, SpaceTheme.GLASS_DEEP, SpaceTheme.A(SpaceTheme.CYAN, 0.28f), true);
         _built = true;
@@ -198,7 +207,7 @@ public class SpaceStartScreen : MonoBehaviour
     // ================================================================
     private void BuildHero(SpacePlanetDef planet)
     {
-        _hero = SpaceTheme.Rect("Hero", _safe, new Vector2(0.5f, 1f), new Vector2(0f, -HERO_Y), new Vector2(ORBIT, ORBIT));
+        _hero = SpaceTheme.Rect("Hero", _safe, new Vector2(0.5f, 0f), new Vector2(0f, HERO_BOTTOM), new Vector2(ORBIT, ORBIT));
         _heroGroup = _hero.gameObject.AddComponent<CanvasGroup>();
         _glowColor = planet.Accent;
         var glow = SpaceTheme.Rect("Glow", _hero, SpaceTheme.CENTER, Vector2.zero, new Vector2(ORBIT * 1.45f, ORBIT * 1.45f));
@@ -215,18 +224,19 @@ public class SpaceStartScreen : MonoBehaviour
         Satellite(_orbit, new Vector2(ORBIT * 0.5f, 0f), SpaceTheme.CYAN, 26f);
         Satellite(_orbit, new Vector2(-ORBIT * 0.5f * 0.7071f, -ORBIT * 0.5f * 0.7071f), SpaceTheme.VIOLET, 20f);
 
-        var word = SpaceTheme.Rect("Wordmark", _safe, new Vector2(0.5f, 1f), new Vector2(0f, -WORDMARK_Y),
+        var word = SpaceTheme.Rect("Wordmark", _safe, new Vector2(0.5f, 0f), new Vector2(0f, WORDMARK_BOTTOM),
             new Vector2(1000f, 90f));
         _wordGroup = word.gameObject.AddComponent<CanvasGroup>();
         var t = SpaceTheme.Text(word, "Text", T_WORDMARK, 62, SpaceTheme.A(SpaceTheme.TEXT, 0.95f));
         SpaceTheme.Stretch(t.rectTransform);
-        t.characterSpacing = 32f;
+        SpaceTheme.Tracking(t, 32f);
         t.enableAutoSizing = true;
         t.fontSizeMin = 40f;
         t.fontSizeMax = 62f;
         var tag = SpaceTheme.Text(word, "Tagline", T_TAGLINE, 24, SpaceTheme.A(SpaceTheme.CYAN, 0.9f),
-            new Vector2(0.5f, 0f), new Vector2(0f, -(TAGLINE_Y - WORDMARK_Y) + 45f), new Vector2(900f, 36f), FontStyles.Bold);
-        tag.characterSpacing = 22f;
+            new Vector2(0.5f, 0f), new Vector2(0f, TAGLINE_BOTTOM - (WORDMARK_BOTTOM - 45f)), new Vector2(900f, 36f),
+            FontStyles.Bold);
+        SpaceTheme.Tracking(tag, 22f);
     }
 
     private static void Satellite(RectTransform orbit, Vector2 pos, Color color, float size)
@@ -273,7 +283,7 @@ public class SpaceStartScreen : MonoBehaviour
         _cardBody = SpaceTheme.Rect("Body", _card);
         SpaceTheme.Stretch(_cardBody);
 
-        int fields = mode == Mode.Register ? 3 : 2;
+        int fields = mode == Mode.Register ? 4 : 2; // アカウント作成は 誕生月 も聞く（2026-11-07 ユーザー指定）
         float h = CARD_PAD + TAB_H + TABS_GAP + fields * (LABEL_H + LABEL_GAP + FIELD_H + FIELD_GAP) + SUBMIT_H + CARD_PAD;
         _card.sizeDelta = new Vector2(CARD_W, h);
 
@@ -310,6 +320,7 @@ public class SpaceStartScreen : MonoBehaviour
         _nickname = mode == Mode.Register
             ? MakeField(ref y, T_NICKNAME, T_PH_NICKNAME, TMP_InputField.ContentType.Standard, false, NAME_MAX)
             : null;
+        if (mode == Mode.Register) MakeBirthField(ref y);
         _mail.Input.text = _keepMail;
         _password.Input.text = _keepPassword;
         if (_nickname != null) _nickname.Input.text = _keepName;
@@ -402,6 +413,49 @@ public class SpaceStartScreen : MonoBehaviour
         return field;
     }
 
+    /// <summary>誕生月（押すと 1〜12月を選ぶ画面。任意）</summary>
+    private void MakeBirthField(ref float y)
+    {
+        SpaceTheme.Text(_cardBody, "Label_Birth", T_BIRTH, 28, SpaceTheme.TEXT_SUB, new Vector2(0f, 1f),
+            new Vector2(CARD_PAD + 12f, -(y + LABEL_H / 2f)), new Vector2(800f, LABEL_H), FontStyles.Bold,
+            TextAlignmentOptions.Left, new Vector2(0f, 0.5f));
+        y += LABEL_H + LABEL_GAP;
+        var box = SpaceTheme.Rect("Field_Birth", _cardBody, new Vector2(0.5f, 1f), new Vector2(0f, -y),
+            new Vector2(CARD_W - CARD_PAD * 2f, FIELD_H), new Vector2(0.5f, 1f));
+        var face = SpaceTheme.Rounded(box, FIELD_FILL, 30f, true);
+        var edgeRt = SpaceTheme.Rect("Edge", box);
+        SpaceTheme.Stretch(edgeRt);
+        SpaceTheme.RoundedStroke(edgeRt, SpaceTheme.STROKE, 30f);
+        y += FIELD_H + FIELD_GAP;
+        _birthText = SpaceTheme.Text(box, "Text", "", 34, SpaceTheme.TEXT, FontStyles.Normal, TextAlignmentOptions.Left);
+        SpaceTheme.Stretch(_birthText.rectTransform, 30f, 8f, 30f, 8f);
+        RefreshBirth();
+        SpaceTheme.Clickable(box.gameObject, face, () =>
+        {
+            if (_busy) return;
+            SpaceMonthPicker.Show(_canvas, _birthMonth, m =>
+            {
+                _birthMonth = m;
+                RefreshBirth();
+            });
+        });
+    }
+
+    private void RefreshBirth()
+    {
+        if (_birthText == null) return;
+        if (_birthMonth < 0)
+        {
+            _birthText.text = T_PH_BIRTH;
+            _birthText.color = SpaceTheme.TEXT_MUTED;
+        }
+        else
+        {
+            _birthText.text = _birthMonth == 0 ? T_BIRTH_NONE : _birthMonth + SpaceMonthPicker.T_UNIT;
+            _birthText.color = SpaceTheme.TEXT;
+        }
+    }
+
     private void KeepInputs()
     {
         if (_mail != null) _keepMail = _mail.Input.text;
@@ -424,6 +478,7 @@ public class SpaceStartScreen : MonoBehaviour
         var mode = _mode;
         string mail = _mail.Input.text, pw = _password.Input.text, name = _nickname != null ? _nickname.Input.text : "";
         _busyDialog = SpaceDialog.Busy(_canvas, mode == Mode.Login ? T_LOGGING_IN : T_CREATING);
+        SignupExtras.BirthMonth = mode == Mode.Register ? Mathf.Max(0, _birthMonth) : 0; // 初期データに入れる
         string error;
         try
         {
@@ -444,12 +499,20 @@ public class SpaceStartScreen : MonoBehaviour
         Toast(error);
     }
 
-    /// <summary>知らせ（入力のカードに重ならないよう、カードの少し上に出す）</summary>
+    /// <summary>
+    /// 知らせ。入力のカードのすぐ下に出す（カードに重ならず、キーボードが出ていても隠れにくい位置）。
+    /// 知らせは下端からの位置で置くので、画面の高さからカードの下端までを逆算する
+    /// </summary>
     private void Toast(string message)
     {
-        float bottom = _card != null && _card.gameObject.activeSelf
-            ? CARD_BOTTOM + _card.sizeDelta.y + _cardLift + 24f
-            : 340f;
+        float bottom = 340f;
+        if (_card != null && _card.gameObject.activeSelf)
+        {
+            var size = SpaceTheme.CanvasSize(_canvas);
+            var insets = SpaceTheme.SafeInsets(size);
+            float contentH = size.y - insets.top - insets.bottom;
+            bottom = Mathf.Max(100f, contentH - CARD_TOP - _card.sizeDelta.y - 24f - TOAST_H);
+        }
         SpaceTheme.Toast(SpaceTheme.SafeNow(message), _canvas, bottom);
     }
 
@@ -474,7 +537,7 @@ public class SpaceStartScreen : MonoBehaviour
         yield return SpaceTheme.Tween(0.55f, 0.45f, k =>
         {
             _cardGroup.alpha = k;
-            _card.anchoredPosition = cardBase + new Vector2(0f, -60f * (1f - k) + _cardLift);
+            _card.anchoredPosition = cardBase + new Vector2(0f, 40f * (1f - k)); // 上から降りてくる
         });
     }
 
@@ -484,23 +547,5 @@ public class SpaceStartScreen : MonoBehaviour
         float t = Time.unscaledTime;
         _orbit.localEulerAngles = new Vector3(0f, 0f, -t * 14f);
         _heroGlow.color = SpaceTheme.A(_glowColor, 0.22f + 0.07f * Mathf.Sin(t * 1.4f));
-        LiftForKeyboard();
-    }
-
-    /// <summary>キーボードが入力欄を隠すときは、カードを持ち上げる（キーボードの大きさが分かる端末だけ）</summary>
-    private void LiftForKeyboard()
-    {
-        float target = 0f;
-        bool typing = (_mail != null && _mail.Input.isFocused) || (_password != null && _password.Input.isFocused)
-                      || (_nickname != null && _nickname.Input.isFocused);
-        if (typing && TouchScreenKeyboard.visible)
-        {
-            float kb = TouchScreenKeyboard.area.height / Mathf.Max(0.01f, _canvas.scaleFactor);
-            float bottomInset = SpaceTheme.SafeInsets(SpaceTheme.CanvasSize(_canvas)).bottom;
-            target = Mathf.Max(0f, kb - CARD_BOTTOM - bottomInset + 24f);
-        }
-        if (Mathf.Abs(target - _cardLift) < 0.5f) return;
-        _cardLift = Mathf.Lerp(_cardLift, target, 1f - Mathf.Exp(-Time.unscaledDeltaTime * 14f));
-        _card.anchoredPosition = new Vector2(0f, CARD_BOTTOM + _cardLift);
     }
 }

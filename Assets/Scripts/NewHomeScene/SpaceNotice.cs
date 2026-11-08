@@ -13,7 +13,7 @@ using UnityEngine.UI;
 /// ルートのオブジェクト名は旧版と同じにしている（"__InfoModal" など）。
 /// 名前で存在を確かめている処理（新ホームのクーポン入手通知の重複抑止など）がそのまま動くように。
 /// </summary>
-public static class SpaceNotice
+public static partial class SpaceNotice
 {
     private const float WIDTH = 880f;
     private const float INNER = 780f;
@@ -78,8 +78,19 @@ public static class SpaceNotice
         for (int i = _open.Count - 1; i >= 0; i--)
         {
             var go = _open[i];
+            if (go == null)
+            {
+                _open.RemoveAt(i); // ボタンなどで既に閉じられている
+                continue;
+            }
+            // 流れ星ガチャの演出は消さずに結果まで飛ばす（結果のカードが出たら演出は自分で消える）
+            var gacha = go.GetComponent<SpaceGachaMeteor>();
+            if (gacha != null)
+            {
+                gacha.Skip();
+                return true;
+            }
             _open.RemoveAt(i);
-            if (go == null) continue; // ボタンなどで既に閉じられている
             Object.Destroy(go);
             return true;
         }
@@ -241,7 +252,9 @@ public static class SpaceNotice
     /// 新しい惑星を解放したお祝い。解放した惑星が回って見え、その場で「この惑星にする」も選べる
     /// （SpacePlanets.Current を変えると、新ホームが中央の惑星を入れ替える）。「あとで」・まわりのタップで閉じる。
     /// </summary>
-    public static GameObject PlanetUnlocked(SpacePlanetDef def)
+    /// <param name="title">見出し（省略時は「新しい惑星を解放しました！」）</param>
+    /// <param name="note">説明の下に金色で添える一文（古参の惑星の贈りものなど。省略可）</param>
+    public static GameObject PlanetUnlocked(SpacePlanetDef def, string title = null, string note = null)
     {
         var card = Overlay("__PlanetUnlockModal", out var root, SpaceTheme.A(def.Accent, 0.55f));
         if (card == null) return null;
@@ -251,10 +264,11 @@ public static class SpaceNotice
         float y = 48f;
         var caption = SpaceTheme.Text(card, "Caption", T_PLANET_CAPTION, 24, SpaceTheme.A(SpaceTheme.CYAN, 0.9f),
             FontStyles.Bold);
-        caption.characterSpacing = 18f;
+        SpaceTheme.Tracking(caption, 18f);
         Stack(caption.rectTransform, ref y, 36f, 0f);
-        var title = SpaceTheme.Text(card, "Title", SpacePlanets.T_UNLOCKED_TITLE, 40, SpaceTheme.TEXT, FontStyles.Bold);
-        Stack(title.rectTransform, ref y, 56f, 8f);
+        var titleText = SpaceTheme.Text(card, "Title", title ?? SpacePlanets.T_UNLOCKED_TITLE, 40, SpaceTheme.TEXT,
+            FontStyles.Bold);
+        Stack(titleText.rectTransform, ref y, 56f, 8f);
 
         // 解放した惑星（後ろでゆっくり回る軌道つき）
         var stage = SpaceTheme.Rect("Planet", card);
@@ -267,12 +281,20 @@ public static class SpaceNotice
         SpacePlanetView.Create(stage, def, 400f, SpacePlanetView.Quality.Large, true);
 
         var en = SpaceTheme.Text(card, "En", def.En, 26, SpaceTheme.A(def.Accent, 0.95f), FontStyles.Bold);
-        en.characterSpacing = 24f;
+        SpaceTheme.Tracking(en, 24f);
         Stack(en.rectTransform, ref y, 36f, 16f);
         var name = SpaceTheme.Text(card, "Name", def.Name, 60, SpaceTheme.TEXT, FontStyles.Bold);
         Stack(name.rectTransform, ref y, 78f, 0f);
         var desc = SpaceTheme.Text(card, "Desc", def.Desc, 30, SpaceTheme.TEXT_SUB, FontStyles.Bold);
         Stack(desc.rectTransform, ref y, 44f, 4f);
+        if (!string.IsNullOrEmpty(note))
+        {
+            var noteText = SpaceTheme.Text(card, "Note", note, 26, SpaceTheme.GOLD, FontStyles.Bold);
+            noteText.enableAutoSizing = true;
+            noteText.fontSizeMin = 18f;
+            noteText.fontSizeMax = 26f;
+            Stack(noteText.rectTransform, ref y, 40f, 12f);
+        }
 
         var use = SpaceTheme.Rect("Use", card);
         Stack(use, ref y, 128f, 40f, 560f);
@@ -317,7 +339,7 @@ public static class SpaceNotice
         float y = 48f;
         var caption = SpaceTheme.Text(card, "Caption", T_PASS_CAPTION, 24,
             SpaceTheme.A(SpacePassCard.FoilColor(pass.Type), 0.95f), FontStyles.Bold);
-        caption.characterSpacing = 18f;
+        SpaceTheme.Tracking(caption, 18f);
         Stack(caption.rectTransform, ref y, 36f, 0f);
         var title = SpaceTheme.Text(card, "Title", already ? T_PASS_ALREADY : T_PASS_TITLE, 40, SpaceTheme.TEXT,
             FontStyles.Bold);

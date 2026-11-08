@@ -9,6 +9,7 @@
     "com.unity.ide.visualstudio": "2.0.25",
     "com.unity.inputsystem": "1.16.0",
     "com.unity.mobile.android-logcat": "1.4.6",
+    "com.unity.mobile.notifications": "2.5.0",
     "com.unity.multiplayer.center": "1.0.0",
     "com.unity.nuget.mono-cecil": "1.10.2",
     "com.unity.nuget.newtonsoft-json": "3.2.2",

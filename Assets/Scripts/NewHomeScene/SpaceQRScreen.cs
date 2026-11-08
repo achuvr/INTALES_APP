@@ -98,7 +98,7 @@ public class SpaceQRScreen : MonoBehaviour
         safe.gameObject.AddComponent<SpaceSafeArea>();
         var cap = SpaceTheme.Text(safe, "Caption", T_CAPTION, 24, SpaceTheme.A(SpaceTheme.CYAN, 0.85f),
             new Vector2(0.5f, 1f), new Vector2(0f, -70f), new Vector2(600f, 36f), FontStyles.Bold);
-        cap.characterSpacing = 18f;
+        SpaceTheme.Tracking(cap, 18f);
         SpaceTheme.Text(safe, "Title", T_TITLE, 44, SpaceTheme.TEXT, new Vector2(0.5f, 1f), new Vector2(0f, -124f),
             new Vector2(760f, 64f), FontStyles.Bold);
 

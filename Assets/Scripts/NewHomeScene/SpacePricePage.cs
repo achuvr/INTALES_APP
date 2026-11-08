@@ -113,7 +113,7 @@ public class SpacePricePage : MonoBehaviour
 
         var caption = SpaceTheme.Text(_safe, "Caption", T_CAPTION, 24, SpaceTheme.A(ACCENT, 0.9f),
             new Vector2(0.5f, 1f), new Vector2(0f, -70f), new Vector2(700f, 36f), FontStyles.Bold);
-        caption.characterSpacing = 18f;
+        SpaceTheme.Tracking(caption, 18f);
         SpaceTheme.Text(_safe, "Title", T_TITLE, 44, SpaceTheme.TEXT, new Vector2(0.5f, 1f), new Vector2(0f, -124f),
             new Vector2(800f, 60f), FontStyles.Bold);
         CloseButton(_safe);

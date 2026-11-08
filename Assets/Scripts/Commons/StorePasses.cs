@@ -161,6 +161,41 @@ public static class StorePasses
         }
     }
 
+    /// <summary>
+    /// ほかの人が受け取ったパスを読み込む（管理者だけ。会員証QRを読んだとき。SpaceMemberView）。失敗したら null
+    /// </summary>
+    public static async UniTask<List<PassInfo>> LoadOfAsync(string uid)
+    {
+        if (string.IsNullOrEmpty(uid)) return null;
+        try
+        {
+            var snap = await Col.WhereEqualTo("claimed_by", uid).GetSnapshotAsync().AsUniTask();
+            var list = new List<PassInfo>();
+            foreach (var doc in snap.Documents)
+            {
+                var p = Parse(doc);
+                if (p != null && p.Claimed) list.Add(p);
+            }
+            list.Sort((a, b) => b.Expiry.CompareTo(a.Expiry));
+            return list;
+        }
+        catch (Exception ex)
+        {
+            Debug.LogWarning($"[Pass] パスの読み込みに失敗 ({uid}): {ex.Message}");
+            return null;
+        }
+    }
+
+    /// <summary>その日に使えるパスか（平日のみ＝月〜金、土日のみ＝土日、ALL DAY＝毎日。祝日は区別しない）</summary>
+    public static bool UsableOn(PassInfo p, DateTime day)
+    {
+        if (p == null || !p.IsActive(day)) return false;
+        bool weekend = day.DayOfWeek == DayOfWeek.Saturday || day.DayOfWeek == DayOfWeek.Sunday;
+        if (p.Type == Weekday) return !weekend;
+        if (p.Type == Weekend) return weekend;
+        return true;
+    }
+
     /// <summary>受け取りQRの中身からパスのIDを取り出す（形が違えば null）</summary>
     public static string ParseQr(string qrText)
     {

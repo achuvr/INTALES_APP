@@ -72,7 +72,7 @@ public class SpacePassViewer : MonoBehaviour
 
         var caption = SpaceTheme.Text(safe, "Caption", T_CAPTION, 24, SpaceTheme.A(foil, 0.95f), new Vector2(0.5f, 1f),
             new Vector2(0f, -86f), new Vector2(700f, 36f), FontStyles.Bold);
-        caption.characterSpacing = 18f;
+        SpaceTheme.Tracking(caption, 18f);
         SpaceTheme.Text(safe, "Title", StorePasses.T_NAME, 44, SpaceTheme.TEXT, new Vector2(0.5f, 1f),
             new Vector2(0f, -140f), new Vector2(900f, 60f), FontStyles.Bold);
 

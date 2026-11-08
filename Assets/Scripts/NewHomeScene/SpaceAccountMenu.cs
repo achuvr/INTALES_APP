@@ -46,6 +46,20 @@ public class SpaceAccountMenu : MonoBehaviour
         "ダウンロード済みです。\nホームの惑星の左下の\n緑の小さな惑星から開けます。\n\n削除すると、図鑑の惑星が\nホームからなくなります。\n（遊んだ記録・写真は残ります）";
     private const string T_ZUKAN_REMOVE = "削除する";
     private const string T_ZUKAN_REMOVED = "ボードゲーム図鑑を削除しました";
+    private const string T_BIRTH = "誕生月";
+    private const string T_BIRTH_SET_A = "誕生月は ";
+    private const string T_BIRTH_SET_B = "月 で登録しています\n変えたいときはスタッフにお声がけください";
+    private const string T_BIRTH_BODY = "登録すると誕生月に特典があります（あとから変えられません）";
+    private const string T_BIRTH_FAILED = "登録に失敗しました\n通信環境を確認して再度お試しください";
+    private const string T_BIRTH_DONE = "誕生月を登録しました";
+    private const string T_INVITE = "友だちを紹介";
+    private const string T_INVITE_CAPTION = "INVITE";
+    private const string T_INVITE_TITLE = "友だち紹介QR";
+    private const string T_INVITE_NOTE = "まだ来店したことのない友だちに、アプリのホームのカメラでこのQRを読んでもらってください。その友だちが初めて来店すると、2人にドリンクチケットをプレゼント";
+    private const string T_TEXT_SIZE = "文字の大きさ";
+    private const string T_TEXT_SIZE_BODY = "アプリ全体の文字の大きさを変えます";
+    private const string T_TEXT_SIZE_SAMPLE = "あいう Aa 123";
+    private const string T_CLOSE = "閉じる";
 
     /// <summary>このメニューで表示しうる文字（NewHome の起動時にまとめてフォントへ登録する）</summary>
     public static string GlyphText => new StringBuilder()
@@ -54,7 +68,11 @@ public class SpaceAccountMenu : MonoBehaviour
         .Append(T_FINAL_BODY).Append(T_FINAL_OK).Append(T_DELETING).Append(T_DELETE_FAILED).Append(T_ZUKAN)
         .Append(T_ZUKAN_BODY).Append(T_ZUKAN_DOWNLOAD).Append(T_ZUKAN_DOWNLOADING)
         .Append(T_ZUKAN_DONE).Append(T_ZUKAN_FAILED).Append(T_ZUKAN_INSTALLED_BODY).Append(T_ZUKAN_REMOVE)
-        .Append(T_ZUKAN_REMOVED).ToString();
+        .Append(T_ZUKAN_REMOVED).Append(T_TEXT_SIZE).Append(T_TEXT_SIZE_BODY).Append(T_TEXT_SIZE_SAMPLE)
+        .Append(T_CLOSE).Append(string.Concat(SpaceTheme.TEXT_SCALE_NAMES)).Append("あ")
+        .Append(T_BIRTH).Append(T_BIRTH_SET_A).Append(T_BIRTH_SET_B).Append(T_BIRTH_BODY).Append(T_BIRTH_FAILED)
+        .Append(T_BIRTH_DONE).Append(T_INVITE).Append(T_INVITE_CAPTION).Append(T_INVITE_TITLE).Append(T_INVITE_NOTE)
+        .Append(SpaceMonthPicker.GlyphText).Append("月").ToString();
 
     // 配置（セーフエリアの右上基準。歯車はヘッダーの「INTALES Cafe」と同じ高さ）
     private const float TRIGGER_SIZE = 96f;
@@ -137,6 +155,9 @@ public class SpaceAccountMenu : MonoBehaviour
         SpaceTheme.Stretch(safe);
         safe.gameObject.AddComponent<SpaceSafeArea>();
 
+        AddItem(safe, T_TEXT_SIZE, false, DrawTextSizeIcon, OnTextSize);
+        AddItem(safe, T_BIRTH, false, DrawBirthIcon, OnBirth);
+        AddItem(safe, T_INVITE, false, DrawInviteIcon, OnInvite);
         AddItem(safe, T_ZUKAN, false, DrawDownloadIcon, OnZukan);
         AddItem(safe, T_PRIVACY, false, DrawDocIcon, OnPrivacy);
         AddItem(safe, T_LOGOUT, false, DrawLogoutIcon, OnLogout);
@@ -183,6 +204,32 @@ public class SpaceAccountMenu : MonoBehaviour
     }
 
     // ---- アイコン（64px の丸の中に、細いバーで記号を描く）----
+    /// <summary>誕生月: 「月」の字</summary>
+    private static void DrawBirthIcon(RectTransform p, Color c)
+    {
+        var t = SpaceTheme.Text(p, "Moon", "月", 32, c, SpaceTheme.CENTER, new Vector2(0f, 1f), new Vector2(44f, 44f),
+            FontStyles.Bold);
+        SpaceTextScaler.Exclude(t);
+    }
+
+    /// <summary>友だちを紹介: 2人の人の形（フレンドのボタンと同じ絵）</summary>
+    private static void DrawInviteIcon(RectTransform p, Color c)
+    {
+        var rt = SpaceTheme.Rect("People", p, SpaceTheme.CENTER, Vector2.zero, new Vector2(40f, 40f));
+        SpaceTheme.Img(rt, SpaceSprites.FriendsIcon, c);
+    }
+
+    /// <summary>文字の大きさ: 大小2つの「あ」</summary>
+    private static void DrawTextSizeIcon(RectTransform p, Color c)
+    {
+        var big = SpaceTheme.Text(p, "Big", "あ", 34, c, SpaceTheme.CENTER, new Vector2(6f, 1f), new Vector2(40f, 44f),
+            FontStyles.Bold);
+        var small = SpaceTheme.Text(p, "Small", "あ", 20, c, SpaceTheme.CENTER, new Vector2(-15f, -6f),
+            new Vector2(24f, 28f), FontStyles.Bold);
+        SpaceTextScaler.Exclude(big);
+        SpaceTextScaler.Exclude(small);
+    }
+
     private static void DrawDocIcon(RectTransform p, Color c)
     {
         SpaceTheme.Bar(p, new Vector2(-11f, 0f), 34f, 3f, 90f, c);   // 左辺
@@ -298,6 +345,128 @@ public class SpaceAccountMenu : MonoBehaviour
     // ================================================================
     // 各ボタン
     // ================================================================
+    /// <summary>
+    /// 文字の大きさ（2026-11-07 ユーザー依頼）: 標準・大きめ・とても大きいの3つ。選ぶとすぐにアプリ全体に反映し、
+    /// この画面も選んだ大きさで作り直す。見本の文字だけは、それぞれの段階の大きさで固定して見せる
+    /// </summary>
+    private void OnTextSize()
+    {
+        Close();
+        _dialog = BuildTextSizePanel();
+    }
+
+    private GameObject BuildTextSizePanel()
+    {
+        const float W = 880f, OPT_H = 150f, OPT_GAP = 20f, TOP = 200f;
+        int n = SpaceTheme.TEXT_SCALES.Length;
+        float h = TOP + n * OPT_H + (n - 1) * OPT_GAP + 220f;
+
+        var canvas = _canvas != null ? _canvas : SpaceTheme.MainCanvas();
+        var root = SpaceTheme.Rect("__TextSizePanel", canvas.transform);
+        SpaceTheme.Stretch(root);
+        root.SetAsLastSibling();
+        var go = root.gameObject;
+        void CloseThis()
+        {
+            if (go != null) Destroy(go);
+            if (_dialog == go) _dialog = null;
+        }
+
+        var dim = SpaceTheme.Rect("Dim", root);
+        SpaceTheme.Stretch(dim);
+        var dimImg = SpaceTheme.Img(dim, null, SpaceTheme.DIM, true);
+        SpaceTheme.Clickable(dim.gameObject, dimImg, CloseThis, false);
+
+        var card = SpaceTheme.Rect("Card", root, SpaceTheme.CENTER, Vector2.zero, new Vector2(W, h));
+        SpaceTheme.Glass(card, 56f, SpaceTheme.GLASS_DEEP, SpaceTheme.A(SpaceTheme.CYAN, 0.4f), true);
+        SpaceTheme.Text(card, "Title", T_TEXT_SIZE, 44, SpaceTheme.TEXT, new Vector2(0.5f, 1f), new Vector2(0f, -80f),
+            new Vector2(W - 80f, 64f), FontStyles.Bold);
+        SpaceTheme.Text(card, "Body", T_TEXT_SIZE_BODY, 28, SpaceTheme.TEXT_SUB, new Vector2(0.5f, 1f),
+            new Vector2(0f, -140f), new Vector2(W - 100f, 44f), FontStyles.Bold);
+
+        int current = SpaceTheme.TextScaleIndex;
+        for (int i = 0; i < n; i++)
+        {
+            int index = i;
+            bool on = i == current;
+            float y = -(TOP + i * (OPT_H + OPT_GAP) + OPT_H / 2f);
+            var opt = SpaceTheme.Rect("Option_" + i, card, new Vector2(0.5f, 1f), new Vector2(0f, y),
+                new Vector2(W - 100f, OPT_H));
+            var face = SpaceTheme.Glass(opt, 40f,
+                on ? SpaceTheme.A(SpaceTheme.CYAN, 0.16f) : new Color(0.07f, 0.09f, 0.24f, 0.78f),
+                on ? SpaceTheme.A(SpaceTheme.CYAN, 0.9f) : (Color?)null, true);
+            SpaceTheme.Clickable(opt.gameObject, face, () =>
+            {
+                if (index == SpaceTheme.TextScaleIndex) return;
+                SpaceTheme.TextScaleIndex = index;
+                CloseThis();
+                _dialog = BuildTextSizePanel(); // 選んだ大きさで作り直す
+            });
+            SpaceTheme.Text(opt, "Name", SpaceTheme.TEXT_SCALE_NAMES[i], 30, on ? SpaceTheme.CYAN : SpaceTheme.TEXT_SUB,
+                new Vector2(0f, 0.5f), new Vector2(40f, 0f), new Vector2(240f, 48f), FontStyles.Bold,
+                TextAlignmentOptions.Left, new Vector2(0f, 0.5f));
+            // 見本（その段階の大きさで固定）
+            var sample = SpaceTheme.Text(opt, "Sample", T_TEXT_SIZE_SAMPLE, 34f * SpaceTheme.TEXT_SCALES[i],
+                SpaceTheme.TEXT, new Vector2(1f, 0.5f), new Vector2(-40f, 0f), new Vector2(460f, OPT_H - 20f),
+                FontStyles.Bold, TextAlignmentOptions.Right, new Vector2(1f, 0.5f));
+            SpaceTextScaler.Exclude(sample);
+            if (on)
+            {
+                // 選んでいる印（左上のチェック）
+                var badge = SpaceTheme.Rect("Check", opt, new Vector2(0f, 1f), new Vector2(0f, 0f), new Vector2(36f, 36f));
+                SpaceTheme.Img(badge, SpaceSprites.Circle, SpaceTheme.CYAN);
+                SpaceTheme.Bar(badge, new Vector2(-4.5f, -1.5f), 11f, 4f, -45f, SpaceTheme.TEXT_DARK);
+                SpaceTheme.Bar(badge, new Vector2(3f, 1.5f), 17f, 4f, 48f, SpaceTheme.TEXT_DARK);
+            }
+        }
+
+        var close = SpaceTheme.Rect("Close", card, new Vector2(0.5f, 0f), new Vector2(0f, 110f), new Vector2(480f, 128f));
+        var closeFace = SpaceTheme.PrimaryFace(close);
+        SpaceTheme.Clickable(close.gameObject, closeFace, CloseThis);
+        var closeText = SpaceTheme.Text(close, "Label", T_CLOSE, 38, SpaceTheme.TEXT_DARK, FontStyles.Bold);
+        SpaceTheme.Stretch(closeText.rectTransform);
+
+        go.AddComponent<SpacePopIn>().Target = card;
+        return go;
+    }
+
+    /// <summary>誕生月: まだなら選んで登録（1回だけ）。登録済みなら月を知らせる</summary>
+    private void OnBirth()
+    {
+        Close();
+        var d = UserDataManager.instance != null ? UserDataManager.instance.UserData : null;
+        if (d == null) return;
+        if (d.BirthMonth >= 1 && d.BirthMonth <= 12)
+        {
+            SpaceTheme.Toast(T_BIRTH_SET_A + d.BirthMonth + T_BIRTH_SET_B, _canvas);
+            return;
+        }
+        _dialog = SpaceMonthPicker.Show(_canvas, 0, month =>
+        {
+            _dialog = null;
+            if (month <= 0) return;
+            RegisterBirthAsync(month).Forget();
+        }, T_BIRTH_BODY);
+    }
+
+    private async UniTaskVoid RegisterBirthAsync(int month)
+    {
+        bool ok = await BirthdayGift.RegisterAsync(month);
+        if (this == null) return;
+        SpaceTheme.Toast(ok ? T_BIRTH_DONE : T_BIRTH_FAILED, _canvas);
+    }
+
+    /// <summary>友だちを紹介: 紹介QR（Referral）を全画面で出す</summary>
+    private void OnInvite()
+    {
+        Close();
+        var m = UserDataManager.instance;
+        if (m == null || string.IsNullOrEmpty(m.UID)) return;
+        string name = m.UserData.Username ?? "";
+        _dialog = SpaceQrSheet.Show(_canvas, T_INVITE_CAPTION, T_INVITE_TITLE, Referral.Payload(m.UID, name),
+            SpaceTheme.NoParse(SpaceTheme.Safe(name)) + " さん", T_INVITE_NOTE, SpaceTheme.MINT, () => _dialog = null);
+    }
+
     private void OnPrivacy()
     {
         Close();

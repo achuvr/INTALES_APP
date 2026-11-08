@@ -72,7 +72,7 @@ public class FirebaseAuth : MonoBehaviour
     /// <summary>
     /// アカウント作成。成功したら初期データを作り、新ホームへ移り始めて null を返す。失敗したら利用者向けのメッセージ。
     /// キャラクター作成は省く（新ホームではキャラクターを使わないため。2026-11-05 ユーザー指定）。
-    /// 旧画面の「あとで作る」と同じく、キャラクターチケットを1枚付けて始める（初期データと同じ書き込みで付ける）
+    /// キャラクターチケットは付けない（プレイヤーの概念をなくしたため。2026-11-07 ユーザー指定）
     /// </summary>
     public async UniTask<string> RegisterWithAsync(string mail, string pw, string nickname)
     {
@@ -91,8 +91,7 @@ public class FirebaseAuth : MonoBehaviour
             created = true;
             Debug.Log("Register Success!");
             await _checkUserSaveData.SaveAndEnterAsync(result.User.UserId, mail, pw, nickname, isLogin: false,
-                characterTicket: 1);
-            LocalHistoryLog.Add("coupon", "キャラクターチケット を1枚 入手（アカウント作成特典）");
+                characterTicket: 0);
             await UserDataManager.instance.FetchUserDataByUIDForReload(true); // 新ホームへ
             return null;
         }

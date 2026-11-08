@@ -173,6 +173,25 @@ public class UserData
     public int DrinkCoupon { get; set; }
     [FirestoreProperty("coffee_coupon")]
     public int CoffeeCoupon { get; set; }
+    /// <summary>フリータイムチケット（フリータイム料金が無料。2026-11-07 追加）</summary>
+    [FirestoreProperty("freetime_coupon")]
+    public int FreeTimeCoupon { get; set; }
+    /// <summary>5時間無料チケット（2026-11-07 追加）</summary>
+    [FirestoreProperty("fivehour_coupon")]
+    public int FiveHourCoupon { get; set; }
+
+    /// <summary>誕生月（1〜12。0＝未登録。アカウント作成時に聞く。登録したあとは本人は変えられない画面にしている）</summary>
+    [FirestoreProperty("birth_month")]
+    public int BirthMonth { get; set; }
+    /// <summary>誕生日特典をもらった年（同じ年に2回もらえないように）</summary>
+    [FirestoreProperty("birthday_gift_year")]
+    public int BirthdayGiftYear { get; set; }
+    /// <summary>紹介してくれた人のUID（友だち紹介のQRを読んだとき。Referral）</summary>
+    [FirestoreProperty("referred_by")]
+    public string ReferredBy { get; set; }
+    /// <summary>紹介されて初めて来店した特典をもらったか</summary>
+    [FirestoreProperty("referral_rewarded")]
+    public bool ReferralRewarded { get; set; }
 
     /// <summary>キャラクターチケット（レベル50到達ごとのボーナス。ガチャからは排出されない）</summary>
     [FirestoreProperty("character_ticket")]
@@ -246,6 +265,30 @@ public class UserData
     private List<string> _favoriteBoardgames;
 
     /// <summary>
+    /// お店に公認されたボードゲーム（キー: BoardGameMarks.KeyOf → 公認された営業日 "yyyy-MM-dd"）。
+    /// スタッフが見せる公認QRを読んだときだけ増える。操作は BoardGameCertify 経由で行う
+    /// </summary>
+    [FirestoreProperty("certified_boardgames")]
+    public Dictionary<string, object> CertifiedMap
+    {
+        get => _certifiedMap ?? (_certifiedMap = new Dictionary<string, object>());
+        set => _certifiedMap = value;
+    }
+    private Dictionary<string, object> _certifiedMap;
+
+    /// <summary>
+    /// アチーブメントのゲームが星を灯した星座（キー: ゲームキー → 星座ID）。ジャンルが2つ以上の星座に当てはまる
+    /// ゲームはお客様が選ぶ。操作は BoardGameCertify 経由で行う
+    /// </summary>
+    [FirestoreProperty("certified_constellation")]
+    public Dictionary<string, object> CertifiedStarMap
+    {
+        get => _certifiedStarMap ?? (_certifiedStarMap = new Dictionary<string, object>());
+        set => _certifiedStarMap = value;
+    }
+    private Dictionary<string, object> _certifiedStarMap;
+
+    /// <summary>
     /// 解放済みの惑星ID（新ホームの中央に置ける惑星。アチーブメント報酬）。
     /// ルミナは最初から持っているので入れない。店頭の惑星QRを読むと ArrayUnion で1つずつ増える
     /// （CallMethodFromQR.UnlockPlanet）。判定は SpacePlanets.IsOwned 経由で行う。
@@ -257,6 +300,34 @@ public class UserData
         set => _planets = value;
     }
     private List<string> _planets;
+
+    /// <summary>
+    /// 来店の記録（惑星と来店のしくみ。公転・流れ星・★特典の状態）の Firestore のマップそのまま。
+    /// 読むときは Journey を使う（数値の型をそろえて読み直したもの）
+    /// </summary>
+    [FirestoreProperty("journey")]
+    public Dictionary<string, object> JourneyMap
+    {
+        get => _journeyMap;
+        set
+        {
+            _journeyMap = value;
+            _journey = null;
+        }
+    }
+    private Dictionary<string, object> _journeyMap;
+    private JourneyData _journey;
+
+    /// <summary>来店の記録（新しい入店QRでまだ一度も入店していなければ null）。書き込みは JourneyService</summary>
+    public JourneyData Journey
+    {
+        get => _journey ?? (_journey = JourneyData.From(_journeyMap));
+        set
+        {
+            _journey = value;
+            _journeyMap = value?.ToMap();
+        }
+    }
 
     /// <summary>スロット番号順に並べたキャラクター一覧（ローカル用）</summary>
     public List<Character> Characters { get; set; }
@@ -316,6 +387,21 @@ public class FriendEntry
     /// <summary>お気に入りかどうか（自分側のみの設定。相手には影響しない）</summary>
     [FirestoreProperty("favorite")]
     public bool Favorite { get; set; }
+
+    /// <summary>
+    /// このフレンドと一緒に来店した営業日（"yyyy-MM-dd"。お店で入店中にどちらかがもう一方のQRを読むと、
+    /// 読んだ側が2人分の friends に書く）。惑星オパーリアの解放と能力に使う（JourneyService）
+    /// </summary>
+    [FirestoreProperty("met")]
+    public string Met { get; set; }
+
+    /// <summary>このフレンドが、その営業日に初めて来店していた（相手のアプリが書く。惑星パステリアの能力）</summary>
+    [FirestoreProperty("first")]
+    public string First { get; set; }
+
+    /// <summary>このフレンドの惑星の能力で、その営業日に流れ星をもう1回もらった（相手のアプリが書く）</summary>
+    [FirestoreProperty("gift")]
+    public string Gift { get; set; }
 }
 
 

@@ -25,10 +25,12 @@ public class SpaceAdminQrList : MonoBehaviour
 {
     private const string T_CAPTION = "ADMIN ONLY";
     private const string T_TITLE = "お客様に見せるQRコード";
-    private static readonly string[] T_TABS = { "クーポン", "惑星の解放", StorePasses.T_SHORT };
+    private static readonly string[] T_TABS = { "入店", "クーポン", "ゲーム", "惑星の解放", StorePasses.T_SHORT };
     private static readonly string[] T_NOTES =
     {
+        "お店の入口などに出しておきます（毎日変わります）",
         "お客様に読み取ってもらうと、1枚もらえます",
+        "遊んだゲームを選んで見せると、アチーブメント達成になり星座が灯ります",
         "条件を達成したお客様に見せて、読み取ってもらいます",
         "購入されたお客様に、種類を選んで受け取りQRを見せます",
     };
@@ -45,6 +47,17 @@ public class SpaceAdminQrList : MonoBehaviour
     private const string T_SCAN_COUPON_SUB = "読み取るたびに1枚ずつ増えます。渡し終えたら閉じてください";
     private const string T_SCAN_PLANET_B = "」が解放されます";
     private const string T_BACK = "一覧にもどる";
+    private const string T_CHECKIN_EN = "CHECK IN";
+    private const string T_CHECKIN_NAME = "入店・退店";
+    private const string T_CHECKIN_CELL = "入店・退店のQRコード";
+    private const string T_CHECKIN_CELL_SUB = "読み取ると入店、入店中なら退店になります";
+    private const string T_CHECKIN_SCAN = "このQRコードを読み取ると、入店（入店中なら退店）になります";
+    private const string T_CHECKIN_SUB = "毎日、朝4時に変わります。表示中は画面が消えません";
+    private const string T_CHECKIN_DAY_B = " の入店QRコードです";
+    private const string T_GAME_SEARCH = "遊んだゲームを検索…";
+    private const string T_GAME_EN = "ACHIEVEMENT";
+    private const string T_GAME_SCAN = "このQRコードを読み取ると、このゲームのアチーブメントを達成します";
+    private const string T_GAME_SUB = "今日だけ使えます。同じ卓の人は全員読み取れます";
 
     /// <summary>この画面で表示しうる文字（惑星の名前は SpacePlanets.GlyphText）</summary>
     public static string GlyphText
@@ -55,7 +68,10 @@ public class SpaceAdminQrList : MonoBehaviour
             sb.Append(T_CAPTION).Append(T_TITLE).Append(T_SCAN_A).Append(T_SCAN_COUPON_B)
               .Append(T_SCAN_COUPON_SUB).Append(T_SCAN_PLANET_B).Append(T_BACK).Append(T_PASS_TAP)
               .Append(T_PASS_ISSUING).Append(T_PASS_ISSUE_FAILED).Append(T_SCAN_PASS_B).Append(T_SCAN_PASS_SUB)
-              .Append(T_PASS_WAITING).Append(T_PASS_DONE).Append(T_PASS_GONE).Append("（）さん");
+              .Append(T_PASS_WAITING).Append(T_PASS_DONE).Append(T_PASS_GONE).Append("（）さん")
+              .Append(T_CHECKIN_EN).Append(T_CHECKIN_NAME).Append(T_CHECKIN_CELL).Append(T_CHECKIN_CELL_SUB)
+              .Append(T_CHECKIN_SCAN).Append(T_CHECKIN_SUB).Append(T_CHECKIN_DAY_B).Append(StoreCalendar.GlyphText)
+              .Append(T_GAME_SEARCH).Append(T_GAME_EN).Append(T_GAME_SCAN).Append(T_GAME_SUB);
             foreach (var t in T_TABS) sb.Append(t);
             foreach (var t in T_NOTES) sb.Append(t);
             foreach (var c in SpaceCoupons.All) sb.Append(c.Name).Append(c.RowDesc).Append(c.En);
@@ -63,7 +79,7 @@ public class SpaceAdminQrList : MonoBehaviour
         }
     }
 
-    private const int TAB_COUPON = 0, TAB_PLANET = 1, TAB_PASS = 2;
+    private const int TAB_CHECKIN = 0, TAB_COUPON = 1, TAB_GAME = 2, TAB_PLANET = 3, TAB_PASS = 4;
 
     // 惑星は4列（惑星を選ぶ画面と同じマス）。クーポンは同じ幅に2列で大きく
     private const int COLS = 4;
@@ -71,18 +87,18 @@ public class SpaceAdminQrList : MonoBehaviour
     private const float GRID_W = COLS * CELL_W + (COLS - 1) * GAP;
     private const float COUPON_W = (GRID_W - GAP) * 0.5f, COUPON_H = 404f, COUPON_ICON = 240f;
     private const float THUMB = 168f;
-    private const float TAB_W = 300f, TAB_H = 84f, TAB_PAD = 7f;
+    private const float TAB_W = 192f, TAB_H = 84f, TAB_PAD = 7f;
     private const float LIST_TOP = 330f, LIST_BOTTOM = 56f, PAD_TOP = 20f, PAD_BOTTOM = 40f, PAD_SIDE = 40f;
     private const float QR_CARD = 760f, QR_IMAGE = 680f;
 
-    /// <summary>最後に開いていたタブ（アプリを起動しているあいだ覚えておく）</summary>
-    private static int s_tab = TAB_COUPON;
+    /// <summary>最後に開いていたタブ（アプリを起動しているあいだ覚えておく。最初は入店）</summary>
+    private static int s_tab = TAB_CHECKIN;
 
     private CanvasGroup _group;
     private RectTransform _safe;
-    private readonly GameObject[] _pages = new GameObject[3];
-    private readonly GameObject[] _tabOn = new GameObject[3];
-    private readonly TextMeshProUGUI[] _tabLabels = new TextMeshProUGUI[3];
+    private readonly GameObject[] _pages = new GameObject[5];
+    private readonly GameObject[] _tabOn = new GameObject[5];
+    private readonly TextMeshProUGUI[] _tabLabels = new TextMeshProUGUI[5];
     private TextMeshProUGUI _note;
     private GameObject _detail;
     private Texture2D _qrTex;
@@ -142,7 +158,7 @@ public class SpaceAdminQrList : MonoBehaviour
 
         var caption = SpaceTheme.Text(_safe, "Caption", T_CAPTION, 24, SpaceTheme.A(SpaceTheme.GOLD, 0.9f),
             new Vector2(0.5f, 1f), new Vector2(0f, -70f), new Vector2(700f, 36f), FontStyles.Bold);
-        caption.characterSpacing = 18f;
+        SpaceTheme.Tracking(caption, 18f);
         SpaceTheme.Text(_safe, "Title", T_TITLE, 44, SpaceTheme.TEXT, new Vector2(0.5f, 1f), new Vector2(0f, -124f),
             new Vector2(800f, 60f), FontStyles.Bold);
         BuildTabs();
@@ -171,7 +187,10 @@ public class SpaceAdminQrList : MonoBehaviour
             SpaceTheme.Stretch(on);
             SpaceTheme.Rounded(on, SpaceTheme.GOLD, TAB_H * 0.5f - 1f);
             _tabOn[i] = on.gameObject;
-            var label = SpaceTheme.Text(seg, "Label", T_TABS[i], 32, SpaceTheme.TEXT_SUB, FontStyles.Bold);
+            var label = SpaceTheme.Text(seg, "Label", T_TABS[i], 30, SpaceTheme.TEXT_SUB, FontStyles.Bold);
+            label.enableAutoSizing = true;
+            label.fontSizeMin = 22f;
+            label.fontSizeMax = 30f;
             SpaceTheme.Stretch(label.rectTransform);
             _tabLabels[i] = label;
             SpaceTheme.Clickable(seg.gameObject, hit, () => SelectTab(index));
@@ -189,7 +208,11 @@ public class SpaceAdminQrList : MonoBehaviour
             _tabOn[i].SetActive(on);
             _tabLabels[i].color = on ? SpaceTheme.TEXT_DARK : SpaceTheme.TEXT_SUB;
             if (on && _pages[i] == null)
-                _pages[i] = i == TAB_COUPON ? BuildCouponPage() : i == TAB_PLANET ? BuildPlanetPage() : BuildPassPage();
+                _pages[i] = i == TAB_CHECKIN ? BuildCheckinPage()
+                    : i == TAB_COUPON ? BuildCouponPage()
+                    : i == TAB_GAME ? BuildGamePage()
+                    : i == TAB_PLANET ? BuildPlanetPage()
+                    : BuildPassPage();
             if (_pages[i] != null) _pages[i].SetActive(on);
         }
         _note.text = T_NOTES[s_tab];
@@ -215,6 +238,52 @@ public class SpaceAdminQrList : MonoBehaviour
         scroll.scrollSensitivity = 40f;
         page = viewport.gameObject;
         return content;
+    }
+
+    // ---------------------------------------------------------------- 入店
+    /// <summary>
+    /// 入店・退店のQR（1日1回変わる）。タブを押したらそのまま大きく出す（2026-11-06 ユーザー指定。
+    /// 以前はマスを1回押してから表示していた）。営業日が変わったら（朝4時）作り直し、表示中は画面を消さない
+    /// </summary>
+    private GameObject BuildCheckinPage()
+    {
+        var page = SpaceTheme.Rect("CheckinPage", _safe);
+        SpaceTheme.Stretch(page);
+        float top = LIST_TOP + 24f;
+
+        var day = StoreCheckinQr.Today;
+        var cardRt = SpaceTheme.Rect("QrCard", page, new Vector2(0.5f, 1f), new Vector2(0f, -(top + QR_CARD * 0.5f)),
+            new Vector2(QR_CARD, QR_CARD));
+        var glow = SpaceTheme.Rect("Glow", page, new Vector2(0.5f, 1f), cardRt.anchoredPosition,
+            new Vector2(QR_CARD + 220f, QR_CARD + 220f));
+        glow.SetSiblingIndex(cardRt.GetSiblingIndex());
+        SpaceTheme.Img(glow, SpaceSprites.Glow, SpaceTheme.A(SpaceTheme.CYAN, 0.30f));
+        SpaceTheme.Rounded(cardRt, Color.white, 44f);
+        var qr = SpaceTheme.Rect("Qr", cardRt, SpaceTheme.CENTER, Vector2.zero, new Vector2(QR_IMAGE, QR_IMAGE));
+        var raw = qr.gameObject.AddComponent<RawImage>();
+        raw.raycastTarget = false;
+        var tex = QRCodeHelper.CreateQRCode(StoreCheckinQr.Payload(day), 512, 512);
+        tex.filterMode = FilterMode.Point; // ドットがにじまないよう拡大は最近傍
+        raw.texture = tex;
+
+        float y = top + QR_CARD + 50f;
+        var dayLabel = SpaceTheme.Text(page, "Day", "", 34, SpaceTheme.CYAN, new Vector2(0.5f, 1f), new Vector2(0f, -y),
+            new Vector2(960f, 48f), FontStyles.Bold);
+        var scan = SpaceTheme.Text(page, "ScanNote", T_CHECKIN_SCAN, 28, SpaceTheme.TEXT_SUB, new Vector2(0.5f, 1f),
+            new Vector2(0f, -(y + 58f)), new Vector2(960f, 44f), FontStyles.Bold);
+        scan.enableAutoSizing = true;
+        scan.fontSizeMin = 20f;
+        scan.fontSizeMax = 28f;
+        var sub = SpaceTheme.Text(page, "ScanSub", T_CHECKIN_SUB, 24, SpaceTheme.TEXT_MUTED, new Vector2(0.5f, 1f),
+            new Vector2(0f, -(y + 104f)), new Vector2(960f, 36f), FontStyles.Bold);
+        sub.enableAutoSizing = true;
+        sub.fontSizeMin = 18f;
+        sub.fontSizeMax = 24f;
+
+        var updater = page.gameObject.AddComponent<CheckinQrUpdater>();
+        updater.Init(raw, dayLabel, day, T_CHECKIN_DAY_B, tex);
+        page.gameObject.AddComponent<SpacePopIn>().Target = cardRt;
+        return page.gameObject;
     }
 
     // ---------------------------------------------------------------- クーポン
@@ -248,6 +317,82 @@ public class SpaceAdminQrList : MonoBehaviour
         QrMark(rt, 36f, 30f);
 
         SpaceTheme.Clickable(rt.gameObject, face, () => ShowCoupon(def));
+    }
+
+    // ---------------------------------------------------------------- ゲーム（公認）
+    /// <summary>検索欄＋ゲームの一覧（仮想スクロール）。選ぶとそのゲームの今日の公認QRを出す</summary>
+    private GameObject BuildGamePage()
+    {
+        var page = SpaceTheme.Rect("GamePage", _safe);
+        page.anchorMin = new Vector2(0.5f, 0f);
+        page.anchorMax = new Vector2(0.5f, 1f);
+        page.pivot = SpaceTheme.CENTER;
+        page.offsetMin = new Vector2(-GRID_W * 0.5f, LIST_BOTTOM);
+        page.offsetMax = new Vector2(GRID_W * 0.5f, -LIST_TOP);
+        var input = SpaceRecruitForm.SearchInput(page, new Vector2(0f, 0f), new Vector2(GRID_W, 96f), T_GAME_SEARCH);
+
+        // 行の数は大きめの高さで用意し（画面の高さは機種で違う）、枠は検索欄の下いっぱいに広げる
+        const float listH = 1900f;
+        var games = BoardGameCatalog.Load()?.games ?? Array.Empty<BoardGameEntry>();
+        var byTitle = new System.Collections.Generic.Dictionary<string, BoardGameEntry>();
+        foreach (var g in games)
+            if (!string.IsNullOrEmpty(g.title) && !byTitle.ContainsKey(g.title)) byTitle[g.title] = g;
+        var picker = TitlePickerList.Create(page, Vector2.zero, GRID_W, listH,
+            SpaceTheme.Font, t => { if (byTitle.TryGetValue(t, out var g)) ShowGame(g); },
+            new Color(0.09f, 0.12f, 0.30f, 0.55f), SpaceTheme.TEXT);
+        var pickerRt = (RectTransform)picker.transform;
+        pickerRt.anchorMin = Vector2.zero;
+        pickerRt.anchorMax = Vector2.one;
+        pickerRt.pivot = SpaceTheme.CENTER;
+        pickerRt.offsetMin = Vector2.zero;
+        pickerRt.offsetMax = new Vector2(0f, -120f);
+        var all = new System.Collections.Generic.List<string>(byTitle.Keys);
+        all.Sort(StringComparer.Ordinal);
+        picker.PrewarmAsync(all);
+
+        void Refresh(string q)
+        {
+            q = (q ?? "").Trim().ToLowerInvariant();
+            if (string.IsNullOrEmpty(q))
+            {
+                picker.SetItems(all);
+                return;
+            }
+            var hit = new System.Collections.Generic.List<string>();
+            foreach (var kv in byTitle)
+            {
+                var g = kv.Value;
+                if (kv.Key.ToLowerInvariant().Contains(q)
+                    || (g.title_en != null && g.title_en.ToLowerInvariant().Contains(q)))
+                    hit.Add(kv.Key);
+            }
+            hit.Sort(StringComparer.Ordinal);
+            picker.SetItems(hit);
+        }
+        input.onValueChanged.AddListener(Refresh);
+        Refresh("");
+        return page.gameObject;
+    }
+
+    private void ShowGame(BoardGameEntry g)
+    {
+        var safe = OpenDetail();
+        if (safe == null) return;
+        var color = SpaceTheme.GOLD;
+        var icon = SpaceTheme.Rect("Icon", safe, new Vector2(0.5f, 1f), new Vector2(0f, -150f), new Vector2(150f, 150f));
+        SpaceTheme.Img(icon, SpaceSprites.Glow, SpaceTheme.A(color, 0.6f));
+        var core = SpaceTheme.Rect("Core", icon, SpaceTheme.CENTER, Vector2.zero, new Vector2(70f, 70f));
+        SpaceTheme.Img(core, SpaceSprites.Sparkle, Color.white);
+        FillDetail(safe, T_GAME_EN, color, SpaceTheme.NoParse(SpaceTheme.SafeNow(g.title)), BoardGameCertify.Payload(g),
+            T_GAME_SCAN, T_GAME_SUB);
+        var name = safe.Find("Name") as RectTransform;
+        var tmp = name != null ? name.GetComponent<TextMeshProUGUI>() : null;
+        if (tmp != null)
+        {
+            tmp.enableAutoSizing = true;
+            tmp.fontSizeMin = 30f;
+            tmp.fontSizeMax = 56f;
+        }
     }
 
     // ---------------------------------------------------------------- 惑星
@@ -501,7 +646,7 @@ public class SpaceAdminQrList : MonoBehaviour
     {
         var enText = SpaceTheme.Text(safe, "En", en, 26, SpaceTheme.A(accent, 0.95f), new Vector2(0.5f, 1f),
             new Vector2(0f, -258f), new Vector2(900f, 36f), FontStyles.Bold);
-        enText.characterSpacing = 24f;
+        SpaceTheme.Tracking(enText, 24f);
         SpaceTheme.Text(safe, "Name", name, 56, SpaceTheme.TEXT, new Vector2(0.5f, 1f), new Vector2(0f, -310f),
             new Vector2(900f, 72f), FontStyles.Bold);
 
@@ -585,5 +730,70 @@ public class SpaceAdminQrList : MonoBehaviour
         var cb = _onClosed;
         _onClosed = null;
         cb?.Invoke();
+    }
+}
+
+/// <summary>
+/// 管理者の画面の入店・退店のQR: 営業日が変わったら（朝4時）QRを作り直し、何日のQRかを出す。
+/// 表示しているあいだは画面が消えないようにする（お店の端末に出しておくため）
+/// </summary>
+public class CheckinQrUpdater : MonoBehaviour
+{
+    private RawImage _raw;
+    private TextMeshProUGUI _label;
+    private System.DateTime _day;
+    private string _suffix;
+    private Texture2D _tex; // 自分で作り直したもの（最初の1枚は一覧の画面が片づける）
+    private float _nextCheck;
+    private int _sleep;
+
+    /// <param name="ownedTexture">最初のQRの画像をこの部品に片づけさせるとき（入店タブにそのまま出す場合）</param>
+    public void Init(RawImage raw, TextMeshProUGUI label, System.DateTime day, string suffix, Texture2D ownedTexture = null)
+    {
+        _raw = raw;
+        _label = label;
+        _day = day;
+        _suffix = suffix;
+        _tex = ownedTexture;
+        if (_label != null) _label.text = StoreCalendar.MonthDayW(_day) + _suffix;
+    }
+
+    // 表示しているあいだだけ画面を消さない（ほかのタブに切り替えたら元に戻す）
+    private bool _awake;
+
+    private void OnEnable()
+    {
+        if (_awake) return;
+        _awake = true;
+        _sleep = Screen.sleepTimeout;
+        Screen.sleepTimeout = SleepTimeout.NeverSleep;
+    }
+
+    private void OnDisable()
+    {
+        if (!_awake) return;
+        _awake = false;
+        Screen.sleepTimeout = _sleep;
+    }
+
+    private void Update()
+    {
+        if (Time.unscaledTime < _nextCheck) return;
+        _nextCheck = Time.unscaledTime + 1f;
+        var day = StoreCheckinQr.Today;
+        if (day == _day || _raw == null) return;
+        _day = day;
+        var old = _raw.texture;
+        var tex = QRCodeHelper.CreateQRCode(StoreCheckinQr.Payload(day), 512, 512);
+        tex.filterMode = FilterMode.Point;
+        _raw.texture = tex;
+        if (old != null) Destroy(old);
+        _tex = tex;
+        if (_label != null) _label.text = StoreCalendar.MonthDayW(_day) + _suffix;
+    }
+
+    private void OnDestroy()
+    {
+        if (_tex != null) Destroy(_tex);
     }
 }

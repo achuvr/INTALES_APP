@@ -392,6 +392,7 @@ public static class SpacePlanetSurfaces
             case "pastelia": return new Pastelia();
             case "neonia": return new Neonia();
             case "limona": return new Limona();
+            case "legacia": return new Legacia();
             default: return new Aquaris();
         }
     }
@@ -1220,6 +1221,90 @@ public static class SpacePlanetSurfaces
 
         public override float Cloud(float x, float y, float z, float lat) =>
             Smooth(0.15f, 0.40f, _c.Fbm(x * 2.2f, y * 7f, z * 2.2f, 5)) * 0.6f;
+    }
+
+    /// <summary>
+    /// 古参の人の惑星（レガシア）: 瑠璃（ラピスラズリ）のような深い青に、白い大理石の筋が走る。
+    /// そこに白銀に光る古代文字の帯が何本も巻きつく（2026-11-07 ユーザー指定「青と白を基調に高級感」。最初は金色だった）。
+    /// 帯は2本の細い線のあいだに、マスごとに形の違う文字（縦棒・横棒・点・ななめ）を刻む。
+    /// 夜側では帯と、散らばる白銀の粒が光る（GlowBase で昼側もほんのり光る）
+    /// </summary>
+    private sealed class Legacia : Painter
+    {
+        private static readonly float[] Bands = { -0.92f, -0.42f, 0.10f, 0.62f }; // 帯の中心の緯度（ラジアン）
+        private const float HALF = 0.055f;  // 帯の半分の幅（ラジアン）
+        private const int CELLS = 40;       // 1周あたりの文字の数
+        private readonly Noise _n = new Noise(2401), _w = new Noise(2402), _g = new Noise(2403);
+        public override bool HasGlow => true;
+
+        public override void Paint(float x, float y, float z, float lat, ref Px px)
+        {
+            // 地: 瑠璃色のまだら（濃紺〜ロイヤルブルー）＋細かな粒
+            float qx = _w.Fbm(x * 1.6f, y * 1.6f, z * 1.6f, 3), qz = _w.Fbm(x * 1.6f + 3f, y * 1.6f, z * 1.6f, 3);
+            float f = _n.Fbm(x * 2.4f + qx * 1.5f, y * 2.4f, z * 2.4f + qz * 1.5f, 5);
+            C3 c = C3.Lerp(C3.Hex(0x0B1A52), C3.Hex(0x2650B8), Smooth(-0.35f, 0.45f, f));
+            c = C3.Lerp(c, C3.Hex(0x4C7FE0), Smooth(0.30f, 0.60f, f) * 0.45f);
+            c *= 0.92f + 0.10f * _n.At(x * 40f, y * 40f, z * 40f);
+            // 白い大理石の筋（ゆがめたノイズの 0 付近を細い線にする。太い筋と細い筋の2種類）
+            float v1 = MathF.Abs(_w.Fbm(x * 1.1f + qx * 0.9f + 5f, y * 1.1f + qz * 0.6f, z * 1.1f, 3));
+            float v2 = MathF.Abs(_n.Fbm(x * 2.6f + qz * 0.8f + 9f, y * 2.6f, z * 2.6f + qx * 0.8f, 3));
+            float vein = Math.Max(Smooth(0.030f, 0.0f, v1), Smooth(0.012f, 0.0f, v2) * 0.35f);
+            vein = Math.Max(vein, Smooth(0.12f, 0.0f, v1) * 0.25f); // 筋のまわりのにじみ
+            c = C3.Lerp(c, C3.Hex(0xEEF4FF), vein);
+
+            float aa = Math.Max(0.004f, PixelAngle);
+            float lon = MathF.Atan2(x, z);
+            float cl = Math.Max(0.15f, MathF.Cos(lat));
+            float cellAngle = MathF.PI * 2f / CELLS;
+            float line = 0f;
+            for (int b = 0; b < Bands.Length; b++)
+            {
+                float dv = lat - Bands[b];
+                if (MathF.Abs(dv) > HALF + 0.02f) continue;
+                // 帯のふちの2本の線
+                float edge = MathF.Abs(MathF.Abs(dv) - HALF);
+                line = Math.Max(line, Clamp01((0.006f - edge) / aa + 0.5f));
+                if (MathF.Abs(dv) > HALF - 0.012f) continue;
+
+                // 文字のマス（帯ごとに少しずらす）
+                float g = (lon / cellAngle) + b * 0.37f;
+                int cell = (int)MathF.Floor(g);
+                float du = (g - cell - 0.5f) * cellAngle * cl; // マスの中心からの横の距離（ラジアン）
+                uint h = Mix((uint)(b * 7919 + (cell + 1000) * 104729 + 31));
+                float v = dv / (HALF - 0.012f);                 // -1〜1（帯の中での高さ）
+                float halfW = cellAngle * cl * 0.30f;           // 文字の半分の幅
+                float w = 0.0045f;
+                float glyph = 0f;
+                if ((h & 1) != 0) glyph = Math.Max(glyph, Clamp01((w - MathF.Abs(du)) / aa + 0.5f) * Clamp01((0.75f - MathF.Abs(v)) * 8f));
+                if ((h & 2) != 0) glyph = Math.Max(glyph, Clamp01((w - MathF.Abs(dv)) / aa + 0.5f) * Clamp01((halfW - MathF.Abs(du)) / aa + 0.5f));
+                if ((h & 4) != 0)
+                {
+                    float d = MathF.Sqrt(du * du + (dv - (HALF - 0.012f) * 0.55f) * (dv - (HALF - 0.012f) * 0.55f));
+                    glyph = Math.Max(glyph, Clamp01((0.008f - d) / aa + 0.5f));
+                }
+                if ((h & 8) != 0)
+                {
+                    float diag = MathF.Abs(du - dv * 0.6f) / 1.17f;
+                    glyph = Math.Max(glyph, Clamp01((w - diag) / aa + 0.5f) * Clamp01((0.7f - MathF.Abs(v)) * 8f));
+                }
+                if ((h & 15) == 0) // 空のマスは丸い印
+                {
+                    float r = MathF.Sqrt(du * du + dv * dv);
+                    glyph = Math.Max(glyph, Clamp01((w - MathF.Abs(r - 0.016f)) / aa + 0.5f));
+                }
+                line = Math.Max(line, glyph);
+                // 帯の地は深い紺に（白銀の文字が浮かぶように）
+                c = C3.Lerp(c, C3.Hex(0x081340), 0.7f);
+            }
+
+            // 散らばる白銀の粒（星のきらめき）
+            float dust = Smooth(0.47f, 0.54f, _g.Fbm(x * 30f, y * 30f, z * 30f, 2)) * 0.7f;
+
+            float lit = Math.Max(line, dust * 0.7f);
+            px.Surface = C3.Lerp(c, C3.Hex(0xF4F8FF), lit * 0.9f);
+            px.Glow = C3.Hex(0xD8E8FF);
+            px.GlowA = Math.Max(line, dust * 0.5f);
+        }
     }
 
     // ================================================================

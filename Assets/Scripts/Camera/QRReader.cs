@@ -89,6 +89,34 @@ public class QRReader : MonoBehaviour
             return;
         }
 
+        // 入店・退店のQR（"checkin:{営業日}:{署名}"。お店の端末に出す、1日1回変わるQR）
+        if (_result.StartsWith(StoreCheckinQr.PREFIX))
+        {
+            _callMethodFromQR.ToggleVisitSigned(_result);
+            return;
+        }
+
+        // ボードゲームの公認QR（"play:{ゲームキー}:{営業日}:{署名}"。スタッフが卓で見せる。その日のうちだけ）
+        if (_result.StartsWith(BoardGameCertify.QR_PREFIX))
+        {
+            _callMethodFromQR.CertifyGame(_result).Forget();
+            return;
+        }
+
+        // 会員証QR（"member:..."。お客様が所持品から出し、スタッフが読む。お会計用）
+        if (_result.StartsWith(MemberCard.PREFIX))
+        {
+            _callMethodFromQR.ShowMember(_result);
+            return;
+        }
+
+        // 友だち紹介QR（"invite:{uid}:{名前}"。初めての人が読む）
+        if (_result.StartsWith(Referral.QR_PREFIX))
+        {
+            _callMethodFromQR.AcceptInvite(_result).Forget();
+            return;
+        }
+
         // 惑星の解放QR（"planet:{惑星ID}:{署名}"。アチーブメント報酬）
         if (_result.StartsWith(SpacePlanets.QR_PREFIX))
         {
@@ -140,8 +168,14 @@ public class QRReader : MonoBehaviour
             case CallMethodFromQR.QR_COFFEE_COUPON:
                 _callMethodFromQR.Coffee();
                 break;
+            case CallMethodFromQR.QR_FREETIME_COUPON:
+                _callMethodFromQR.FreeTime();
+                break;
+            case CallMethodFromQR.QR_FIVEHOUR_COUPON:
+                _callMethodFromQR.FiveHour();
+                break;
 
-            // 入退店兼用QR（1枚で in/out を自動切り替え）
+            // 以前の固定の入退店QR。新ホームでは退店だけできる（入店は1日1回変わる入店QRで。ToggleVisit）
             case "checkin":
             case "checkout":
             case "visit":

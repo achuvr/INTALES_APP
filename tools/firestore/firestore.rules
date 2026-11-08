@@ -35,7 +35,8 @@ service cloud.firestore {
     //   削除: 不可
     // ================================================================
     match /users/{userId} {
-      allow read: if signedIn() && request.auth.uid == userId;
+      // 管理者は読める（会員証QRを読んだとき、お会計でパス・クーポン・誕生月を見るため。2026-11-07）
+      allow read: if (signedIn() && request.auth.uid == userId) || isAdmin();
       allow create: if signedIn() && request.auth.uid == userId;
       allow update: if signedIn() && (
         request.auth.uid == userId
@@ -58,6 +59,38 @@ service cloud.firestore {
       match /characters/{characterId} {
         allow read, write: if signedIn() && request.auth.uid == userId;
       }
+    }
+
+    // ================================================================
+    // 友だち紹介（2026-11-07）referrals/{紹介されて来た人のUID}
+    //   = { from: 紹介した人のUID, name: 紹介されて来た人の名前, at, status: joined|visited, claimed, visited_at }
+    //   作成: 紹介されて来た人が、紹介QRを読んだとき（1回だけ。自分は紹介できない）
+    //   更新: 紹介されて来た人が、初めて入店したとき joined → visited
+    //         紹介した人が、特典を受け取ったとき claimed false → true
+    //   読み取り: その2人だけ
+    // ================================================================
+    match /referrals/{newUid} {
+      allow get: if signedIn() && (request.auth.uid == newUid || resource.data.from == request.auth.uid);
+      allow list: if signedIn() && resource.data.from == request.auth.uid;
+      allow create: if signedIn() && request.auth.uid == newUid
+        && request.resource.data.keys().hasOnly(['from', 'name', 'at', 'status', 'claimed'])
+        && request.resource.data.from is string
+        && request.resource.data.from != newUid
+        && request.resource.data.status == 'joined'
+        && request.resource.data.claimed == false
+        && request.resource.data.at == request.time;
+      allow update: if signedIn() && (
+        (request.auth.uid == newUid
+          && resource.data.status == 'joined'
+          && request.resource.data.status == 'visited'
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'visited_at']))
+        || (resource.data.from == request.auth.uid
+          && resource.data.status == 'visited'
+          && resource.data.claimed == false
+          && request.resource.data.claimed == true
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['claimed']))
+      );
+      allow delete: if false;
     }
 
     // ================================================================

@@ -14,6 +14,8 @@ public sealed class SpacePlanetDef
     public Color Accent;  // 惑星のまわりの光・ホームのオーブの光
     /// <summary>ルミナ: 最初からあるシアン〜すみれ色のオーブ（テクスチャを使わない）</summary>
     public bool IsOrb;
+    /// <summary>以前のアプリでレベルを上げてきた人だけが持つ惑星（今は手に入らない）。持っていない人の一覧には出さない</summary>
+    public bool Legacy;
 
     // ---- 球の描き方（SpaceSphere）----
     public float Tilt;            // 自転軸の画面内の傾き（度。反時計回りが正）
@@ -193,7 +195,35 @@ public static class SpacePlanets
             Accent = Hex(0x3FF0FF), Tilt = 10f, Incline = 12f, Ambient = 0.10f, Rim = Hex(0x7F9BFF), RimAlpha = 0.8f,
             GlowBase = 0.55f,
         },
+        // 古参の人への贈りもの（2026-11-07 ユーザー指定「以前から来ている人しかゲットできない惑星」）。
+        // 配るのは tools/firestore/grant-legacy-planet.js。持っていない人の一覧・解放の数には出さない（Visible）
+        new SpacePlanetDef
+        {
+            Id = LEGACY_ID, Name = "レガシア", En = "LEGACIA", Desc = "古き冒険者たちの記憶が眠る瑠璃と白銀の惑星",
+            Accent = Hex(0x9CC8FF), Tilt = -14f, Incline = 12f, Ambient = 0.08f, Rim = Hex(0xEAF3FF), RimAlpha = 0.95f,
+            GlowBase = 0.35f, HaloScale = 2.1f, HaloAlpha = 0.5f, SpinPeriod = 130f, Legacy = true,
+        },
     };
+
+    public const string LEGACY_ID = "legacia";
+
+    /// <summary>一覧に出す惑星（古参の惑星は持っている人にだけ出す）</summary>
+    public static SpacePlanetDef[] Visible => Array.FindAll(All, d => !d.Legacy || IsOwned(d));
+
+    /// <summary>
+    /// 古参の惑星の贈りもののお知らせを、この端末・このアカウントでまだ出していなければ true を返して「出した」にする。
+    /// 店頭のQR（管理者のQR一覧の「惑星の解放」タブ）でも、スクリプトで配っても、お知らせは1回だけ
+    /// </summary>
+    public static bool TakeLegacyGift()
+    {
+        var user = Firebase.Auth.FirebaseAuth.DefaultInstance.CurrentUser;
+        if (user == null) return false;
+        string key = "space_legacy_gift_" + user.UserId;
+        if (PlayerPrefs.GetInt(key, 0) == 1) return false;
+        PlayerPrefs.SetInt(key, 1);
+        PlayerPrefs.Save();
+        return true;
+    }
 
     // ---- 惑星の解放（アチーブメント報酬）で出す文言 ----
     public const string T_UNLOCKED_TITLE = "新しい惑星を解放しました！";
@@ -201,6 +231,8 @@ public static class SpacePlanets
     public const string T_HOW_TO_CHOOSE = "ホームの惑星ボタンからいつでも選べます";
     public const string T_INVALID_QR = "無効な惑星QRです";
     public const string T_UNLOCK_FAILED = "惑星の解放に失敗しました\n通信環境を確認して再度お試しください";
+    public const string T_LEGACY_TITLE = "これまでの冒険に感謝をこめて";
+    public const string T_LEGACY_NOTE = "以前からレベルを上げてきた方だけの、特別な惑星です";
 
     /// <summary>惑星の名前・説明・解放の文言に使う文字（NewHome の起動時にまとめてフォントへ登録する）</summary>
     public static string GlyphText
@@ -210,7 +242,7 @@ public static class SpacePlanets
             var sb = new StringBuilder();
             foreach (var d in All) sb.Append(d.Name).Append(d.En).Append(d.Desc);
             sb.Append(T_UNLOCKED_TITLE).Append(T_ALREADY_TITLE).Append(T_HOW_TO_CHOOSE).Append(T_INVALID_QR)
-              .Append(T_UNLOCK_FAILED);
+              .Append(T_UNLOCK_FAILED).Append(T_LEGACY_TITLE).Append(T_LEGACY_NOTE);
             return sb.ToString();
         }
     }
@@ -277,7 +309,7 @@ public static class SpacePlanets
         get
         {
             int n = 0;
-            foreach (var d in All)
+            foreach (var d in Visible)
                 if (IsOwned(d)) n++;
             return n;
         }

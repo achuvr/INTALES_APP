@@ -1,10 +1,19 @@
 # ninja log v5
 25	1415	8154945470907485	GameActivity/CMakeFiles/game.dir/UGAInputKeyEvent.cpp.o	19a596e5d3b5b24f
 19	1421	8154945470937569	GameActivity/CMakeFiles/game.dir/UGAEntry.cpp.o	9e5ee914a5d9bbad
-7	1423	8154945470977873	GameActivity/CMakeFiles/game.dir/UGAConfiguration.cpp.o	2279a1b178515fc8
-44	1426	8154945471063074	GameActivity/CMakeFiles/game.dir/UGAInputMotionEvent.cpp.o	15249be604cba3f7
-0	1441	8154945471233734	GameActivity/CMakeFiles/game.dir/UGADebug.cpp.o	6a272d546552a9a3
 37	1552	8154945472355423	GameActivity/CMakeFiles/game.dir/UGASoftKeyboard.cpp.o	b0565194191ad24a
+7	1423	8154945470977873	GameActivity/CMakeFiles/game.dir/UGAConfiguration.cpp.o	2279a1b178515fc8
+0	1441	8154945471233734	GameActivity/CMakeFiles/game.dir/UGADebug.cpp.o	6a272d546552a9a3
+44	1426	8154945471063074	GameActivity/CMakeFiles/game.dir/UGAInputMotionEvent.cpp.o	15249be604cba3f7
 30	1588	8154945472714832	GameActivity/CMakeFiles/game.dir/UGAInput.cpp.o	85d1bfa7d5a82f04
-13	1672	8154945473531847	GameActivity/CMakeFiles/game.dir/UGAApplication.cpp.o	c371959da0f1123e
 1673	1814	8154945474971592	C:/Users/intal/works/Personal/Unity/INTALES_APP/Library/Bee/Android/Prj/IL2CPP/Gradle/unityLibrary/build/intermediates/cxx/RelWithDebInfo/2o4p5v4u/obj/arm64-v8a/libgame.so	ddf1d24358e85bf4
+13	1672	8154945473531847	GameActivity/CMakeFiles/game.dir/UGAApplication.cpp.o	c371959da0f1123e
+26	1965	8156975713718222	GameActivity/CMakeFiles/game.dir/UGAEntry.cpp.o	9e5ee914a5d9bbad
+47	1967	8156975713789405	GameActivity/CMakeFiles/game.dir/UGAInputKeyEvent.cpp.o	19a596e5d3b5b24f
+12	2032	8156975714362591	GameActivity/CMakeFiles/game.dir/UGAConfiguration.cpp.o	2279a1b178515fc8
+56	2078	8156975714500160	GameActivity/CMakeFiles/game.dir/UGAInputMotionEvent.cpp.o	15249be604cba3f7
+20	2106	8156975715294007	GameActivity/CMakeFiles/game.dir/UGADebug.cpp.o	6a272d546552a9a3
+65	2253	8156975716731760	GameActivity/CMakeFiles/game.dir/UGASoftKeyboard.cpp.o	b0565194191ad24a
+39	2254	8156975716746802	GameActivity/CMakeFiles/game.dir/UGAInput.cpp.o	85d1bfa7d5a82f04
+32	2325	8156975717445074	GameActivity/CMakeFiles/game.dir/UGAApplication.cpp.o	c371959da0f1123e
+2325	2491	8156975719121057	C:/Users/intal/works/Personal/Unity/INTALES_APP/Library/Bee/Android/Prj/IL2CPP/Gradle/unityLibrary/build/intermediates/cxx/RelWithDebInfo/2o4p5v4u/obj/arm64-v8a/libgame.so	ddf1d24358e85bf4

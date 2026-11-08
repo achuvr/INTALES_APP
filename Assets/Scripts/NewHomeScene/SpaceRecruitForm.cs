@@ -172,7 +172,7 @@ public class SpaceRecruitForm : MonoBehaviour
         var caption = SpaceTheme.Text(_sheet, "Caption", T_CAPTION, 24, SpaceTheme.A(SpaceTheme.MINT, 0.85f),
             new Vector2(0f, 1f), new Vector2(SIDE, -70f), new Vector2(400f, 36f), FontStyles.Bold,
             TextAlignmentOptions.Left, new Vector2(0f, 0.5f));
-        caption.characterSpacing = 18f;
+        SpaceTheme.Tracking(caption, 18f);
         SpaceTheme.Text(_sheet, "Title", T_TITLE, 52, SpaceTheme.TEXT, new Vector2(0f, 1f), new Vector2(SIDE, -128f),
             new Vector2(760f, 70f), FontStyles.Bold, TextAlignmentOptions.Left, new Vector2(0f, 0.5f));
         CloseButton(_sheet, -96f, Close);
@@ -673,7 +673,7 @@ public class SpaceRecruitForm : MonoBehaviour
     }
 
     /// <summary>ゲーム名の検索欄（入力は絞り込みにだけ使い、書き込みはしない）</summary>
-    private static TMP_InputField SearchInput(RectTransform parent, Vector2 topLeft, Vector2 size, string placeholder)
+    internal static TMP_InputField SearchInput(RectTransform parent, Vector2 topLeft, Vector2 size, string placeholder)
     {
         var bar = SpaceTheme.Rect("Search", parent, new Vector2(0f, 1f), topLeft, size, new Vector2(0f, 1f));
         SpaceTheme.Glass(bar, 32f, new Color(0.03f, 0.04f, 0.12f, 0.9f), SpaceTheme.A(SpaceTheme.CYAN, 0.35f), true);

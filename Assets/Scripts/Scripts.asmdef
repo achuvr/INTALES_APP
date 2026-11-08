@@ -17,7 +17,8 @@
         "Fusion.Unity",
         "Unity.InputSystem",
         "NativeCamera.Runtime",
-        "NativeGallery.Runtime"
+        "NativeGallery.Runtime",
+        "Unity.Notifications.Unified"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],
@@ -26,6 +27,12 @@
     "precompiledReferences": [],
     "autoReferenced": true,
     "defineConstraints": [],
-    "versionDefines": [],
+    "versionDefines": [
+        {
+            "name": "com.unity.mobile.notifications",
+            "expression": "2.0.0",
+            "define": "MOBILE_NOTIFICATIONS"
+        }
+    ],
     "noEngineReferences": false
 }

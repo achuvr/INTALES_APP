@@ -109,7 +109,7 @@ public class CheckUserSaveData : MonoBehaviour
                 // アカウント作成の途中で初期データを書けなかったアカウント: ここで初期データを作る
                 // （名前は空。新ホームのフレンドの画面から付けられる）
                 Debug.LogWarning($"ユーザーの初期データがないので作ります: {uid}");
-                await docRef.SetAsync(InitialData("", 1), SetOptions.MergeAll).AsUniTask();
+                await docRef.SetAsync(InitialData("", 0), SetOptions.MergeAll).AsUniTask();
                 name = "";
             }
             WriteUserFile(path, uid, mail, pw, name);
@@ -142,6 +142,9 @@ public class CheckUserSaveData : MonoBehaviour
             { "characters", new Dictionary<string, object>() } // キャラはこのマップに内蔵する（サブコレクション廃止）
         };
         if (characterTicket > 0) settings["character_ticket"] = characterTicket;
+        // アカウント作成の画面で選んだ誕生月（2026-11-07）。選ばなかったら入れない（あとから歯車メニューで登録できる）
+        if (SignupExtras.BirthMonth >= 1 && SignupExtras.BirthMonth <= 12) settings["birth_month"] = SignupExtras.BirthMonth;
+        SignupExtras.BirthMonth = 0;
         return settings;
     }
 

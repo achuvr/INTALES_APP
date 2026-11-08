@@ -165,12 +165,12 @@ public class SpacePassCard : MonoBehaviour
         // 文字（箔押し風）
         var brand = Foil(root, "Brand", T_BRAND, 24f * u, st, new Vector2(0f, 1f), new Vector2(pad, -52f * u),
             new Vector2(400f * u, 36f * u), TextAlignmentOptions.Left, new Vector2(0f, 0.5f), 0.9f);
-        brand.characterSpacing = 40f;
+        SpaceTheme.Tracking(brand, 40f);
         TypePill(root, type.Label, st, u, pad);
 
         var title = Foil(root, "Title", type.En, 64f * u, st, new Vector2(0f, 1f), new Vector2(pad, -276f * u),
             new Vector2(width - pad * 2f, 84f * u), TextAlignmentOptions.Left, new Vector2(0f, 0.5f));
-        title.characterSpacing = 6f;
+        SpaceTheme.Tracking(title, 6f);
         Foil(root, "Sub", StorePasses.T_NAME, 28f * u, st, new Vector2(0f, 1f), new Vector2(pad, -336f * u),
             new Vector2(600f * u, 40f * u), TextAlignmentOptions.Left, new Vector2(0f, 0.5f), 0.85f);
 
@@ -179,13 +179,15 @@ public class SpacePassCard : MonoBehaviour
         float col2 = pad + 280f * u;
         Foil(root, "BoughtLabel", T_BOUGHT, 20f * u, st, new Vector2(0f, 1f), new Vector2(pad, -423f * u),
             new Vector2(260f * u, 30f * u), TextAlignmentOptions.Left, new Vector2(0f, 0.5f), 0.62f);
-        Foil(root, "Bought", StorePasses.DateText(start), 36f * u, st, new Vector2(0f, 1f), new Vector2(pad, -463f * u),
-            new Vector2(270f * u, 50f * u), TextAlignmentOptions.Left, new Vector2(0f, 0.5f)).characterSpacing = 2f;
+        var bought = Foil(root, "Bought", StorePasses.DateText(start), 36f * u, st, new Vector2(0f, 1f),
+            new Vector2(pad, -463f * u), new Vector2(270f * u, 50f * u), TextAlignmentOptions.Left, new Vector2(0f, 0.5f));
+        SpaceTheme.Tracking(bought, 2f);
         Foil(root, "ExpiresLabel", T_EXPIRES, 20f * u, st, new Vector2(0f, 1f), new Vector2(col2, -423f * u),
             new Vector2(260f * u, 30f * u), TextAlignmentOptions.Left, new Vector2(0f, 0.5f), 0.62f);
-        Foil(root, "Expires", StorePasses.DateText(expiry) + $"<size=78%>{T_UNTIL}</size>", 36f * u, st,
+        var expires = Foil(root, "Expires", StorePasses.DateText(expiry) + $"<size=78%>{T_UNTIL}</size>", 36f * u, st,
             new Vector2(0f, 1f), new Vector2(col2, -463f * u), new Vector2(360f * u, 50f * u),
-            TextAlignmentOptions.Left, new Vector2(0f, 0.5f)).characterSpacing = 2f;
+            TextAlignmentOptions.Left, new Vector2(0f, 0.5f));
+        SpaceTheme.Tracking(expires, 2f);
 
         string left = pass == null ? T_SAMPLE_DAYS
             : expired ? T_EXPIRED

@@ -1145,15 +1145,18 @@ public class BossBattleController : MonoBehaviour
         var chars = manager.UserData.Characters;
         if (chars == null || idx >= chars.Count) return;
         var chara = chars[idx];
-        int newLevel = chara.Level + 1 + Mathf.Max(0, extraLevels);
+        // プレイヤー（キャラクター）の概念はアプリから外したので、討伐でもレベルは上げない（2026-11-06 ユーザー指定）
+        bool levels = CallMethodFromQR.PLAYER_LEVELS;
+        int newLevel = levels ? chara.Level + 1 + Mathf.Max(0, extraLevels) : chara.Level;
+        if (!levels && gp <= 0) return;
 
         try
         {
             var updates = new Dictionary<FieldPath, object>
             {
-                { new FieldPath("characters", idx.ToString(), "lv"), newLevel },
                 { new FieldPath("lastDate"), Timestamp.GetCurrentTimestamp() },
             };
+            if (levels) updates[new FieldPath("characters", idx.ToString(), "lv")] = newLevel;
             if (gp > 0)
                 updates[new FieldPath("gp")] = FieldValue.Increment(gp);
 

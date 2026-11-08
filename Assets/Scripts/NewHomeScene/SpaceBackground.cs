@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
@@ -9,6 +10,9 @@ using UnityEngine.UI;
 /// 動く層は専用のサブキャンバスに分け、毎フレームの変化がメインUIの再構築を起こさないようにしている。
 /// 小さな衛星（左の中段のピンクの星）は EnableMoonButton で押せるようにできる（新ホームのお知らせ）。
 /// お知らせに見ていない内容があるときは、衛星から「New」の吹き出しを出す（SetMoonBadge）。
+/// 新ホームでは、完成した星座（Constellations）を空に並べる（EnableConstellations。2026-11-06 ユーザー指定
+/// 「宇宙空間に配置」）。星座ごとに決まった場所に、レベルの明るさで薄く出る。新しく完成・レベルアップすると、
+/// お知らせが閉じてからその場所に光ってふくらんで現れる。
 /// </summary>
 public class SpaceBackground : MonoBehaviour
 {
@@ -42,6 +46,26 @@ public class SpaceBackground : MonoBehaviour
     private Color _moonGlowColor;
     private Vector2 _planetBase, _moonBase, _size, _streakFrom, _streakTo;
     private float _nextStreak, _streakT = -1f, _badgeShownAt;
+    private float _safeTop;
+
+    // ---- 空の星座 ----
+    private const float SKY_FIG = 190f;
+    private const float SKY_ALPHA = 0.62f;
+    /// <summary>星座ごとの空の場所（Constellations.All の順。キャンバスの左下を 0,0 とした割合）。
+    /// 右上のリングの惑星・中央の惑星を避けて、画面のふちに散らす</summary>
+    private static readonly Vector2[] SKY_SLOTS =
+    {
+        new Vector2(0.14f, 0.92f), new Vector2(0.42f, 0.95f), new Vector2(0.10f, 0.73f), new Vector2(0.90f, 0.66f),
+        new Vector2(0.12f, 0.53f), new Vector2(0.88f, 0.48f), new Vector2(0.10f, 0.32f), new Vector2(0.90f, 0.30f),
+        new Vector2(0.17f, 0.11f), new Vector2(0.50f, 0.05f), new Vector2(0.83f, 0.11f), new Vector2(0.36f, 0.80f),
+        new Vector2(0.30f, 0.21f), new Vector2(0.70f, 0.21f),
+        new Vector2(0.12f, 0.42f), new Vector2(0.50f, 0.15f), // 盤座・積み木座（2026-11-07 追加）
+    };
+    private RectTransform _skyLayer;
+    private readonly Dictionary<string, int> _skyLevels = new Dictionary<string, int>(); // 星座ID → 空に出しているレベル
+    private readonly Dictionary<string, RectTransform> _skyFigures = new Dictionary<string, RectTransform>();
+    private float _nextSkyCheck;
+    private bool _skyFirst = true;
 
     /// <param name="canvas">ルートキャンバス</param>
     /// <param name="size">キャンバスの実寸</param>
@@ -58,6 +82,7 @@ public class SpaceBackground : MonoBehaviour
 
     private void Build(Vector2 size, float safeTop)
     {
+        _safeTop = safeTop;
         _size = size;
         var root = (RectTransform)transform;
 
@@ -125,6 +150,17 @@ public class SpaceBackground : MonoBehaviour
     }
 
     /// <summary>
+    /// 左の小さな衛星の高さを変える（セーフエリアの上端からの距離。ふだんは 760）。
+    /// Start画面では、上に置いた入力のカードと重ならないよう、カードと惑星の間へ下げる
+    /// </summary>
+    public void MoveMoon(float fromSafeTop)
+    {
+        if (_moon == null) return;
+        _moonBase = new Vector2(_moonBase.x, -(_safeTop + fromSafeTop));
+        _moon.anchoredPosition = _moonBase;
+    }
+
+    /// <summary>
     /// 左の小さな衛星を押せるようにする（新ホームのお知らせ）。後ろの光がゆっくり明滅して、押せるものだと分かるようにする。
     /// 背景の動く層はふだん当たり判定を持たないので、ここで初めて受け付ける（衛星の位置にはホームの部品が重ならない）。
     /// </summary>
@@ -138,6 +174,19 @@ public class SpaceBackground : MonoBehaviour
         _moonGlow = SpaceTheme.Img(glowRt, SpaceSprites.Glow, SpaceTheme.A(glow, 0.25f));
         var hit = SpaceTheme.Rect("Hit", _moon, SpaceTheme.CENTER, Vector2.zero, new Vector2(176f, 176f));
         SpaceTheme.Clickable(_moon.gameObject, SpaceTheme.HitArea(hit), onTap);
+    }
+
+    /// <summary>衛星の名前を衛星のすぐ下に出す（新ホームの「お知らせ」。衛星と一緒に漂う）</summary>
+    public void SetMoonLabel(string text)
+    {
+        if (_moon == null) return;
+        var old = _moon.Find("Label");
+        if (old != null) Destroy(old.gameObject);
+        var t = SpaceTheme.Text(_moon, "Label", text, 26, SpaceTheme.A(SpaceTheme.TEXT, 0.92f), SpaceTheme.CENTER,
+            new Vector2(0f, -(46f + 26f)), new Vector2(240f, 38f), TMPro.FontStyles.Bold);
+        t.enableAutoSizing = true;
+        t.fontSizeMin = 20f;
+        t.fontSizeMax = 26f;
     }
 
     /// <summary>
@@ -215,6 +264,7 @@ public class SpaceBackground : MonoBehaviour
         }
 
         UpdateStreak(t);
+        UpdateSky(t);
     }
 
     private void UpdateStreak(float now)
@@ -250,4 +300,85 @@ public class SpaceBackground : MonoBehaviour
     }
 
     private float Rand(float min, float max) => min + (float)_rnd.NextDouble() * (max - min);
+
+    // ================================================================
+    // 空の星座
+    // ================================================================
+    /// <summary>完成した星座を空に並べる（新ホームだけ）。以後、完成・レベルアップを見て自動で足す</summary>
+    public void EnableConstellations()
+    {
+        if (_skyLayer != null) return;
+        _skyLayer = SpaceTheme.Rect("Constellations", _anim);
+        SpaceTheme.Stretch(_skyLayer);
+        _skyLayer.SetAsFirstSibling(); // 瞬く星・衛星・惑星より奥
+        _nextSkyCheck = 0f;
+    }
+
+    private void UpdateSky(float now)
+    {
+        if (_skyLayer == null || now < _nextSkyCheck) return;
+        _nextSkyCheck = now + 1f;
+        // お知らせ（完成の演出など）が出ている間は待つ。閉じてから空に現れるのが見えるように
+        if (!_skyFirst && SpaceNotice.AnyOpen) return;
+
+        var all = Constellations.All;
+        var progress = Constellations.Progress();
+        for (int i = 0; i < progress.Count && i < SKY_SLOTS.Length; i++)
+        {
+            var p = progress[i];
+            int level = p.Level;
+            _skyLevels.TryGetValue(p.Def.Id, out int shown);
+            if (level == shown) continue;
+            _skyLevels[p.Def.Id] = level;
+            if (_skyFigures.TryGetValue(p.Def.Id, out var old) && old != null) Destroy(old.gameObject);
+            _skyFigures.Remove(p.Def.Id);
+            if (level <= 0) continue;
+
+            int slot = Array.IndexOf(all, p.Def);
+            if (slot < 0 || slot >= SKY_SLOTS.Length) continue;
+            var pos = new Vector2(SKY_SLOTS[slot].x * _size.x, SKY_SLOTS[slot].y * _size.y);
+            var fig = SpaceTheme.Rect("Sky_" + p.Def.Id, _skyLayer, Vector2.zero, pos, new Vector2(SKY_FIG, SKY_FIG));
+            // 星座ごとに少しだけ傾ける（並べたときに単調にならないように）
+            fig.localEulerAngles = new Vector3(0f, 0f, ((slot * 37) % 30) - 15f);
+            SpaceConstellationPage.Figure(fig, p.Def, p.Count - p.Partial, SKY_FIG); // いまのレベルの姿
+            var group = fig.gameObject.AddComponent<CanvasGroup>();
+            group.alpha = SKY_ALPHA;
+            _skyFigures[p.Def.Id] = fig;
+            if (!_skyFirst) StartCoroutine(SkyArrive(fig, group, p.Def.Color));
+        }
+        _skyFirst = false;
+    }
+
+    /// <summary>新しく完成・レベルアップした星座が空に現れる: 光がはじけ、ふくらんでから落ち着く</summary>
+    private System.Collections.IEnumerator SkyArrive(RectTransform fig, CanvasGroup group, Color color)
+    {
+        var flash = SpaceTheme.Rect("Arrive", _skyLayer, Vector2.zero, fig.anchoredPosition,
+            new Vector2(SKY_FIG * 1.6f, SKY_FIG * 1.6f));
+        var flashImg = SpaceTheme.Img(flash, SpaceSprites.Glow, SpaceTheme.A(color, 0f));
+        var ring = SpaceTheme.Rect("ArriveRing", _skyLayer, Vector2.zero, fig.anchoredPosition,
+            new Vector2(SKY_FIG, SKY_FIG));
+        var ringImg = SpaceTheme.Img(ring, SpaceSprites.Ring, SpaceTheme.A(Color.white, 0f));
+        const float D = 1.6f;
+        for (float t = 0f; t < D; t += Time.unscaledDeltaTime)
+        {
+            if (fig == null) break;
+            float k = t / D;
+            float pop = k < 0.35f ? Mathf.Lerp(0f, 1.35f, SpaceTheme.EaseOutCubic(k / 0.35f))
+                : Mathf.Lerp(1.35f, 1f, SpaceTheme.EaseOutCubic((k - 0.35f) / 0.65f));
+            fig.localScale = new Vector3(pop, pop, 1f);
+            group.alpha = Mathf.Lerp(1f, SKY_ALPHA, Mathf.Clamp01((k - 0.4f) / 0.6f));
+            flashImg.color = SpaceTheme.A(color, 0.7f * Mathf.Sin(Mathf.Clamp01(k / 0.7f) * Mathf.PI));
+            float rs = Mathf.Lerp(0.4f, 2.4f, SpaceTheme.EaseOutCubic(k));
+            ring.localScale = new Vector3(rs, rs, 1f);
+            ringImg.color = SpaceTheme.A(Color.Lerp(color, Color.white, 0.5f), 0.8f * (1f - k));
+            yield return null;
+        }
+        if (fig != null)
+        {
+            fig.localScale = Vector3.one;
+            group.alpha = SKY_ALPHA;
+        }
+        Destroy(flash.gameObject);
+        Destroy(ring.gameObject);
+    }
 }
