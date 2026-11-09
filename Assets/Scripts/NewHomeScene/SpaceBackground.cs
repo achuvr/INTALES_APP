@@ -343,6 +343,10 @@ public class SpaceBackground : MonoBehaviour
             SpaceConstellationPage.Figure(fig, p.Def, p.Count - p.Partial, SKY_FIG); // いまのレベルの姿
             var group = fig.gameObject.AddComponent<CanvasGroup>();
             group.alpha = SKY_ALPHA;
+            // タップすると、その星座の詳細を開く（2026-11-09 ユーザー指定）。背景の動く層はふだん当たり判定を持たないので足す
+            if (_anim.GetComponent<GraphicRaycaster>() == null) _anim.gameObject.AddComponent<GraphicRaycaster>();
+            string id = p.Def.Id;
+            SpaceTheme.Clickable(fig.gameObject, SpaceTheme.HitArea(fig), () => SpaceConstellationPage.OpenDetail(id));
             _skyFigures[p.Def.Id] = fig;
             if (!_skyFirst) StartCoroutine(SkyArrive(fig, group, p.Def.Color));
         }

@@ -76,10 +76,15 @@ public static class BoardGameMarks
         bool changed = on ? set.Add(key) : set.Remove(key);
         if (!changed) return;
 
-        // メモリ上の UserData にも反映しておく（セッション内の再参照との整合のため）
-        var list = m.List(UserDataManager.instance.UserData);
-        if (on) { if (!list.Contains(key)) list.Add(key); }
-        else list.Remove(key);
+        // メモリ上の UserData にも反映しておく（セッション内の再参照との整合のため）。
+        // ログインしていない（エディタでシーンを直接再生したなど）ときは UserDataManager が無いので飛ばす
+        var ud = UserDataManager.instance != null ? UserDataManager.instance.UserData : null;
+        if (ud != null)
+        {
+            var list = m.List(ud);
+            if (on) { if (!list.Contains(key)) list.Add(key); }
+            else list.Remove(key);
+        }
 
         SaveAsync(m.Field, key, on).Forget();
     }

@@ -16,7 +16,7 @@ using UnityEngine.UI;
 ///   ・所持品ボタン（クーポンの一覧と使用。SpaceInventoryPanel）
 ///   ・右上の設定ボタン（プライバシーポリシー・ログアウト・退会。SpaceAccountMenu）
 ///   ・右上の惑星ボタン（中央の惑星を選ぶ。SpacePlanetPicker。選んだ惑星は端末に保存）
-///   ・右上のフレンドボタン（惑星ボタンの左。フレンド一覧・自分のQR・入店中を知らせる設定。SpaceFriendPanel）
+///   ・フレンド機能は 2026-11-09 にやめた（争いの火種になりうるため。ユーザー名の変更は歯車メニューへ移した）
 /// 中央のカメラボタンは選んだ惑星（SpacePlanetView）そのもの。ルミナ（最初のオーブ）以外では右下にカメラの印を付ける。
 /// 惑星のまわりは、緑の衛星の円・紫の衛星の傾いた楕円、いちばん外の円には入店中の人数ぶんの小さな球が
 /// それぞれが選んでいる惑星の色で回る（StoreVisitors。名前もIDもない記録）。
@@ -35,9 +35,10 @@ public class NewHomeController : MonoBehaviour
     [SerializeField] private TMP_FontAsset _font;
 
     private const string T_WORDMARK = "INTALES Cafe";
-    // 見出しの右端（右上のボタンの左端から24の余白）。管理者はボタンが2つ多いので、入りきらない分だけ文字を小さくする
-    private const float HEADER_RIGHT = 336f + 48f + 24f;       // フレンドボタンの左
-    private const float HEADER_RIGHT_ADMIN = 560f + 48f + 24f; // 管理者: パスの購入者ボタンの左
+    // 見出しの右端（右上のボタンの左端から24の余白）。管理者はボタンが3つ多いので、入りきらない分だけ文字を小さくする
+    // 見出し（INTALES Cafe）の右端。フレンドボタンをなくしたので詰めた（2026-11-09）
+    private const float HEADER_RIGHT = 224f + 48f + 24f;       // 惑星ボタンの左
+    private const float HEADER_RIGHT_ADMIN = 560f + 48f + 24f; // 管理者: お知らせ通知のボタンの左（2026-11-10）
     private const string T_WELCOME = "WELCOME";            // 初来店前
     private const string T_WELCOME_BACK = "WELCOME BACK";  // 来店したことがある
     private const string T_SAN = "さん";
@@ -112,7 +113,7 @@ public class NewHomeController : MonoBehaviour
     // ---- UI ----
     private RectTransform _content, _cardRt, _orbRt, _bagRt, _orbCore, _orbitRing, _dotBack, _dotFront;
     private RectTransform _planetHolder, _cameraIcon, _cameraBadge, _flash, _historyMoon;
-    private CanvasGroup _headerGroup, _cardGroup, _orbGroup, _bagGroup, _planetBtnGroup, _friendBtnGroup;
+    private CanvasGroup _headerGroup, _cardGroup, _orbGroup, _bagGroup, _planetBtnGroup;
     private RectTransform _headerRt;
     private CanvasGroup _planetHolderGroup, _cameraIconGroup, _badgeGroup, _historyGroup;
     private TextMeshProUGUI _avatarText, _captionText, _nameText, _visitValue, _statusLabel, _statusValue, _bagSub;
@@ -128,7 +129,6 @@ public class NewHomeController : MonoBehaviour
     private SpaceInventoryPanel _inventory;
     private SpaceHistoryPanel _history;
     private SpaceNewsPage _news;
-    private SpaceFriendPanel _friends;
     private SpaceBackground _background;
     private RectTransform _visitorRing;                                      // 入店中の人の球（まとめて回す）
     private readonly List<VisitorOrb> _visitorOrbs = new List<VisitorOrb>();
@@ -153,6 +153,7 @@ public class NewHomeController : MonoBehaviour
     private SpacePlanetPicker _picker;
     private SpaceAdminQrList _qrList;
     private SpaceAdminPassList _passList;   // 管理者用: 1か月パスの購入者の一覧
+    private SpaceNoticeComposer _composer;  // 管理者用: お知らせ通知を送る画面
     private SpaceBoardGameZukan _zukan;      // ボードゲーム図鑑（開いている間）
     private RectTransform _zukanBtn, _zukanMoon;
     private CanvasGroup _zukanGroup;
@@ -160,6 +161,7 @@ public class NewHomeController : MonoBehaviour
     private Coroutine _zukanAnim;
     private RectTransform _adminPassBtn;
     private RectTransform _adminBtn;
+    private RectTransform _adminNoticeBtn;
     private SpacePlanetView _planetView;
     private SpacePlanetDef _planet;
 
@@ -194,7 +196,7 @@ public class NewHomeController : MonoBehaviour
         // 相席募集のリアルタイム購読は新ホームを開いている間だけ
         SpaceRecruitDigest.Changed -= RefreshNewsBadge;
         SpaceRecruitDigest.StopListening();
-        SpaceFriendPanel.NameChanged -= RefreshUser;
+        SpaceRenameDialog.NameChanged -= RefreshUser;
         SpaceZukan.Changed -= OnZukanChanged;
         StoreVisitors.Changed -= RefreshVisitors;
         StoreVisitors.StopListening();
@@ -252,7 +254,6 @@ public class NewHomeController : MonoBehaviour
         BuildCameraOrb(planet);
         BuildBagButton();
         BuildPlanetButton();
-        BuildFriendButton();
         BuildPriceMoon(); // 中央の惑星の輪より手前に描く（輪の上でも押せるように）
         _accountMenu = SpaceAccountMenu.Create(_canvas); // ホームの上に重ねる（右上の歯車）
         _background.EnableMoonButton(OpenNews, SpaceNewsPage.ACCENT); // 左上のピンクの小さな惑星＝お知らせ
@@ -265,10 +266,12 @@ public class NewHomeController : MonoBehaviour
         PlayEntrance();
         RefreshAdminAsync().Forget(); // 管理者ならQRコード一覧（クーポン・惑星の解放）のボタンを出す
         StartNewsWatch();             // お知らせ（店の画像・相席募集）に見ていない内容があれば「New」
-        SpaceFriendPanel.NameChanged += RefreshUser; // フレンドの画面でユーザー名を変えたら、自分のカードの名前も新しく
+        SpaceRenameDialog.NameChanged += RefreshUser; // 歯車メニューでユーザー名を変えたら、自分のカードの名前も新しく
         SpaceZukan.Changed += OnZukanChanged;        // 図鑑をダウンロード・削除したら、図鑑の惑星を出し入れ
         StoreVisitors.Changed += RefreshVisitors;    // 入店中の人数ぶんの球（いちばん外の円）
         StoreVisitors.StartListening();
+        // 営業カレンダー（臨時休業など）。読めたらパスの期限と「明日は臨時休業です」の予約に反映される（2026-11-10）
+        ShopCalendar.LoadAsync().Forget();
         AppNotifications.Start(); // お店からの通知の購読と、公転・誕生月の通知の予約（2026-11-07）
         StorePasses.Changed += RefreshBagSub;        // 1か月パスを読み込んだ・受け取ったら所持品ボタンの枚数を更新
         StorePasses.LoadMineAsync().Forget();
@@ -291,11 +294,12 @@ public class NewHomeController : MonoBehaviour
           .Append(SpaceInventoryPanel.GlyphText).Append(SpaceAccountMenu.GlyphText).Append(SpaceNotice.GlyphText)
           .Append(SpaceQRScreen.GlyphText).Append(SpacePlanets.GlyphText).Append(SpacePlanetPicker.GlyphText)
           .Append(SpaceAdminQrList.GlyphText).Append(SpaceHistoryPanel.GlyphText).Append(SpaceNewsPage.GlyphText)
-          .Append(SpaceFriendPanel.GlyphText).Append(StorePasses.GlyphText).Append(SpacePassCard.GlyphText)
+          .Append(SpaceRenameDialog.GlyphText).Append(StorePasses.GlyphText).Append(SpacePassCard.GlyphText)
           .Append(SpacePassViewer.GlyphText).Append(SpaceAdminPassList.GlyphText).Append(SpaceAdminNewsImages.GlyphText).Append(SpacePricePage.GlyphText).Append(T_BAG_PASS)
+          .Append(SpaceNoticeComposer.GlyphText)
           .Append(SpaceBoardGameZukan.GlyphText).Append(SpaceConstellationPage.GlyphText)
           .Append(SpaceMemberView.GlyphText).Append(Referral.GlyphText).Append(SpaceNotice.GiftGlyphText)
-          .Append(SpaceMonthPicker.GlyphText).Append(SpaceQrSheet.T_CLOSE).Append(SpacePlayRecords.GlyphText)
+          .Append(SpaceMonthPicker.GlyphText).Append(SpaceQrSheet.T_CLOSE).Append(SpacePlayLog.GlyphText).Append(SpacePlayCalendar.GlyphText)
           .Append(SpaceNotice.CertifyGlyphText).Append(BoardGameCertify.GlyphText).Append(SpaceNotice.ConstellationGlyphText)
           .Append(T_ORBIT).Append(T_STREAK_UNIT).Append(PlanetPowers.GlyphText).Append(SpaceNotice.JourneyGlyphText)
           .Append(SpaceOrbitPanel.GlyphText);
@@ -640,6 +644,20 @@ public class NewHomeController : MonoBehaviour
         _zukanAnim = null;
     }
 
+    // 星座の画面の「このジャンルのゲームを見る」で、図鑑をそのジャンルで開く（星座の画面が閉じてから。2026-11-09）
+    private static ConstellationDef _pendingZukanGenre;
+
+    public static void RequestZukanGenre(ConstellationDef def) => _pendingZukanGenre = def;
+
+    private void UpdatePendingZukan()
+    {
+        if (_pendingZukanGenre == null || !_built || PanelOpen || _landing) return;
+        var def = _pendingZukanGenre;
+        _pendingZukanGenre = null;
+        if (_zukan == null) OpenZukan();
+        if (_zukan != null) _zukan.ShowGenre(def);
+    }
+
     /// <summary>ボードゲーム図鑑を開く（宇宙デザイン。できることは旧ホームの図鑑と同じ。ホームの上に全画面で重ねる）</summary>
     private void OpenZukan()
     {
@@ -655,7 +673,7 @@ public class NewHomeController : MonoBehaviour
         _planetView = SpacePlanetView.Create(_planetHolder, def, PLANET_VIEW, SpacePlanetView.Quality.Large, true);
         _cameraIcon.gameObject.SetActive(def.IsOrb);
         _cameraBadge.gameObject.SetActive(!def.IsOrb);
-        SetTiltOrbit(!def.Ring);
+        SetTiltOrbit(true); // 環のある惑星でも、紫の衛星の軌道を出す（2026-11-09 ユーザー指定）
         _glowColor = def.Accent;
         if (_planetAway) ShowAwayCenter();
     }
@@ -669,17 +687,20 @@ public class NewHomeController : MonoBehaviour
         _cameraIcon.gameObject.SetActive(true);
         _cameraIconGroup.alpha = 1f;
         _cameraBadge.gameObject.SetActive(false);
-        SetTiltOrbit(false);
+        SetTiltOrbit(false, false);
     }
 
-    /// <summary>傾いた楕円軌道と紫の衛星の表示（環のある惑星では環と重なるので消す）</summary>
-    private void SetTiltOrbit(bool on)
+    /// <summary>
+    /// 傾いた楕円軌道の線と紫の衛星の表示。環のある惑星でも線と衛星を出す（2026-11-09 ユーザー指定）。
+    /// dot=false で衛星も消す（入店中の空いた中央）
+    /// </summary>
+    private void SetTiltOrbit(bool lines, bool dot = true)
     {
-        _tiltOrbitOn = on;
-        _tiltBack.SetActive(on);
-        _tiltFront.SetActive(on);
+        _tiltOrbitOn = dot;
+        _tiltBack.SetActive(lines);
+        _tiltFront.SetActive(lines);
         _dotIsFront = false;
-        _dotBack.gameObject.SetActive(on);
+        _dotBack.gameObject.SetActive(dot);
         _dotFront.gameObject.SetActive(false);
     }
 
@@ -705,33 +726,19 @@ public class NewHomeController : MonoBehaviour
         SpaceTheme.Clickable(rt.gameObject, face, OpenPicker);
     }
 
-    /// <summary>右上のフレンドボタン（惑星ボタンの左）。押すとフレンドのシートを開く</summary>
-    private void BuildFriendButton()
-    {
-        var rt = SpaceTheme.Rect("FriendButton", _content, new Vector2(1f, 1f), new Vector2(-336f, -84f),
-            new Vector2(96f, 96f));
-        _friendBtnGroup = rt.gameObject.AddComponent<CanvasGroup>();
-        var face = SpaceTheme.Img(rt, SpaceSprites.Circle, new Color(0.05f, 0.07f, 0.19f, 0.85f), true);
-        var rim = SpaceTheme.Rect("Rim", rt);
-        SpaceTheme.Stretch(rim);
-        SpaceTheme.Img(rim, SpaceSprites.RingSmall, SpaceTheme.STROKE);
-        var icon = SpaceTheme.Rect("Icon", rt, SpaceTheme.CENTER, new Vector2(1f, -1f), new Vector2(60f, 60f));
-        SpaceTheme.Img(icon, SpaceSprites.FriendsIcon, SpaceTheme.TEXT);
-        SpaceTheme.Clickable(rt.gameObject, face, OpenFriends);
-    }
-
     /// <summary>
     /// 管理者判定（IDトークンの admin クレーム）が済んだら、管理者にだけ
     /// お客様に見せるQRコードの一覧（クーポン・惑星の解放・1か月パス）を開くボタンと、
-    /// その左に1か月パスの購入者の一覧を開くボタン（カードの絵）を出す
+    /// その左に1か月パスの購入者の一覧を開くボタン（カードの絵）、
+    /// さらにその左にお知らせ通知を送る画面を開くボタン（鈴の絵。2026-11-10）を出す
     /// </summary>
     private async UniTaskVoid RefreshAdminAsync()
     {
         await AdminClaim.RefreshAsync();
         if (this == null || !AdminClaim.IsAdmin || _adminBtn != null) return;
 
-        // フレンドボタンの左。金色の縁で「店側の道具」とわかるように
-        _adminBtn = SpaceTheme.Rect("AdminQrButton", _content, new Vector2(1f, 1f), new Vector2(-448f, -84f),
+        // 惑星ボタンの左（以前フレンドボタンがあった場所）。金色の縁で「店側の道具」とわかるように
+        _adminBtn = SpaceTheme.Rect("AdminQrButton", _content, new Vector2(1f, 1f), new Vector2(-336f, -84f),
             new Vector2(96f, 96f));
         var group = _adminBtn.gameObject.AddComponent<CanvasGroup>();
         var face = SpaceTheme.Img(_adminBtn, SpaceSprites.Circle, new Color(0.05f, 0.07f, 0.19f, 0.85f), true);
@@ -744,11 +751,11 @@ public class NewHomeController : MonoBehaviour
         group.alpha = 0f;
         StartCoroutine(SpaceTheme.Tween(0.4f, 0f, k => group.alpha = k));
 
-        // 右上のボタンが2つ増えるので、見出し（INTALES Cafe）はその手前までに収める
+        // 右上のボタンが3つ増えるので、見出し（INTALES Cafe）はその手前までに収める
         _headerRt.offsetMax = new Vector2(-HEADER_RIGHT_ADMIN, _headerRt.offsetMax.y);
 
         // その左: 1か月パスの購入者の一覧（カードの絵）
-        _adminPassBtn = SpaceTheme.Rect("AdminPassButton", _content, new Vector2(1f, 1f), new Vector2(-560f, -84f),
+        _adminPassBtn = SpaceTheme.Rect("AdminPassButton", _content, new Vector2(1f, 1f), new Vector2(-448f, -84f),
             new Vector2(96f, 96f));
         var passGroup = _adminPassBtn.gameObject.AddComponent<CanvasGroup>();
         var passFace = SpaceTheme.Img(_adminPassBtn, SpaceSprites.Circle, new Color(0.05f, 0.07f, 0.19f, 0.85f), true);
@@ -760,6 +767,20 @@ public class NewHomeController : MonoBehaviour
         SpaceTheme.Clickable(_adminPassBtn.gameObject, passFace, OpenPassList);
         passGroup.alpha = 0f;
         StartCoroutine(SpaceTheme.Tween(0.4f, 0.1f, k => passGroup.alpha = k));
+
+        // その左: お知らせ通知を送る（鈴の絵）
+        _adminNoticeBtn = SpaceTheme.Rect("AdminNoticeButton", _content, new Vector2(1f, 1f), new Vector2(-560f, -84f),
+            new Vector2(96f, 96f));
+        var noticeGroup = _adminNoticeBtn.gameObject.AddComponent<CanvasGroup>();
+        var noticeFace = SpaceTheme.Img(_adminNoticeBtn, SpaceSprites.Circle, new Color(0.05f, 0.07f, 0.19f, 0.85f), true);
+        var noticeRim = SpaceTheme.Rect("Rim", _adminNoticeBtn);
+        SpaceTheme.Stretch(noticeRim);
+        SpaceTheme.Img(noticeRim, SpaceSprites.RingSmall, SpaceTheme.A(SpaceTheme.GOLD, 0.7f));
+        var noticeIcon = SpaceTheme.Rect("Icon", _adminNoticeBtn, SpaceTheme.CENTER, Vector2.zero, new Vector2(52f, 52f));
+        SpaceTheme.Img(noticeIcon, SpaceSprites.BellIcon, SpaceTheme.GOLD);
+        SpaceTheme.Clickable(_adminNoticeBtn.gameObject, noticeFace, OpenNoticeComposer);
+        noticeGroup.alpha = 0f;
+        StartCoroutine(SpaceTheme.Tween(0.4f, 0.2f, k => noticeGroup.alpha = k));
     }
 
     /// <summary>管理者用: 1か月パスの購入者（だれが・どの種類を・いつまで）</summary>
@@ -767,6 +788,13 @@ public class NewHomeController : MonoBehaviour
     {
         if (PanelOpen || _landing) return;
         _passList = SpaceAdminPassList.Open(_canvas, () => _passList = null);
+    }
+
+    /// <summary>管理者用: お知らせ通知を送る（Cloud Functions 経由。送る権限はサーバー側で確かめる）</summary>
+    private void OpenNoticeComposer()
+    {
+        if (PanelOpen || _landing) return;
+        _composer = SpaceNoticeComposer.Open(_canvas, () => _composer = null);
     }
 
     private void OpenQrList()
@@ -830,11 +858,11 @@ public class NewHomeController : MonoBehaviour
     {
         var menuGroup = _accountMenu.TriggerGroup;
         _headerGroup.alpha = _cardGroup.alpha = _orbGroup.alpha = _bagGroup.alpha = menuGroup.alpha = 0f;
-        _planetBtnGroup.alpha = _friendBtnGroup.alpha = 0f;
+        _planetBtnGroup.alpha = 0f;
         var cardBase = _cardRt.anchoredPosition;
         var bagBase = _bagRt.anchoredPosition;
         StartCoroutine(SpaceTheme.Tween(0.6f, 0f,
-            k => _headerGroup.alpha = menuGroup.alpha = _planetBtnGroup.alpha = _friendBtnGroup.alpha = k));
+            k => _headerGroup.alpha = menuGroup.alpha = _planetBtnGroup.alpha = k));
         StartCoroutine(SpaceTheme.Tween(0.55f, 0.05f, k =>
         {
             _cardGroup.alpha = k;
@@ -988,6 +1016,7 @@ public class NewHomeController : MonoBehaviour
                 SyncCouponSnapshot();
                 await ShowAndWait(SpaceNotice.Gift(SpaceNotice.T_REFERRAL_TITLE_NEW, SpaceNotice.T_REFERRAL_BODY_NEW, drink,
                     SpaceTheme.CYAN));
+                await ShowReferralPlanet();
             }
             if (referrer)
             {
@@ -998,6 +1027,7 @@ public class NewHomeController : MonoBehaviour
                     SyncCouponSnapshot();
                     await ShowAndWait(SpaceNotice.Gift(SpaceNotice.T_REFERRAL_TITLE_FROM,
                         SpaceTheme.NoParse(SpaceTheme.Safe(n)) + SpaceNotice.T_REFERRAL_BODY_FROM, drink, SpaceTheme.MINT));
+                    await ShowReferralPlanet();
                 }
             }
         }
@@ -1005,6 +1035,15 @@ public class NewHomeController : MonoBehaviour
         {
             _giftBusy = false;
         }
+    }
+
+    /// <summary>友だち紹介でオパーリアを新しく解放していたら、解放のお知らせを出す</summary>
+    private static async UniTask ShowReferralPlanet()
+    {
+        if (!Referral.PlanetJustUnlocked) return;
+        Referral.PlanetJustUnlocked = false;
+        var def = SpacePlanets.Find(Referral.PLANET);
+        if (def != null) await ShowAndWait(SpaceNotice.PlanetUnlocked(def));
     }
 
     /// <summary>贈りもので増えたクーポンを「○○を入手しました」と二重に知らせないよう、いまの枚数を覚え直す</summary>
@@ -1077,8 +1116,9 @@ public class NewHomeController : MonoBehaviour
     // 操作
     // ================================================================
     /// <summary>ホームの上に何か開いているか（重ねて開かない・カメラも起動しない）</summary>
-    private bool PanelOpen => _inventory != null || _history != null || _news != null || _friends != null
-                              || _picker != null || _qrList != null || _passList != null || _zukan != null
+    private bool PanelOpen => _inventory != null || _history != null || _news != null
+                              || _picker != null || _qrList != null || _passList != null || _composer != null
+                              || _zukan != null
                               || _prices != null || _orbitPanel != null || _accountMenu.IsOpen
                               || SpaceConstellationPage.Instance != null;
 
@@ -1093,13 +1133,6 @@ public class NewHomeController : MonoBehaviour
     {
         if (this == null || !_built) return;
         RefreshVisit();
-    }
-
-    /// <summary>フレンド（右上の人のアイコン）</summary>
-    private void OpenFriends()
-    {
-        if (PanelOpen || _landing) return;
-        _friends = SpaceFriendPanel.Open(_canvas, () => _friends = null);
     }
 
     private void OnCameraPressed()
@@ -1129,7 +1162,7 @@ public class NewHomeController : MonoBehaviour
         _history = SpaceHistoryPanel.Open(_canvas, () => _history = null);
     }
 
-    /// <summary>料金表（右上の水色の小さな惑星）。平日料金・祝日料金の画像を見せる</summary>
+    /// <summary>料金表（右上の水色の小さな惑星）。平日料金・土日・祝日料金の画像を見せる</summary>
     private void OpenPrices()
     {
         if (!_built || PanelOpen || _landing) return;
@@ -1311,7 +1344,7 @@ public class NewHomeController : MonoBehaviour
                 // ノワールの能力: 店内の円で光の円盤をまとって回る（ほかの人にも見える）
                 // レガシアの能力: 白銀の光の輪をまとう（円盤と同じ部品を、つぶさない丸い輪にして使う）
                 bool legacy = def.Id == SpacePlanets.LEGACY_ID;
-                o.Disk.gameObject.SetActive(def.Id == "noir" || legacy);
+                o.Disk.gameObject.SetActive(false); // 惑星の能力（ノワールの円盤・レガシアの輪）は 2026-11-09 にやめた
                 o.Disk.color = SpaceTheme.A(Color.Lerp(def.Accent, Color.white, 0.25f), 0.9f);
                 o.Disk.rectTransform.sizeDelta = legacy
                     ? new Vector2(VISITOR_GLOW * 0.95f, VISITOR_GLOW * 0.95f)
@@ -1320,7 +1353,7 @@ public class NewHomeController : MonoBehaviour
         }
 
         // グラシアの能力: 冬のあいだ、グラシアの人が入店中なら店内の円に雪が舞う
-        bool snow = StoreCalendar.CurrentSeason == StoreCalendar.Season.Winter && now.Exists(v => v.Planet == "glacia");
+        bool snow = false; // 惑星の能力（グラシアの雪）は 2026-11-09 にやめた
         if (snow && _snow == null)
         {
             var layer = SpaceTheme.Rect("Snow", _orbRt, SpaceTheme.CENTER, Vector2.zero,
@@ -1676,7 +1709,7 @@ public class NewHomeController : MonoBehaviour
         if (def != _planet) ApplyPlanet(def);
         _cameraIcon.gameObject.SetActive(def.IsOrb);
         _cameraBadge.gameObject.SetActive(!def.IsOrb);
-        SetTiltOrbit(!def.Ring);
+        SetTiltOrbit(true); // 環のある惑星でも、紫の衛星の軌道を出す（2026-11-09 ユーザー指定）
         _badgeGroup.alpha = 0f;
         StartCoroutine(FlashRing(def.Accent));
         yield return SpaceTheme.Tween(0.45f, 0f, k =>
@@ -1796,6 +1829,7 @@ public class NewHomeController : MonoBehaviour
         UpdateArrival(qrOpen);
         // 入店中は中央の惑星を消し、退店したら円から中央へ戻す
         UpdatePlanetAway(qrOpen);
+        UpdatePendingZukan();
 
         // QR画面・惑星を選ぶ画面・お知らせで隠れている間は中央の惑星の自転を止める（毎フレームの再描画を省く）
         if (_planetView != null)
@@ -1831,12 +1865,12 @@ public class NewHomeController : MonoBehaviour
             else if (_prices != null) _prices.HandleBack();
             else if (_qrList != null) _qrList.HandleBack();
             else if (_passList != null) _passList.HandleBack();
+            else if (_composer != null) _composer.HandleBack();
             else if (_picker != null) _picker.HandleBack();
             else if (_orbitPanel != null) _orbitPanel.HandleBack();
             else if (_inventory != null) _inventory.HandleBack();
             else if (_history != null) _history.HandleBack();
             else if (_news != null) _news.HandleBack();
-            else if (_friends != null) _friends.HandleBack();
             else _accountMenu.HandleBack();
         }
 

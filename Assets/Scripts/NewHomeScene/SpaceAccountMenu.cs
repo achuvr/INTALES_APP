@@ -28,7 +28,7 @@ public class SpaceAccountMenu : MonoBehaviour
         "ログアウトすると、この端末の\n自動ログインが解除されます。\n\n次回はメールアドレスとパスワードで\nログインしてください。";
     private const string T_DELETE_TITLE = "退会（アカウント削除）";
     private const string T_DELETE_BODY =
-        "退会するとアカウントが削除され、\nクーポン・来店記録・フレンドなど\nすべてのデータが完全に消えます。\n\nこの操作は元に戻せません。";
+        "退会するとアカウントが削除され、\nクーポン・来店記録・惑星など\nすべてのデータが完全に消えます。\n\nこの操作は元に戻せません。";
     private const string T_DELETE_NEXT = "退会をすすめる";
     private const string T_FINAL_TITLE = "最終確認";
     private const string T_FINAL_BODY = "本当に退会しますか？";
@@ -156,6 +156,7 @@ public class SpaceAccountMenu : MonoBehaviour
         safe.gameObject.AddComponent<SpaceSafeArea>();
 
         AddItem(safe, T_TEXT_SIZE, false, DrawTextSizeIcon, OnTextSize);
+        AddItem(safe, SpaceRenameDialog.T_RENAME, false, DrawRenameIcon, OnRename);
         AddItem(safe, T_BIRTH, false, DrawBirthIcon, OnBirth);
         AddItem(safe, T_INVITE, false, DrawInviteIcon, OnInvite);
         AddItem(safe, T_ZUKAN, false, DrawDownloadIcon, OnZukan);
@@ -204,6 +205,14 @@ public class SpaceAccountMenu : MonoBehaviour
     }
 
     // ---- アイコン（64px の丸の中に、細いバーで記号を描く）----
+    /// <summary>ユーザー名の変更: 鉛筆（ななめの軸と先）</summary>
+    private static void DrawRenameIcon(RectTransform p, Color c)
+    {
+        SpaceTheme.Bar(p, new Vector2(2f, 2f), 30f, 6f, 45f, c);
+        SpaceTheme.Bar(p, new Vector2(-12f, -12f), 7f, 4f, 45f, c);
+        SpaceTheme.Bar(p, new Vector2(0f, -17f), 24f, 3f, 0f, c);
+    }
+
     /// <summary>誕生月: 「月」の字</summary>
     private static void DrawBirthIcon(RectTransform p, Color c)
     {
@@ -428,6 +437,13 @@ public class SpaceAccountMenu : MonoBehaviour
 
         go.AddComponent<SpacePopIn>().Target = card;
         return go;
+    }
+
+    /// <summary>ユーザー名を変更（2026-11-09 フレンドの画面から移した）</summary>
+    private void OnRename()
+    {
+        Close();
+        _dialog = SpaceRenameDialog.Open(_canvas);
     }
 
     /// <summary>誕生月: まだなら選んで登録（1回だけ）。登録済みなら月を知らせる</summary>

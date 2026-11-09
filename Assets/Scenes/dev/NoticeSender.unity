@@ -163,3 +163,4 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 4891db6381e646678e46ee5cbfaca536, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  _jpFont: {fileID: 11400000, guid: 79feebe53caadef44ac669339d7494fa, type: 2}

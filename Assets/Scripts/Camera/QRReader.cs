@@ -57,7 +57,9 @@ public class QRReader : MonoBehaviour
         // フレンド登録QR（"friend:{uid}:{name}"）は内容が可変なのでswitchの前に判定する
         if (_result.StartsWith(CallMethodFromQR.FRIEND_QR_PREFIX))
         {
-            _callMethodFromQR.AddFriend(_result).Forget();
+            // フレンド機能は 2026-11-09 にやめた（争いの火種になりうるため）。何も書き込まない
+            _callMethodFromQR.EndFromButton();
+            FriendMenuController.ShowToast("フレンド機能は終了しました");
             return;
         }
 

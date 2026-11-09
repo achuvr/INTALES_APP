@@ -16,7 +16,7 @@ public static partial class SpaceNotice
     private const string T_CHOOSE_CAPTION = "CHOOSE A CONSTELLATION";
     private const string T_CHOOSE_TITLE = "どの星座に星を灯しますか？";
     private const string T_CHOOSE_NOTE = "このゲームは複数の星座に当てはまります。星が灯るのは選んだ1つだけです";
-    private const string T_CHOOSE_NOTE_AGAIN = "灯した星座が完成したので、まだ灯していない別の星座にも星を灯せます";
+    private const string T_CHOOSE_NOTE_AGAIN = "このゲームでもう一度星を灯せます。灯す星座を1つ選んでください（星は1日1回まで）";
     private const string T_CHOOSE_DONE = "完成！";
     private const string T_CHOOSE_LEVEL = "に上がる！";
     private const string T_CHOOSE_CLOSE = "選ばずに閉じたときは、もう一度QRコードを読み取ってください";

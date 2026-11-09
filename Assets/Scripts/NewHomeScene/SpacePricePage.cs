@@ -6,7 +6,7 @@ using UnityEngine.UI;
 
 /// <summary>
 /// 料金表（新ホームの中央の惑星の右上にある、水色の小さな惑星から開く全画面）。
-/// 平日料金・祝日料金の2枚の画像を、上の切り替えで見せる。開いたときは、土曜・日曜なら祝日料金、それ以外は平日料金
+/// 平日料金・土日・祝日料金の2枚の画像を、上の切り替えで見せる。開いたときは、土曜・日曜なら土日・祝日料金、それ以外は平日料金
 /// （祝日は端末では判定できないので、平日に当たる祝日は切り替えて見てもらう）。
 /// 画像はピンチ・ダブルタップで拡大、拡大中はドラッグで移動できる（お知らせの画像と同じ SpaceZoomImage）。
 /// 画像は Resources/Prices/price_weekday・price_holiday（中身は JPG の .bytes。Unity の画像の圧縮で文字がにじまないように）。
@@ -20,7 +20,7 @@ public class SpacePricePage : MonoBehaviour
     private const string T_CAPTION = "PRICE";
     private const string T_TITLE = "料金表";
     private const string T_WEEKDAY = "平日料金";
-    private const string T_HOLIDAY = "祝日料金";
+    private const string T_HOLIDAY = "土日・祝日料金";
     private const string T_ZOOM_HINT = "ピンチやダブルタップで拡大できます";
     private const string T_FAILED = "料金表を読み込めませんでした";
     private static readonly string[] RESOURCES = { "Prices/price_weekday", "Prices/price_holiday" };
@@ -118,7 +118,7 @@ public class SpacePricePage : MonoBehaviour
             new Vector2(800f, 60f), FontStyles.Bold);
         CloseButton(_safe);
 
-        // 平日料金・祝日料金の切り替え
+        // 平日料金・土日・祝日料金の切り替え
         for (int i = 0; i < 2; i++)
         {
             int index = i;
@@ -154,7 +154,7 @@ public class SpacePricePage : MonoBehaviour
         StartCoroutine(SpaceTheme.Tween(0.25f, 0f, k => _group.alpha = k));
     }
 
-    /// <summary>開いたときの料金表: 土曜・日曜は祝日料金、それ以外は平日料金</summary>
+    /// <summary>開いたときの料金表: 土曜・日曜は土日・祝日料金、それ以外は平日料金</summary>
     private static int DefaultTab()
     {
         var day = DateTime.Now.DayOfWeek;

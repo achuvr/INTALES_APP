@@ -410,16 +410,8 @@ public class SpacePlanetPicker : MonoBehaviour
         _nameText.text = _selected.Name;
         _descText.text = _selected.Desc;
         var power = PlanetPowers.Of(_selected);
-        if (power != null && power.HasAbility)
-        {
-            _abilityText.text = PlanetPowers.KindLabel(power) + T_ABILITY_SEP + power.AbilityText;
-            _abilityText.color = power.Store ? SpaceTheme.GOLD : SpaceTheme.MINT;
-        }
-        else
-        {
-            _abilityText.text = PlanetPowers.T_NONE;
-            _abilityText.color = SpaceTheme.TEXT_MUTED;
-        }
+        // 惑星の能力は 2026-11-09 にやめた（見た目とパワーだけ）ので、能力の行は空にする
+        _abilityText.text = "";
         _lockedSub.text = power != null ? T_CONDITION + power.UnlockText : T_LOCKED_SUB;
         bool owned = SpacePlanets.IsOwned(_selected);
         bool isCurrent = _selected == _current;

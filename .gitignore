@@ -41,6 +41,7 @@ sysinfo.txt
 
 # Builds
 *.apk
+/Builds/
 
 # Purchased Asset Store assets (license required per user)
 Assets/Synaptic AI Pro/
@@ -48,3 +49,6 @@ Assets/Synaptic AI Pro.meta
 
 # Firestore admin tools
 tools/firestore/node_modules/
+
+# Cloud Functions（お知らせ通知の送信。tools/functions）
+tools/functions/node_modules/

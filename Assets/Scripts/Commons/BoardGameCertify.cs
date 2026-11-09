@@ -16,7 +16,8 @@ using UnityEngine;
 ///    （前の日に撮った写真では公認されない）。署名の鍵はアプリの中にあるので、入店QRと同じ程度の対策
 ///  ・保存先: users/{uid}.certified_boardgames = { ゲームキー: "yyyy-MM-dd"（公認された営業日） }。
 ///    同時に ✓（played_boardgames）も付ける。users は本人が書けるルールなのでルール変更は不要
-///  ・公認されたゲームで星座（Constellations）が光る
+///  ・公認されたゲームで星座（Constellations）が光る。星を灯せるのは1日1回まで。
+///    達成済みのゲームでも、別の日にまた公認QRを読めば同じ星座・別の星座にもう一度灯せる（2026-11-09 ユーザー指定）
 /// </summary>
 public static class BoardGameCertify
 {
@@ -36,9 +37,28 @@ public static class BoardGameCertify
     public const string T_EXPIRED = "このQRコードは今日のものではありません";
     public const string T_FAILED = "アチーブメントを記録できませんでした。通信状況を確かめて、もう一度読み取ってください";
     public const string T_ALREADY = "このゲームのアチーブメントは達成済みです";
-    public const string T_RELIGHT_HINT = "を完成させると、このゲームで別の星座にも星を灯せます";
+    public const string T_TODAY_DONE = "今日の星はもう灯しました";
+    public const string T_TODAY_DONE_SUB = "星座の星を灯せるのは1日1回までです。また来店したときに、同じゲームでも灯せます";
+    public const string T_NO_CONSTELLATION = "このゲームのジャンルには星座がありません";
 
-    public static string GlyphText => T_MARK + T_INVALID + T_EXPIRED + T_FAILED + T_ALREADY + T_RELIGHT_HINT;
+    public static string GlyphText => T_MARK + T_INVALID + T_EXPIRED + T_FAILED + T_ALREADY + T_TODAY_DONE
+                                      + T_TODAY_DONE_SUB + T_NO_CONSTELLATION;
+
+    /// <summary>
+    /// 今日（営業日）もう星座の星を灯したか（2026-11-09 ユーザー指定: 星を灯すのは1日1回まで）。
+    /// 星の記録がない古いデータは「当てはまる最初の星座に、達成日に灯った」とみなしているので、それも数える
+    /// </summary>
+    public static bool LitToday
+    {
+        get
+        {
+            string today = StoreCalendar.TodayBusiness.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+            foreach (var kv in All)
+                foreach (var (_, day) in Constellations.LitBy(kv.Key, Find(kv.Key), kv.Value))
+                    if (day == today) return true;
+            return false;
+        }
+    }
 
     public enum Result { Ok, Invalid, Expired }
 
@@ -158,7 +178,7 @@ public static class BoardGameCertify
     /// rewards = チケットのフィールド名 → 枚数。星座が1つ上がるごとに1枚: ふつうはドリンク、職人座は7%OFF）。
     /// 書き込みは1回なので、公認とチケットは必ず一緒に入る。メモリ上の UserData にも反映する
     /// </summary>
-    /// relight = 達成済みのゲームで、別の星座にもう一度灯す（達成日は変えず、灯した星座の記録に足すだけ）
+    /// relight = 達成済みのゲームで、もう一度灯す（達成日は変えず、灯した星座の記録に足すだけ。同じ星座でもよい）
     public static async UniTask CertifyAsync(string key, string starId, IReadOnlyDictionary<string, int> rewards,
         bool relight = false)
     {

@@ -133,6 +133,9 @@ public static class BoardGamePhotoStore
         catch { return DateTime.MinValue; }
     }
 
+    /// <summary>このゲームの写真のフォルダの中の、ファイル名からフルパスを作る（遊んだ記録 PlayLogStore が使う）</summary>
+    public static string PathOf(BoardGameEntry g, string fileName) => Path.Combine(DirOf(g), fileName ?? "");
+
     private static string ThumbPathOf(string photoPath) =>
         Path.Combine(Path.GetDirectoryName(photoPath),
             Path.GetFileNameWithoutExtension(photoPath) + THUMB_SUFFIX + ".jpg");

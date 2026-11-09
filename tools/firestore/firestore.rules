@@ -185,14 +185,21 @@ service cloud.firestore {
         && request.resource.data.issued_by == request.auth.uid
         && request.resource.data.claimed_by == null
         && request.resource.data.claimed_at == null;
-      allow update: if signedIn()
+      allow update: if (signedIn()
         && resource.data.claimed_by == null
         && request.time < resource.data.issued_at + duration.value(60, 'm')
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['claimed_by', 'claimed_at', 'holder_name'])
         && request.resource.data.claimed_by == request.auth.uid
         && request.resource.data.claimed_at == request.time
         && request.resource.data.holder_name ==
-             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('name', '');
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('name', ''))
+        // 管理者は、受け取られたパスの「追加の日数」だけ変えられる（臨時休業などで残り日数を足す。2026-11-09）
+        || (isAdmin()
+          && resource.data.claimed_by != null
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['extra_days'])
+          && request.resource.data.extra_days is int
+          && request.resource.data.extra_days >= -30
+          && request.resource.data.extra_days <= 365);
       allow delete: if isAdmin() && resource.data.claimed_by == null;
     }
 

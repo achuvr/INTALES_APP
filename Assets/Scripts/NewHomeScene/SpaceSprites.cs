@@ -6,12 +6,13 @@ using UnityEngine;
 ///
 /// 生成物:
 ///   RoundedFill / RoundedStroke … 角丸の面・縁（9スライス）
-///   Circle / Glow / Ring / RingSmall / Sparkle / Streak / FadeLine … 光・軌道・星などの部品
+///   Circle / Glow / Ring / RingSmall / RingBold / Sparkle / Streak / FadeLine … 光・軌道・星などの部品
 ///   Camera / Ticket … アイコン（白。Image.color で着色）
 ///   Planet / Moon … リング付き惑星・小さな衛星（背景用）
 ///   GoldMoon … 金色の小さな惑星（新ホームの履歴ボタン。背景の Moon と同じ描き方の色違い）
 ///   PlanetRim / PlanetIcon … 選べる惑星（SpacePlanetView）の大気の縁・惑星を選ぶボタンのアイコン
 ///   Lock / QrIcon … 未解放の惑星の錠前・管理者用の惑星QRボタンのアイコン
+///   BellIcon … 鈴（管理者用の「お知らせ通知を送る」ボタンのアイコン）
 ///   BubbleTail … 吹き出しのしっぽ（白い三角形。お知らせの「New」）
 ///   FriendsIcon … フレンドのアイコン（白。2人の人の形）
 ///   Nebula(w,h) / Stars(w,h) … 背景の星雲と星（キャンバスの縦横比に合わせて生成）
@@ -25,7 +26,7 @@ public static class SpaceSprites
 
     private static Sprite _roundedFill, _roundedStroke, _circle, _glow, _ring, _ringThin, _ringSmall, _sparkle, _streak,
         _fadeLine, _camera, _ticket, _gear, _inverseCorner, _planet, _moon, _goldMoon, _planetRim, _planetRimEven,
-        _planetIcon, _lock, _qrIcon, _bubbleTail, _friendsIcon, _greenMoon, _cyanMoon;
+        _planetIcon, _lock, _qrIcon, _bubbleTail, _friendsIcon, _greenMoon, _cyanMoon, _ringBold, _bellIcon;
     private static Texture2D _nebula, _stars;
 
     public static Sprite RoundedFill   => _roundedFill   != null ? _roundedFill   : (_roundedFill   = MakeRounded(false));
@@ -39,6 +40,8 @@ public static class SpaceSprites
     public static Sprite RingThin      => _ringThin      != null ? _ringThin      : (_ringThin      = MakeRing(512, 1.8f, "space_ring_thin"));
     /// <summary>小さく表示する縁取り用リング（256px・線幅4px）</summary>
     public static Sprite RingSmall     => _ringSmall     != null ? _ringSmall     : (_ringSmall     = MakeRing(256, 4f));
+    /// <summary>太めのリング（128px・線幅7px。遊んだ記録のカレンダーの〇。直径90前後で表示して線の太さ5ほど）</summary>
+    public static Sprite RingBold      => _ringBold      != null ? _ringBold      : (_ringBold      = MakeRing(128, 7f, "space_ring_bold"));
     public static Sprite Sparkle       => _sparkle       != null ? _sparkle       : (_sparkle       = MakeSparkle());
     public static Sprite Streak        => _streak        != null ? _streak        : (_streak        = MakeStreak());
     public static Sprite FadeLine      => _fadeLine      != null ? _fadeLine      : (_fadeLine      = MakeFadeLine());
@@ -69,6 +72,8 @@ public static class SpaceSprites
     public static Sprite Lock          => _lock          != null ? _lock          : (_lock          = MakeLock());
     /// <summary>QRコード風のアイコン（白。管理者用の「惑星の解放QRコード」ボタン）</summary>
     public static Sprite QrIcon        => _qrIcon        != null ? _qrIcon        : (_qrIcon        = MakeQrIcon());
+    /// <summary>鈴のアイコン（白。管理者用の「お知らせ通知を送る」ボタン）</summary>
+    public static Sprite BellIcon      => _bellIcon      != null ? _bellIcon      : (_bellIcon      = MakeBellIcon());
     /// <summary>
     /// 吹き出しのしっぽ（白い三角形・縦横比 40:25）。左下の角が先端、上辺が吹き出しの中に入る（新ホームの「New」）。
     /// 表示（40x25）に近い大きさで作る（大きく作って縮めると、ミップマップがないのでふちがギザギザになる）
@@ -518,6 +523,35 @@ public static class SpaceSprites
             px[y * s + x] = White(Mathf.Clamp01(0.5f - d));
         }
         return ToSprite(Tex(s, s, px, "space_qr_icon"));
+    }
+
+    /// <summary>鈴のアイコン: 上は半円のドーム、下へ行くほど反って広がる胴・裾の縁・上のつまみ・下の玉</summary>
+    private static Sprite MakeBellIcon()
+    {
+        const int s = 128;
+        const float top = 0.14f, r = 0.44f, bottom = -0.42f, flare = 0.24f;
+        float half = s / 2f, aa = 1f / half;
+        var px = new Color32[s * s];
+        for (int y = 0; y < s; y++)
+        for (int x = 0; x < s; x++)
+        {
+            float u = (x + 0.5f - half) / half, v = (y + 0.5f - half) / half;
+            float d;
+            if (v >= top) d = Dist(u, v - top) - r;
+            else if (v >= bottom)
+            {
+                float t = (top - v) / (top - bottom);
+                float slope = 2f * flare * t / (top - bottom); // 縁の傾き（横方向の距離を、斜めの縁までの距離に直す）
+                d = (Mathf.Abs(u) - (r + flare * t * t)) / Mathf.Sqrt(1f + slope * slope);
+            }
+            else d = 1f;
+            float body = Mathf.Clamp01(0.5f - d / aa);
+            float rim = Mathf.Clamp01(0.5f - SdRoundBox(u, v + 0.47f, 0.80f, 0.085f, 0.085f) / aa);
+            float knob = Mathf.Clamp01(0.5f - (Dist(u, v - 0.66f) - 0.10f) / aa);
+            float clapper = Mathf.Clamp01(0.5f - (Dist(u, v + 0.72f) - 0.12f) / aa);
+            px[y * s + x] = White(Mathf.Max(Mathf.Max(body, rim), Mathf.Max(knob, clapper)));
+        }
+        return ToSprite(Tex(s, s, px, "space_bell_icon"));
     }
 
     // ================================================================

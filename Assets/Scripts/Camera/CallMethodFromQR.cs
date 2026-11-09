@@ -221,30 +221,25 @@ public class CallMethodFromQR : MonoBehaviour
         var game = BoardGameCertify.Find(key);
         string title = game != null && !string.IsNullOrEmpty(game.title) ? game.title : key;
         var candidates = Constellations.Of(game);
-        bool relight = false;
-        if (BoardGameCertify.IsCertified(key))
+        bool certified = BoardGameCertify.IsCertified(key);
+        // 星座の星を灯せるのは1日1回まで。達成済みのゲームでも、別の日なら同じ星座・別の星座にもう一度灯せる
+        // （2026-11-09 ユーザー指定。それまでは「灯した星座が完成したら別の星座にだけ」だった）
+        bool todayDone = BoardGameCertify.LitToday;
+        if (certified && (todayDone || candidates.Count == 0 || game == null))
         {
-            // 達成済みのゲーム: 灯した星座がすべて完成していれば、まだ灯していない別の星座にもう一度灯せる
-            // （2026-11-06 ユーザー指定）。灯した星座がまだ完成していなければ、その星座の名前を出して案内する
-            var progress = Constellations.Progress();
-            var lit = Constellations.LitBy(key, game, "");
-            var litIds = new HashSet<string>();
-            foreach (var (def, _) in lit) litIds.Add(def.Id);
-            var remaining = candidates.FindAll(d => !litIds.Contains(d.Id));
-            ConstellationProgress unfinished = null;
-            foreach (var p in progress)
-                if (litIds.Contains(p.Def.Id) && !p.Complete) unfinished = p;
-            if (remaining.Count == 0 || unfinished != null || game == null)
-            {
-                EndFromButton();
-                InfoModal.Show(BoardGameCertify.T_ALREADY, title,
-                    remaining.Count > 0 && unfinished != null
-                        ? $"{unfinished.Def.Name}{BoardGameCertify.T_RELIGHT_HINT}"
-                        : null);
-                return;
-            }
-            candidates = remaining;
-            relight = true;
+            EndFromButton();
+            if (candidates.Count == 0 || game == null)
+                InfoModal.Show(BoardGameCertify.T_ALREADY, title, BoardGameCertify.T_NO_CONSTELLATION);
+            else
+                InfoModal.Show(BoardGameCertify.T_TODAY_DONE, title, BoardGameCertify.T_TODAY_DONE_SUB);
+            return;
+        }
+        bool relight = certified;
+        if (todayDone && candidates.Count > 0)
+        {
+            // 初めてのゲームだが、今日の星はもう灯した: アチーブメント（図鑑の印）だけ付けて、星は灯さない
+            await FinishCertifyAsync(key, title, null, false, true);
+            return;
         }
 
         // 星を灯す星座。ジャンルが2つ以上の星座に当てはまるゲームは、お客様に1つ選んでもらう
@@ -268,7 +263,9 @@ public class CallMethodFromQR : MonoBehaviour
     /// 公認の書き込みとお知らせ（星座 starId に星を1つ灯す。null ならどの星座にも入らない）。
     /// 星座を選ぶお知らせの後から呼ばれることがあるので、QR画面（この部品）が消えていても動くよう static
     /// </summary>
-    private static async UniTask FinishCertifyAsync(string key, string title, string starId, bool relight = false)
+    /// <param name="noStarToday">今日の星をもう灯したので星を灯さなかった（お知らせでそう伝える）</param>
+    private static async UniTask FinishCertifyAsync(string key, string title, string starId, bool relight = false,
+        bool noStarToday = false)
     {
         // この公認でちょうど完成・レベルアップする（あと1つだった）なら、その星座のチケットを1枚
         // （2026-11-06 ユーザー指定: 完成でも、そのあとのレベルアップでも。ふつうはドリンク、職人座は7%OFF）
@@ -291,7 +288,7 @@ public class CallMethodFromQR : MonoBehaviour
 
         var starDef = System.Array.Find(Constellations.All, d => d.Id == starId);
         LocalHistoryLog.Add("certify", relight && starDef != null
-            ? $"「{title}」で{starDef.Name}にも星を灯した"
+            ? $"「{title}」で{starDef.Name}にもう一度星を灯した"
             : $"「{title}」のアチーブメントを達成");
         AssetsDatabase.instance?.PlayLevelUpSE();
         var qrRoot = GameObject.FindWithTag("QR");
@@ -316,9 +313,10 @@ public class CallMethodFromQR : MonoBehaviour
         {
             // 星座が完成・レベルアップしたら、先に全画面の演出（閉じるとアチーブメントのお知らせ）
             var leveled = mine.Find(p => p.JustLeveled);
+            string none = noStarToday ? BoardGameCertify.T_TODAY_DONE_SUB : null;
             if (leveled != null)
-                SpaceNotice.ConstellationReveal(leveled, () => SpaceNotice.GameCertified(title, mine, rewards, relight));
-            else SpaceNotice.GameCertified(title, mine, rewards, relight);
+                SpaceNotice.ConstellationReveal(leveled, () => SpaceNotice.GameCertified(title, mine, rewards, relight, none));
+            else SpaceNotice.GameCertified(title, mine, rewards, relight, none);
         }
         else
         {

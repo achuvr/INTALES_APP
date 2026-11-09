@@ -22,7 +22,9 @@ public sealed class PassInfo
     public string HolderUid, HolderName; // 受け取った人（名前は受け取ったときのユーザー名）
     public DateTime IssuedAt;            // 受け取りQRを発行した時刻
     public DateTime Start;               // 購入日（受け取った日）
-    public DateTime Expiry;              // 最終日（購入日を1日目として30日目）
+    public DateTime Expiry;              // 最終日（購入日を1日目として30日目＋追加の日数。臨時休業のぶんは延びる。StorePasses.ExpiryFor）
+    public int ExtraDays;                // 臨時休業などで管理者が足した日数（減らすときはマイナス。2026-11-09）
+    public int ClosedDays;               // 期間中の臨時休業で使えなくなった日数（営業カレンダー。そのぶん期限を延ばした。2026-11-10）
 
     public bool IsActive(DateTime now) => Claimed && now.Date <= Expiry.Date;
 
@@ -39,7 +41,8 @@ public enum PassClaimResult { Ok, AlreadyMine, Taken, Expired, NotFound, Failed 
 ///   ・管理者が種類を選ぶたびに1枚発行する（受け取る前の形）。QRの中身は "pass:{ID}"
 ///   ・1回だけ、発行から CLAIM_MINUTES 分以内に受け取れる。受け取ると claimed_by に自分のUID、
 ///     claimed_at にサーバーの時刻、holder_name に自分のユーザー名が入る（購入者一覧に出る）
-///   ・有効期間は受け取った日を1日目として DAYS 日間（日付はこの端末の暦で計算する）
+///   ・有効期間は受け取った日を1日目として DAYS 日間（日付はこの端末の暦で計算する）＋管理者が足した日数（extra_days）。
+///     さらに営業カレンダー（ShopCalendar）の臨時休業で使えなくなった日数だけ、そのパスで使える営業日を後ろに足す（ExpiryFor。2026-11-10）
 ///   ・パスはユーザーごとのデータ（本人が自由に書ける users）ではなくここに置き、
 ///     受け取り・発行・取り消しの形はルール（tools/firestore/firestore.rules の passes）で決めている
 ///   ・受け取られたパスは消せない。受け取られなかった受け取りQRは、管理者が閉じたときに取り消す
@@ -87,6 +90,60 @@ public static class StorePasses
 
     /// <summary>"2026/11/05"</summary>
     public static string DateText(DateTime d) => d.ToString("yyyy/MM/dd");
+
+    // ================================================================
+    // 期限（営業カレンダーの臨時休業のぶん延ばす。2026-11-10 ユーザー指定）
+    // ================================================================
+    static StorePasses()
+    {
+        // 営業カレンダーを読み込んだ・管理者が登録を変えたら、手元の自分のパスの期限を計算し直す
+        ShopCalendar.Changed += () =>
+        {
+            foreach (var p in _mine) SetExpiry(p);
+            if (MineLoaded) Changed?.Invoke();
+        };
+    }
+
+    /// <summary>
+    /// パスの最終日。購入日を1日目として30日目＋追加の日数（extraDays）までが基本で、
+    /// その期間に営業カレンダーの臨時休業があり、そのパスで使えるはずだった日（種類が合い、定休日でない日）が減っていれば、
+    /// 減った日数だけ「そのパスで使える営業日」を後ろに足す。たとえば ALL DAY の最終日が日曜なら、月〜水は定休日なので
+    /// 次の木曜まで延びる。平日のみのパスは、営業する平日（木・金と臨時営業の日）を足す。closedDays は減った日数
+    /// </summary>
+    public static DateTime ExpiryFor(PassTypeDef type, DateTime start, int extraDays, out int closedDays)
+    {
+        var expiry = start.Date.AddDays(DAYS - 1 + extraDays);
+        closedDays = 0;
+        if (!ShopCalendar.HasClosures) return expiry;
+        for (var d = start.Date; d <= expiry; d = d.AddDays(1))
+            if (TypeMatches(type, d) && ShopCalendar.IsTempClosed(d)) closedDays++;
+
+        int need = closedDays;
+        var day = expiry;
+        for (int guard = 0; need > 0 && guard < 400; guard++)
+        {
+            day = day.AddDays(1);
+            if (!TypeMatches(type, day) || !ShopCalendar.IsOpen(day)) continue;
+            need--;
+            expiry = day;
+        }
+        return expiry;
+    }
+
+    private static void SetExpiry(PassInfo p)
+    {
+        if (p == null || !p.Claimed || p.Type == null) return;
+        p.Expiry = ExpiryFor(p.Type, p.Start, p.ExtraDays, out p.ClosedDays);
+    }
+
+    /// <summary>パスの種類がその曜日に合うか（平日のみ＝月〜金、土日のみ＝土日、ALL DAY＝毎日。祝日は区別しない）</summary>
+    private static bool TypeMatches(PassTypeDef type, DateTime day)
+    {
+        bool weekend = day.DayOfWeek == DayOfWeek.Saturday || day.DayOfWeek == DayOfWeek.Sunday;
+        if (type == Weekday) return !weekend;
+        if (type == Weekend) return weekend;
+        return true;
+    }
 
     private static FirebaseFirestore Db => FirebaseFirestore.DefaultInstance;
     private static CollectionReference Col => Db.Collection(COLLECTION);
@@ -145,6 +202,7 @@ public static class StorePasses
         if (string.IsNullOrEmpty(uid)) return;
         try
         {
+            await ShopCalendar.EnsureLoadedAsync(); // 期限に臨時休業のぶんを入れるため（読めなくても続ける）
             var snap = await Col.WhereEqualTo("claimed_by", uid).GetSnapshotAsync().AsUniTask();
             _mine.Clear();
             foreach (var doc in snap.Documents)
@@ -169,6 +227,7 @@ public static class StorePasses
         if (string.IsNullOrEmpty(uid)) return null;
         try
         {
+            await ShopCalendar.EnsureLoadedAsync();
             var snap = await Col.WhereEqualTo("claimed_by", uid).GetSnapshotAsync().AsUniTask();
             var list = new List<PassInfo>();
             foreach (var doc in snap.Documents)
@@ -187,14 +246,7 @@ public static class StorePasses
     }
 
     /// <summary>その日に使えるパスか（平日のみ＝月〜金、土日のみ＝土日、ALL DAY＝毎日。祝日は区別しない）</summary>
-    public static bool UsableOn(PassInfo p, DateTime day)
-    {
-        if (p == null || !p.IsActive(day)) return false;
-        bool weekend = day.DayOfWeek == DayOfWeek.Saturday || day.DayOfWeek == DayOfWeek.Sunday;
-        if (p.Type == Weekday) return !weekend;
-        if (p.Type == Weekend) return weekend;
-        return true;
-    }
+    public static bool UsableOn(PassInfo p, DateTime day) => p != null && p.IsActive(day) && TypeMatches(p.Type, day);
 
     /// <summary>受け取りQRの中身からパスのIDを取り出す（形が違えば null）</summary>
     public static string ParseQr(string qrText)
@@ -219,6 +271,7 @@ public static class StorePasses
         PassInfo pass;
         try
         {
+            await ShopCalendar.EnsureLoadedAsync(); // 受け取ったときに出す期限に、臨時休業のぶんを入れるため
             var snap = await docRef.GetSnapshotAsync(Source.Server).AsUniTask();
             if (!snap.Exists) return (PassClaimResult.NotFound, null); // 取り消された・正しくないQR
             pass = Parse(snap);
@@ -313,9 +366,31 @@ public static class StorePasses
         return Col.Document(id).Listen(snap => onChange?.Invoke(snap.Exists ? Parse(snap) : null));
     }
 
+    /// <summary>
+    /// 追加の日数を書き換える（管理者だけ。残り日数を足す・減らす。2026-11-09）。
+    /// 期限は「購入日から30日目＋追加の日数」に、営業カレンダーの臨時休業のぶんを足したもの（ExpiryFor）。成功したら true
+    /// </summary>
+    public static async UniTask<bool> SetExtraDaysAsync(PassInfo p, int extraDays)
+    {
+        if (p == null || string.IsNullOrEmpty(p.Id)) return false;
+        try
+        {
+            await Col.Document(p.Id).UpdateAsync("extra_days", extraDays).AsUniTask();
+            p.ExtraDays = extraDays;
+            SetExpiry(p);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Debug.LogWarning($"[Pass] 日数の変更に失敗 ({p.Id}): {ex.Message}");
+            return false;
+        }
+    }
+
     /// <summary>受け取られたパスの一覧（購入者・期限・種類の確認用。新しく発行した順に最大500件）</summary>
     public static async UniTask<List<PassInfo>> LoadAllAsync()
     {
+        await ShopCalendar.EnsureLoadedAsync();
         var snap = await Col.OrderByDescending("issued_at").Limit(500).GetSnapshotAsync(Source.Server).AsUniTask();
         var list = new List<PassInfo>();
         foreach (var doc in snap.Documents)
@@ -340,6 +415,7 @@ public static class StorePasses
         p.HolderUid = d.TryGetValue("claimed_by", out var by) ? by as string : null;
         p.Claimed = !string.IsNullOrEmpty(p.HolderUid);
         p.HolderName = d.TryGetValue("holder_name", out var hn) ? hn as string ?? "" : "";
+        if (d.TryGetValue("extra_days", out var ed) && ed != null) p.ExtraDays = Convert.ToInt32(ed);
         if (p.Claimed)
         {
             var at = d.TryGetValue("claimed_at", out var ca) && ca is Timestamp claimed
@@ -353,7 +429,7 @@ public static class StorePasses
     private static void SetDates(PassInfo p, DateTime claimedLocal)
     {
         p.Start = claimedLocal.Date;
-        p.Expiry = p.Start.AddDays(DAYS - 1);
+        SetExpiry(p);
     }
 
     private static bool IsPermissionDenied(Exception ex) => HasError(ex, FirestoreError.PermissionDenied);

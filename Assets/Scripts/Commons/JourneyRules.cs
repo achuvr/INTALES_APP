@@ -120,7 +120,7 @@ public static class JourneyRules
         else if (c.Period > j.Period)
         {
             r.NewOrbit = true;
-            int allowance = c.Center == "celesta" ? 2 : 1;
+            int allowance = 1; // 惑星の能力（セレスタ）は 2026-11-09 にやめた
             int streak = j.Streak;
             var rescues = new List<int>(j.Rescues);
             int insurance = j.Insurance;
@@ -164,12 +164,7 @@ public static class JourneyRules
             r.PowerMaxed = before < POWER_MAX && after >= POWER_MAX;
         }
 
-        // 休みの保険（オルビスを中央に置いて土曜に来た。最大1つ）
-        if (c.Center == "orbis" && c.Weekday == DayOfWeek.Saturday && j.Insurance < 1)
-        {
-            j.Insurance = 1;
-            r.InsuranceGained = true;
-        }
+        // 休みの保険（オルビスの能力）は 2026-11-09 にやめた。貯まっている分は使える
 
         // ---- 惑星の解放 ----
         if (WEEKDAY_PLANETS.TryGetValue(c.Weekday, out var wd)) Grant(wd, owned, r);
@@ -186,7 +181,7 @@ public static class JourneyRules
         {
             j.StarPeriod = c.Period;
             j.Extra.Clear();
-            int draws = c.Center == "tempesta" ? 2 : 1;
+            int draws = 1; // 惑星の能力（テンペスタの2回）は 2026-11-09 にやめた
             bool powerMax = j.PowerOf(c.Center) >= POWER_MAX;
             for (int i = 0; i < draws; i++)
                 AddPrize(Roll(rng, j.Streak, c.Center, c.Weekday, c.Season, powerMax), owned, r);
@@ -220,13 +215,7 @@ public static class JourneyRules
     {
         int tier = streak >= 13 ? 2 : streak >= 4 ? 1 : 0;
         var w = (double[])ODDS[tier].Clone(); // 5% / ドリンク / コーヒー / 7% / ノワール / 5時間無料 / フリータイム
-        double luck = 1.0;
-        if (center == "aquaris" || center == "legacia") luck = 1.2; // legacia＝古参の人の惑星（SpacePlanets.LEGACY_ID）
-        if (center == "glacia" && season == StoreCalendar.Season.Winter) luck = 1.2;
-        if (center == "crysta" && weekday == DayOfWeek.Friday) luck = 1.5;
-        for (int i = 1; i < w.Length; i++) w[i] *= luck;
-        if (center == "limona") w[1] *= 1.6;
-        if (center == "voltia") w[3] *= 2.0;
+        // 惑星ごとの当たりやすさ（能力）は 2026-11-09 にやめた。効くのはパワーMAXの7%オフだけ
         if (powerMax) w[3] *= POWER_SEVEN;
 
         double total = w.Sum();
@@ -238,8 +227,6 @@ public static class JourneyRules
             x -= w[pick];
         }
         var prize = (StarPrize)pick; // ODDS と StarPrize は同じ並び
-        // ミスティア: 5%引きが、ときどき（4回に1回）7%引きに変わる
-        if (prize == StarPrize.Five && center == "mistia" && rng.NextDouble() < 0.25) prize = StarPrize.Seven;
         return prize;
     }
 }

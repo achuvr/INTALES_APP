@@ -34,6 +34,21 @@ public static class Referral
                                       + T_NO_ACCOUNT;
 
     private static FirebaseFirestore Db => FirebaseFirestore.DefaultInstance;
+
+    /// <summary>紹介で初めて来店したとき、紹介した人・された人の両方が解放する惑星（2026-11-09 フレンドの条件から変更）</summary>
+    public const string PLANET = "opalia";
+
+    /// <summary>直前の受け取りで、オパーリアを新しく解放したか（ホームが解放のお知らせを出したら false に戻す）</summary>
+    public static bool PlanetJustUnlocked;
+
+    private static void AddPlanetLocal(UserData d)
+    {
+        if (d.Planets.Contains(PLANET)) return;
+        d.Planets.Add(PLANET);
+        PlanetJustUnlocked = true;
+        SpacePlanets.MarkNews();
+        LocalHistoryLog.Add("planet", "惑星「オパーリア」を解放（友だち紹介）");
+    }
     private static UserDataManager Manager => UserDataManager.instance;
 
     public static string Payload(string uid, string name) => QR_PREFIX + uid + ":" + (name ?? "");
@@ -115,9 +130,11 @@ public static class Referral
             {
                 { "drink_coupon", FieldValue.Increment(1) },
                 { "referral_rewarded", true },
+                { "planets", FieldValue.ArrayUnion(PLANET) }, // 惑星オパーリアの解放（2026-11-09）
             });
             await batch.CommitAsync().AsUniTask();
             d.DrinkCoupon++;
+            AddPlanetLocal(d);
             LocalHistoryLog.Add("coupon", "ドリンクチケット を1枚 入手（紹介で来店した特典）");
             return true;
         }
@@ -152,9 +169,11 @@ public static class Referral
                 batch.Update(Db.Collection("users").Document(m.UID), new Dictionary<string, object>
                 {
                     { "drink_coupon", FieldValue.Increment(1) },
+                    { "planets", FieldValue.ArrayUnion(PLANET) }, // 惑星オパーリアの解放（2026-11-09）
                 });
                 await batch.CommitAsync().AsUniTask();
                 m.UserData.DrinkCoupon++;
+                AddPlanetLocal(m.UserData);
                 string name = doc.TryGetValue("name", out string n) ? n : "";
                 names.Add(name);
                 LocalHistoryLog.Add("coupon", $"ドリンクチケット を1枚 入手（{name}さんの紹介の特典）");

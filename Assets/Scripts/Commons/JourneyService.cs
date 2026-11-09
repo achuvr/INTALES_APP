@@ -117,7 +117,7 @@ public static class JourneyService
     /// <summary>今の公転で、まだ使える軌道修正の数</summary>
     public static int RescuesLeft(string centerId)
     {
-        int allowance = centerId == "celesta" ? 2 : 1;
+        int allowance = 1; // 惑星の能力（セレスタ）は 2026-11-09 にやめた
         var j = Journey;
         if (j == null) return allowance;
         int now = StoreCalendar.CurrentPeriod;
@@ -192,8 +192,7 @@ public static class JourneyService
         string center = SpacePlanets.Current.Id;
         var season = StoreCalendar.CurrentSeason;
         bool ignis = stayMinutes >= 5 * 60 && !SpacePlanets.IsOwned(SpacePlanets.Find("ignis"));
-        bool rubra = center == "rubra" && season == StoreCalendar.Season.Autumn && stayMinutes >= JourneyRules.RUBRA_STAY_MINUTES
-                     && !j0.Extra.Contains(JourneyRules.EXTRA_RUBRA) && j0.StarPeriod == StoreCalendar.CurrentPeriod;
+        bool rubra = false; // 惑星の能力（ルブラの流れ星もう1回）は 2026-11-09 にやめた
         if (!ignis && !rubra) return null;
 
         string uid = mgr.UID;

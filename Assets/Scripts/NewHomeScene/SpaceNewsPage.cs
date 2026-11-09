@@ -15,6 +15,8 @@ using UnityEngine.UI;
 
 /// <summary>
 /// お知らせページ（新ホームの中央の惑星の左上にある、ピンクの小さな惑星から開く全画面）。
+///  ・営業カレンダー … 今週と来週の2週間（定休日・臨時休業・臨時営業・イベント）。押すとカレンダーの画面（SpaceShopCalendar。
+///                     管理者はそこで臨時休業などを登録）。見出しの右に今日・近いうちの臨時休業（2026-11-10）
 ///  ・お店からのお知らせ … 店側が Firestore の master/config.event_images に登録した画像（旧ホームのお知らせページと同じ。
 ///                         並びも旧ホームと同じく、一覧の最後＝あとから足したものが一番上）。
 ///                         タップで拡大表示（ピンチ・ダブルタップで拡大、拡大中はドラッグで移動）。
@@ -49,7 +51,7 @@ public class SpaceNewsPage : MonoBehaviour
     // フレンドでない参加者の呼び名（名前は出さない）。カードごとに、フレンドでない人の並び順で「ユーザーA」「ユーザーB」…
     private const string T_USER = "ユーザー";
     private const string USER_LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-    private const string T_NAMES_NOTE = "募集した人・参加した人の名前は、フレンドにだけ表示されます";
+    private const string T_NAMES_NOTE = "募集した人・参加した人の名前は表示されません";
     private const string T_ZOOM_HINT = "ピンチやダブルタップで拡大できます";
     private const string T_EDIT = "画像を編集"; // 管理者だけ
     private const string T_POST = "相席募集をする";
@@ -102,7 +104,7 @@ public class SpaceNewsPage : MonoBehaviour
               .Append(T_NO_NAME_JOIN).Append(T_CLOSE_POST).Append(T_CLOSE_TITLE).Append(T_CLOSE_BODY)
               .Append(T_CLOSING_POST).Append(T_CLOSED_POST).Append(T_REOPEN).Append(T_REOPENING).Append(T_REOPENED)
               .Append(T_ONE_OPEN).Append(T_EDIT).Append("　").Append(GLYPH_EXTRA)
-              .Append(SpaceRecruitForm.GlyphText);
+              .Append(SpaceRecruitForm.GlyphText).Append(SpaceShopCalendar.GlyphText);
             foreach (var m in RecruitBoardController.JOIN_MSGS) sb.Append(m);
             foreach (var t in RecruitBoardController.TAGS) sb.Append(t);
             return sb.ToString();
@@ -144,8 +146,9 @@ public class SpaceNewsPage : MonoBehaviour
     private Action _onClosed;
     private CanvasGroup _group;
     private RectTransform _safe, _content, _viewer;
-    private TextMeshProUGUI _recruitInfo;
-    private Block _shopHeader, _recruitHeader;
+    private TextMeshProUGUI _recruitInfo, _calendarInfo;
+    private Block _calendarHeader, _calendarCard, _shopHeader, _recruitHeader;
+    private SpaceShopCalendar _calendarPage; // 営業カレンダーの画面（開いている間）
     private readonly List<Block> _shopBlocks = new List<Block>();
     private readonly List<Block> _recruitBlocks = new List<Block>();
     private readonly List<Texture2D> _textures = new List<Texture2D>();
@@ -174,7 +177,8 @@ public class SpaceNewsPage : MonoBehaviour
     /// <summary>戻る操作: 参加のひとこと・募集の作成・拡大表示を開いていればそれを、なければお知らせを閉じる</summary>
     public void HandleBack()
     {
-        if (_imageEditor != null) _imageEditor.HandleBack();
+        if (_calendarPage != null) _calendarPage.HandleBack();
+        else if (_imageEditor != null) _imageEditor.HandleBack();
         else if (_joinSheet != null) CloseJoinSheet();
         else if (_form != null) _form.HandleBack();
         else if (_viewer != null) CloseViewer();
@@ -199,6 +203,7 @@ public class SpaceNewsPage : MonoBehaviour
     private void OnDestroy()
     {
         SpaceRecruitDigest.Changed -= OnRecruitsChanged;
+        ShopCalendar.Changed -= RefreshCalendar;
         // 画像は開くたびにキャッシュから読み直すので、閉じたら手放す（実機メモリ対策）
         foreach (var t in _textures)
             if (t != null) Destroy(t);
@@ -249,6 +254,16 @@ public class SpaceNewsPage : MonoBehaviour
         scroll.movementType = ScrollRect.MovementType.Elastic;
         scroll.scrollSensitivity = 40f;
 
+        // 営業カレンダー（今週と来週。押すとカレンダーの画面。2026-11-10）
+        _calendarHeader = SectionHeader(SpaceShopCalendar.T_TITLE, SpaceShopCalendar.ACCENT, out _calendarInfo);
+        _calendarInfo.enableAutoSizing = true;
+        _calendarInfo.fontSizeMin = 18f;
+        _calendarInfo.fontSizeMax = 26f;
+        _calendarCard = NewBlock("Calendar", SpaceShopCalendar.WEEKS_H, FIRST_GAP);
+        RefreshCalendar();
+        ShopCalendar.Changed += RefreshCalendar;
+        ShopCalendar.LoadAsync().Forget(); // 開くたびに読み直す（管理者が登録したばかりの臨時休業も出す）
+
         _shopHeader = SectionHeader(T_SEC_SHOP, ACCENT, out _);
         if (AdminClaim.IsAdmin) EditButton(_shopHeader); // 管理者だけ（実際の保護はルール）
         _shopBlocks.Add(MessageBlock(T_LOADING, null));
@@ -285,6 +300,8 @@ public class SpaceNewsPage : MonoBehaviour
             y -= b.H;
         }
 
+        Place(_calendarHeader);
+        Place(_calendarCard);
         Place(_shopHeader);
         foreach (var b in _shopBlocks) Place(b);
         Place(_recruitHeader);
@@ -325,6 +342,25 @@ public class SpaceNewsPage : MonoBehaviour
         info = SpaceTheme.Text(b.Rt, "Info", "", 26, SpaceTheme.TEXT_SUB, new Vector2(1f, 0.5f), new Vector2(-8f, 0f),
             new Vector2(320f, 40f), FontStyles.Bold, TextAlignmentOptions.Right, new Vector2(1f, 0.5f));
         return b;
+    }
+
+    /// <summary>営業カレンダーの欄を描き直す（開いたとき・カレンダーを読み込んだとき・管理者が登録を変えたとき）</summary>
+    private void RefreshCalendar()
+    {
+        if (this == null || _calendarCard == null || _calendarCard.Rt == null) return;
+        foreach (Transform c in _calendarCard.Rt) Destroy(c.gameObject);
+        var weeks = SpaceTheme.Rect("Weeks", _calendarCard.Rt);
+        SpaceTheme.Stretch(weeks);
+        var face = SpaceShopCalendar.BuildWeeks(weeks, CARD_W);
+        SpaceTheme.Clickable(weeks.gameObject, face, OpenCalendar);
+        _calendarInfo.text = SpaceShopCalendar.InfoText(out var color);
+        _calendarInfo.color = color;
+    }
+
+    private void OpenCalendar()
+    {
+        if (_calendarPage != null || _closing) return;
+        _calendarPage = SpaceShopCalendar.Open(transform);
     }
 
     /// <summary>管理者用: 「お店からのお知らせ」の見出しの右の「画像を編集」</summary>

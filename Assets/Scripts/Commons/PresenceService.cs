@@ -30,7 +30,8 @@ public static class PresenceService
         var manager = UserDataManager.instance;
         if (manager == null || string.IsNullOrEmpty(manager.UID)) return;
         if (!manager.UserData.SharePresence) return;
-        await WriteAsync(checkedIn);
+        // フレンド機能をやめたので（2026-11-09）入店中は知らせない。前に書いた自分の記録が残っていれば消す
+        await WriteAsync(false);
     }
 
     /// <summary>

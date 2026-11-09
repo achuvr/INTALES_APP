@@ -1,0 +1,13 @@
+{
+  "name": "intales-functions",
+  "description": "INTALES の Cloud Functions（お知らせ通知の送信 sendNotice）。デプロイはプロジェクト直下で firebase deploy --only functions --project intales-a0459",
+  "private": true,
+  "main": "index.js",
+  "engines": {
+    "node": "22"
+  },
+  "dependencies": {
+    "firebase-admin": "^14.5.0",
+    "firebase-functions": "^7.4.0"
+  }
+}

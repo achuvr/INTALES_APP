@@ -179,11 +179,11 @@ public static class Constellations
     public static List<(ConstellationDef Def, string Day)> LitBy(string key, BoardGameEntry g, string certDay)
     {
         var list = new List<(ConstellationDef, string)>();
-        var seen = new HashSet<string>();
+        // 同じゲームで同じ星座に何度でも灯せる（2026-11-09 ユーザー指定。1日1回まで）ので、重ねて数える
         foreach (var (id, day) in BoardGameCertify.StarsOf(key))
         {
             var def = All.FirstOrDefault(d => d.Id == id);
-            if (def == null || !Matches(def, g) || !seen.Add(id)) continue;
+            if (def == null || !Matches(def, g)) continue;
             list.Add((def, day));
         }
         if (list.Count == 0)

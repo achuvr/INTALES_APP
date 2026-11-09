@@ -157,11 +157,12 @@ public class SpaceInventoryPanel : MonoBehaviour
     private const string T_PASS_LEFT_B = "日";
     private const string T_PASS_LAST_DAY = "本日まで";
     private const string T_PASS_EXPIRED = "期限切れ";
+    private const string T_PASS_EXTENDED = "（臨時休業ぶん延長）"; // 営業カレンダーの臨時休業で期限が延びたとき（2026-11-10）
     private const string T_FOOTER = "使うときはスタッフに画面を見せてください";
     private const string T_MEMBER = "会員証";
     private const string T_MEMBER_CAPTION = "MEMBER CARD";
     private const string T_MEMBER_TITLE = "会員証";
-    private const string T_MEMBER_NOTE = "お会計のときにスタッフに見せてください。パス・クーポン・お店の特典をまとめて確認できます";
+    private const string T_MEMBER_NOTE = "お会計のときにスタッフに見せてください。パスとクーポンをまとめて確認できます";
     private const string T_EMPTY = "まだ持っていません";
     private const string T_OWNED = "所持";
     private const string T_CANCEL = "キャンセル";
@@ -210,7 +211,7 @@ public class SpaceInventoryPanel : MonoBehaviour
               .Append(T_OWNED).Append(T_CANCEL).Append(T_USE).Append(T_BUSY).Append(T_CAP).Append(T_DONE)
               .Append(T_CAP_NOTE).Append(T_SHOW_STAFF).Append(T_USED_AT).Append(T_CLOSE).Append(T_FAILED)
               .Append(T_NO_USER).Append(T_PASS_SECTION).Append(T_PASS_SUFFIX).Append(T_PASS_UNTIL)
-              .Append(T_PASS_LEFT_A).Append(T_PASS_LEFT_B).Append(T_PASS_LAST_DAY).Append(T_PASS_EXPIRED)
+              .Append(T_PASS_LEFT_A).Append(T_PASS_LEFT_B).Append(T_PASS_LAST_DAY).Append(T_PASS_EXPIRED).Append(T_PASS_EXTENDED)
               .Append(T_PERK_SECTION).Append(T_PERK_OF).Append(T_PERK_OK).Append(T_PERK_USED).Append(T_PERK_NOT_IN)
               .Append(T_PERK_WRONG_DAY).Append(T_PERK_WRONG_TIME).Append(T_PERK_WRONG_SEASON).Append(T_PERK_MSG_NOT_IN)
               .Append(T_PERK_MSG_USED_A).Append(T_PERK_MSG_USED_B).Append(T_PERK_MSG_DAY).Append(T_PERK_MSG_MORNING)
@@ -648,9 +649,13 @@ public class SpaceInventoryPanel : MonoBehaviour
         name.enableAutoSizing = true;
         name.fontSizeMin = 30f;
         name.fontSizeMax = 40f;
-        SpaceTheme.Text(row, "Desc", StorePasses.DateText(pass.Expiry) + T_PASS_UNTIL, 26, SpaceTheme.TEXT_SUB,
-            new Vector2(0f, 0.5f), new Vector2(textX, -28f), new Vector2(400f, 40f), FontStyles.Bold,
+        var desc = SpaceTheme.Text(row, "Desc",
+            StorePasses.DateText(pass.Expiry) + T_PASS_UNTIL + (pass.ClosedDays > 0 ? T_PASS_EXTENDED : ""), 26,
+            SpaceTheme.TEXT_SUB, new Vector2(0f, 0.5f), new Vector2(textX, -28f), new Vector2(400f, 40f), FontStyles.Bold,
             TextAlignmentOptions.Left, new Vector2(0f, 0.5f));
+        desc.enableAutoSizing = true; // 延長の注記が付いても枠に収める
+        desc.fontSizeMin = 18f;
+        desc.fontSizeMax = 26f;
 
         int days = pass.DaysLeft(now);
         string left = !active ? T_PASS_EXPIRED

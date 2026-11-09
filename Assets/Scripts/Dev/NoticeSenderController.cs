@@ -1,26 +1,30 @@
 using System;
-using System.Diagnostics;
-using System.IO;
 using System.Text;
 using Cysharp.Threading.Tasks;
 using TMPro;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
-using Debug = UnityEngine.Debug;
 
 /// <summary>
-/// お知らせ通知を送る、パソコン（Unity エディタ）専用の画面（Assets/Scenes/dev/NoticeSender.unity。2026-11-07 ユーザー指定）。
-/// シーンを開いて再生し、タイトルと本文を入れて「送る」を押す。中では tools/firestore/send-notice.js を node で呼ぶ
-/// （サービスアカウントの鍵はパソコンにだけある。アプリには入れない）。
+/// お知らせ通知を送る、パソコン専用の画面（Assets/Scenes/dev/NoticeSender.unity。2026-11-07 ユーザー指定）。
+/// タイトルと本文を入れて「送る」を押すと、FcmNotice が Firebase Cloud Messaging へ直接送る。
+///
+/// 使い方は2通り（2026-11-09 ユーザー指定で Windows 用にビルドできるようにした。このパソコンとノートパソコンで使う）:
+///   ・Unity エディタでこのシーンを開いて再生する
+///   ・メニュー「Build/通知の送信画面（Windows）」で作った exe を開く（NoticeSenderBuild）
+/// サービスアカウントの鍵はパソコンにだけ置く（探す場所は FcmNotice.KeyFolders）。スマホのアプリには入れない。
 ///
 /// 送り先:
 ///   ・テスト … 話題 "staff"。管理者アカウントでホームを開いたスマホだけが購読している（AppNotifications）
 ///   ・全員   … 話題 "all"。アプリを入れてホームを開いた人全員（取り消せないので確認を出す）
-/// ビルドには入れない（ビルド設定のシーン一覧に足さない）。カメラ・キャンバス・EventSystem もここで作る
+/// スマホのアプリのビルド設定のシーン一覧には足さない。カメラ・キャンバス・EventSystem もここで作る
 /// </summary>
 public class NoticeSenderController : MonoBehaviour
 {
+    [Tooltip("日本語フォント（jp）。シーンから参照しておかないと Windows 用のビルドに入らず、文字が□になる")]
+    [SerializeField] private TMP_FontAsset _jpFont;
+
     private const string T_TITLE = "お知らせ通知を送る";
     private const string T_SUB = "アプリを入れている人のスマホに通知が届きます";
     private const string T_FIELD_TITLE = "タイトル";
@@ -40,25 +44,32 @@ public class NoticeSenderController : MonoBehaviour
     private const string T_CONFIRM_TEST = "テストを送りますか？";
     private const string T_CONFIRM_TEST_BODY = "管理者アカウントでホームを開いたスマホだけに届きます";
     private const string T_LOG = "送った記録";
-    private const string T_NOTE = "パソコンの Unity エディタ専用の画面です（tools/firestore/send-notice.js を呼び出します）";
+    private const string T_KEY = "使う鍵: ";
+    private const string T_KEY_ADMIN = "（管理用・全権限）";
+    private const string T_KEY_SEND_ONLY = "（通知を送る権限だけ）";
+    private const string T_NO_KEY = "鍵ファイル（.json）が見つかりません。次の場所に置いてから送ってください: ";
+    private const string T_NO_KEY_SHORT = "鍵ファイルが見つかりません（画面の下を見てください）";
     private const int TITLE_MAX = 40, BODY_MAX = 150;
 
     private Canvas _canvas;
     private TMP_InputField _title, _body;
-    private TextMeshProUGUI _previewTitle, _previewBody, _log, _sendLabel;
+    private TextMeshProUGUI _previewTitle, _previewBody, _log, _sendLabel, _keyNote;
     private bool _toAll, _busy;
     private Image _testFace, _allFace;
     private TextMeshProUGUI _testText, _allText;
     private readonly StringBuilder _logText = new StringBuilder();
+    private FcmNotice.Key _key;
 
     private void Start()
     {
         Application.targetFrameRate = 30;
+        var jp = _jpFont;
 #if UNITY_EDITOR
-        var jp = UnityEditor.AssetDatabase.LoadAssetAtPath<TMP_FontAsset>("Assets/TextMesh Pro/Fonts/jp.asset");
-        if (jp != null) SpaceTheme.SetFont(jp);
+        if (jp == null) jp = UnityEditor.AssetDatabase.LoadAssetAtPath<TMP_FontAsset>("Assets/TextMesh Pro/Fonts/jp.asset");
 #endif
+        if (jp != null) SpaceTheme.SetFont(jp);
         SpaceTheme.InUse = true;
+        _key = FcmNotice.FindKey();
         BuildScene();
         Build();
         RefreshPreview();
@@ -86,7 +97,8 @@ public class NoticeSenderController : MonoBehaviour
         var scaler = cgo.AddComponent<CanvasScaler>();
         scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
         scaler.referenceResolution = new Vector2(1920f, 1080f);
-        scaler.matchWidthOrHeight = 0.5f;
+        // ウィンドウの縦横比が変わっても、左の入力と右の見え方が重ならないように（常に 1920×1080 以上の広さ）
+        scaler.screenMatchMode = CanvasScaler.ScreenMatchMode.Expand;
         cgo.AddComponent<GraphicRaycaster>();
     }
 
@@ -122,8 +134,11 @@ public class NoticeSenderController : MonoBehaviour
         _sendLabel = SpaceTheme.Text(send, "Label", T_SEND, 40, SpaceTheme.TEXT_DARK, FontStyles.Bold);
         SpaceTheme.Stretch(_sendLabel.rectTransform);
 
-        SpaceTheme.Text(root, "Note", T_NOTE, 22, SpaceTheme.TEXT_MUTED, new Vector2(0f, 0f), new Vector2(80f, 40f),
-            new Vector2(1700f, 34f), FontStyles.Normal, TextAlignmentOptions.Left, new Vector2(0f, 0.5f));
+        // 左下: 使う鍵（見つからなければ置き場所）
+        _keyNote = SpaceTheme.Text(root, "KeyNote", "", 22, SpaceTheme.TEXT_MUTED, new Vector2(0f, 0f), new Vector2(80f, 52f),
+            new Vector2(1760f, 64f), FontStyles.Normal, TextAlignmentOptions.BottomLeft, new Vector2(0f, 0.5f));
+        _keyNote.textWrappingMode = TextWrappingModes.Normal;
+        RefreshKeyNote();
 
         // 右: スマホでの見え方
         SpaceTheme.Text(root, "PreviewLabel", T_PREVIEW, 28, SpaceTheme.TEXT_SUB, new Vector2(1f, 1f), new Vector2(-760f, -206f),
@@ -175,6 +190,20 @@ public class NoticeSenderController : MonoBehaviour
         Set(_allFace, _allText, _toAll, SpaceTheme.DANGER);
     }
 
+    private void RefreshKeyNote()
+    {
+        if (_key != null)
+        {
+            _keyNote.text = T_KEY + SpaceTheme.NoParse(_key.client_email) + (_key.IsAdmin ? T_KEY_ADMIN : T_KEY_SEND_ONLY);
+            _keyNote.color = SpaceTheme.TEXT_MUTED;
+        }
+        else
+        {
+            _keyNote.text = T_NO_KEY + SpaceTheme.NoParse(string.Join("　または　", FcmNotice.KeyFolders()));
+            _keyNote.color = SpaceTheme.DANGER;
+        }
+    }
+
     private void OnSend()
     {
         if (_busy) return;
@@ -183,6 +212,16 @@ public class NoticeSenderController : MonoBehaviour
         {
             SpaceTheme.Toast(T_NEED_TITLE, _canvas);
             return;
+        }
+        if (_key == null)
+        {
+            _key = FcmNotice.FindKey(); // 画面を開いたあとに鍵を置いた場合
+            RefreshKeyNote();
+            if (_key == null)
+            {
+                SpaceTheme.Toast(T_NO_KEY_SHORT, _canvas);
+                return;
+            }
         }
         bool all = _toAll;
         SpaceDialog.Confirm(_canvas, all ? T_CONFIRM_ALL : T_CONFIRM_TEST, all ? T_CONFIRM_ALL_BODY : T_CONFIRM_TEST_BODY,
@@ -193,7 +232,7 @@ public class NoticeSenderController : MonoBehaviour
     {
         _busy = true;
         _sendLabel.text = T_SENDING;
-        var (ok, output) = await RunNodeAsync(title, body, topic);
+        var (ok, output) = await FcmNotice.SendAsync(_key, title, body, topic);
         _busy = false;
         if (this == null) return;
         _sendLabel.text = T_SEND;
@@ -204,59 +243,6 @@ public class NoticeSenderController : MonoBehaviour
         _log.text = SpaceTheme.NoParse(_logText.ToString());
         SpaceTheme.Toast(ok ? "送りました" : "送れませんでした（記録を見てください）", _canvas);
         Debug.Log($"[NoticeSender] {line}\n{output}");
-    }
-
-    /// <summary>node で tools/firestore/send-notice.js を実行する（終わるまで待つ）</summary>
-    private static async UniTask<(bool ok, string output)> RunNodeAsync(string title, string body, string topic)
-    {
-        string dir = Path.GetFullPath(Path.Combine(Application.dataPath, "..", "tools", "firestore"));
-        var psi = new ProcessStartInfo
-        {
-            FileName = "node",
-            WorkingDirectory = dir,
-            UseShellExecute = false,
-            CreateNoWindow = true,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            StandardOutputEncoding = Encoding.UTF8,
-            StandardErrorEncoding = Encoding.UTF8,
-        };
-        psi.Arguments = string.Join(" ", Quote("send-notice.js"), Quote(title), Quote(body), "--topic", Quote(topic), "--send");
-        try
-        {
-            return await UniTask.RunOnThreadPool(() =>
-            {
-                using (var p = Process.Start(psi))
-                {
-                    string o = p.StandardOutput.ReadToEnd();
-                    string e = p.StandardError.ReadToEnd();
-                    p.WaitForExit();
-                    return (p.ExitCode == 0, o + e);
-                }
-            });
-        }
-        catch (Exception ex)
-        {
-            return (false, "node を起動できませんでした: " + ex.Message);
-        }
-    }
-
-    /// <summary>Windows のコマンドライン用に1つの引数を引用符で囲む（" と、その前の \ を正しく逃がす）</summary>
-    private static string Quote(string arg)
-    {
-        arg = (arg ?? "").Replace("\r\n", "\n");
-        var sb = new StringBuilder("\"");
-        int slashes = 0;
-        foreach (char c in arg)
-        {
-            if (c == '\\') { slashes++; continue; }
-            if (c == '"') { sb.Append('\\', slashes * 2 + 1); sb.Append('"'); }
-            else { sb.Append('\\', slashes); sb.Append(c); }
-            slashes = 0;
-        }
-        sb.Append('\\', slashes * 2);
-        sb.Append('"');
-        return sb.ToString();
     }
 
     // ---------------------------------------------------------------- 部品

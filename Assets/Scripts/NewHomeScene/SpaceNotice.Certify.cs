@@ -8,7 +8,7 @@ public static partial class SpaceNotice
 {
     private const string T_CERT_CAPTION = "ACHIEVEMENT";
     private const string T_CERT_TITLE = "アチーブメント達成！";
-    private const string T_CERT_RELIGHT = "別の星座にも星を灯しました！";
+    private const string T_CERT_RELIGHT = "もう一度星を灯しました！";
     private const string T_CERT_NONE = "図鑑にアチーブメントの印が付きました（このゲームのジャンルには星座がありません）";
     private const string T_CERT_STAR = "星が灯りました";
     private const string T_CERT_DONE = "が完成しました！";
@@ -31,7 +31,7 @@ public static partial class SpaceNotice
     /// rewards は星座の完成・レベルアップでもらえたチケット（フィールド名 → 枚数。種類ごとに1つ欄を出す）
     /// </summary>
     public static GameObject GameCertified(string title, List<ConstellationProgress> after,
-        IReadOnlyDictionary<string, int> rewards, bool relight = false)
+        IReadOnlyDictionary<string, int> rewards, bool relight = false, string noneText = null)
     {
         var accent = after.Count > 0 ? after[0].Def.Color : SpaceTheme.GOLD;
         var card = Overlay("__CertifyModal", out var root, SpaceTheme.A(accent, 0.5f));
@@ -55,7 +55,7 @@ public static partial class SpaceNotice
 
         if (after.Count == 0)
         {
-            var none = SpaceTheme.Text(card, "None", T_CERT_NONE, 28, SpaceTheme.TEXT_SUB, FontStyles.Bold);
+            var none = SpaceTheme.Text(card, "None", noneText ?? T_CERT_NONE, 28, SpaceTheme.TEXT_SUB, FontStyles.Bold);
             Wrap(none);
             Stack(none.rectTransform, ref y, Measure(none, 40f), 20f);
         }

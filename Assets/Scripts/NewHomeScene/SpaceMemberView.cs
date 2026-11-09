@@ -165,15 +165,7 @@ public static class SpaceMemberView
         }
         lines.Add((T_COUPONS, sb.Length > 0 ? sb.ToString() : T_NO_COUPON, sb.Length > 0 ? SpaceTheme.TEXT : SpaceTheme.TEXT_MUTED));
 
-        // ★お店の特典（中央の惑星）
-        var planet = SpacePlanets.Find(info.PlanetId);
-        var power = PlanetPowers.Of(info.PlanetId);
-        if (power != null && power.Store)
-        {
-            bool ok = info.Perk == PerkState.Ok;
-            lines.Add((T_PERK, $"{planet?.Name}：{power.PerkName}\n{PerkLabel(info.Perk)}", ok ? SpaceTheme.GOLD : SpaceTheme.TEXT_MUTED));
-        }
-        else lines.Add((T_PERK, T_NO_PERK, SpaceTheme.TEXT_MUTED));
+        // ★お店の特典（惑星の能力）は 2026-11-09 にやめたので出さない
 
         foreach (var (label, value, color) in lines)
         {

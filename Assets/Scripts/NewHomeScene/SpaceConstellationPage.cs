@@ -29,6 +29,8 @@ public class SpaceConstellationPage : MonoBehaviour
     private const string T_GENRE_B = "」のゲームでアチーブメントを達成すると、星が1つ灯ります";
     private const string T_EMPTY_STAR = "まだ灯っていない星";
     private const string T_CLOSE = "とじる";
+    private const string T_SEE_GAMES = "このジャンルのゲームを見る";
+    private const string T_NEED_ZUKAN = "ボードゲーム図鑑をダウンロードすると見られます（ホームの歯車メニューから）";
     private const string T_REWARD_A = "（";
     private const string T_REWARD_B = "1枚）";
     private const string T_LV = "Lv.";
@@ -40,7 +42,7 @@ public class SpaceConstellationPage : MonoBehaviour
     public static string GlyphText => new StringBuilder()
         .Append(T_CAPTION).Append(T_TITLE).Append(T_HINT).Append(T_CERT).Append(T_WORKS).Append(T_STARS).Append(T_BEST)
         .Append(T_DONE).Append(T_DONE_BIG).Append(T_LEFT_A).Append(T_LEFT_B).Append(T_GENRE_A).Append(T_GENRE_B)
-        .Append(T_EMPTY_STAR).Append(T_CLOSE).Append(T_REWARD_A).Append(T_REWARD_B).Append(T_LV).Append(T_NEXT_A).Append(T_NEXT_B)
+        .Append(T_EMPTY_STAR).Append(T_CLOSE).Append(T_SEE_GAMES).Append(T_NEED_ZUKAN).Append(T_REWARD_A).Append(T_REWARD_B).Append(T_LV).Append(T_NEXT_A).Append(T_NEXT_B)
         .Append("ドリンクチケット7%OFFチケット").Append(T_TOTAL_A).Append(T_ROUND).Append("0123456789/ 　・月日")
         .Append(Constellations.GlyphText).ToString();
 
@@ -73,6 +75,25 @@ public class SpaceConstellationPage : MonoBehaviour
         page.Build();
         return page;
     }
+
+    /// <summary>
+    /// その星座の詳細だけを開く（ホームの空の星座をタップしたとき。2026-11-09）。
+    /// 詳細を閉じたら一覧は見せずにそのまま閉じる
+    /// </summary>
+    public static void OpenDetail(string id)
+    {
+        if (Instance != null) return; // もう星座の画面を開いている
+        var p = Constellations.Progress().Find(x => x.Def.Id == id);
+        if (p == null) return;
+        var page = Open();
+        if (page == null) return;
+        page._detailOnly = true;
+        // 一覧（背景・星座のマス）は隠して、ホームの上に詳細だけを出す
+        foreach (Transform c in page.transform) c.gameObject.SetActive(false);
+        page.ShowDetail(p);
+    }
+
+    private bool _detailOnly;
 
     public void HandleBack()
     {
@@ -289,7 +310,18 @@ public class SpaceConstellationPage : MonoBehaviour
                     new Vector2(150f, ROW), FontStyles.Bold, TextAlignmentOptions.Right, new Vector2(1f, 0.5f));
         }
 
-        var close = SpaceTheme.Rect("Close", card, new Vector2(0.5f, 0f), new Vector2(0f, 50f), new Vector2(400f, 112f),
+        // このジャンルのゲームを見る（図鑑をそのジャンルで絞り込んで開く。2026-11-09）と、とじる
+        var see = SpaceTheme.Rect("SeeGames", card, new Vector2(0.5f, 0f), new Vector2(-180f, 50f), new Vector2(460f, 112f),
+            new Vector2(0.5f, 0f));
+        var seeFace = SpaceTheme.Glass(see, 46f, SpaceTheme.A(def.Color, 0.18f), SpaceTheme.A(def.Color, 0.8f), true);
+        SpaceTheme.Clickable(see.gameObject, seeFace, () => SeeGames(def));
+        var seeLabel = SpaceTheme.Text(see, "Label", T_SEE_GAMES, 30, def.Color, FontStyles.Bold);
+        SpaceTheme.Stretch(seeLabel.rectTransform, 16f, 0f, 16f, 0f);
+        seeLabel.enableAutoSizing = true;
+        seeLabel.fontSizeMin = 20f;
+        seeLabel.fontSizeMax = 30f;
+
+        var close = SpaceTheme.Rect("Close", card, new Vector2(0.5f, 0f), new Vector2(250f, 50f), new Vector2(340f, 112f),
             new Vector2(0.5f, 0f));
         var face = SpaceTheme.Glass(close, 46f, new Color(0.07f, 0.09f, 0.24f, 0.9f), null, true);
         SpaceTheme.Clickable(close.gameObject, face, CloseDetail);
@@ -299,10 +331,29 @@ public class SpaceConstellationPage : MonoBehaviour
         root.gameObject.AddComponent<SpacePopIn>().Target = card;
     }
 
+    /// <summary>
+    /// その星座のジャンルのゲームを図鑑で見る。図鑑の上から開いていれば、星座の画面を閉じてその図鑑を絞り込む。
+    /// ホームから開いていれば（公認のお知らせの「星座を見る」など）、ホームに図鑑を開いてもらう（NewHomeController）
+    /// </summary>
+    private void SeeGames(ConstellationDef def)
+    {
+        var zukan = SpaceBoardGameZukan.Instance;
+        if (zukan == null && !SpaceZukan.Installed)
+        {
+            SpaceTheme.Toast(T_NEED_ZUKAN, SpaceTheme.MainCanvas());
+            return;
+        }
+        CloseDetail();
+        Close();
+        if (zukan != null) zukan.ShowGenre(def);
+        else NewHomeController.RequestZukanGenre(def);
+    }
+
     private void CloseDetail()
     {
         if (_detail != null) Destroy(_detail);
         _detail = null;
+        if (_detailOnly) Close(); // 空の星座から詳細だけを開いたときは、一覧を見せずに閉じる
     }
 
     // ================================================================

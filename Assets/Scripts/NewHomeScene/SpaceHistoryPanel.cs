@@ -58,7 +58,7 @@ public class SpaceHistoryPanel : MonoBehaviour
         new Kind { Key = "visit",  Label = "来店",     Color = SpaceTheme.MINT },
         new Kind { Key = "planet", Label = "惑星",     Color = SpaceTheme.CYAN },
         new Kind { Key = "pass",   Label = "パス",     Color = SpaceTheme.Hex(0xF5D58A) }, // 1か月遊び放題パス
-        new Kind { Key = "friend", Label = "フレンド", Color = SpaceTheme.PINK },
+        new Kind { Key = "friend", Label = "紹介", Color = SpaceTheme.PINK }, // フレンド機能をやめたので友だち紹介の記録に使う
         new Kind { Key = "gacha",  Label = "ガチャ",   Color = SpaceTheme.VIOLET },
         new Kind { Key = "group",  Label = "グループ", Color = SpaceTheme.Hex(0x7FA8FF) },
         new Kind { Key = "dice",   Label = "バトル",   Color = SpaceTheme.Hex(0xFF9E7A) }, // 旧ホームのボス戦

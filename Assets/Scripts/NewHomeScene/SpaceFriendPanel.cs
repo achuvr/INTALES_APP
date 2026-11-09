@@ -999,8 +999,11 @@ public class SpaceFriendPanel : MonoBehaviour
 /// <summary>フレンドかどうか（ログイン時に読んだ自分の users.friends。フレンドの登録・解除でその場で更新される）</summary>
 public static class SpaceFriends
 {
+    public const bool FEATURE_ENDED = true;
     public static bool IsFriend(string uid)
     {
+        // フレンド機能は 2026-11-09 にやめた。相席募集などのフレンドの印も出さない（フレンドのデータは残してある）
+        if (FEATURE_ENDED) return false;
         if (string.IsNullOrEmpty(uid)) return false;
         var manager = UserDataManager.instance;
         if (manager == null || manager.UserData == null) return false;
