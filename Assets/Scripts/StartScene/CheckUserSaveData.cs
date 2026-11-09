@@ -139,7 +139,9 @@ public class CheckUserSaveData : MonoBehaviour
             { "atk_coupon", 1 },
             { "drink_coupon", 0 },
             { "coffee_coupon", 0 },
-            { "characters", new Dictionary<string, object>() } // キャラはこのマップに内蔵する（サブコレクション廃止）
+            { "characters", new Dictionary<string, object>() }, // キャラはこのマップに内蔵する（サブコレクション廃止）
+            // 最初の惑星はホームで赤・青・黄から選んでもらう（2026-11-10。"" ＝まだ選んでいない。SpaceStarterPicker）
+            { "starter", "" },
         };
         if (characterTicket > 0) settings["character_ticket"] = characterTicket;
         // アカウント作成の画面で選んだ誕生月（2026-11-07）。選ばなかったら入れない（あとから歯車メニューで登録できる）

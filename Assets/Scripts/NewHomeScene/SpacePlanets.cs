@@ -4,6 +4,21 @@ using System.Text;
 using Cysharp.Threading.Tasks;
 using UnityEngine;
 
+/// <summary>惑星の色（PlanetColor。Commons/PlanetColor.cs）の表示の色と並べる順</summary>
+public static class PlanetColors
+{
+    /// <summary>並べる順（赤・青・黄）</summary>
+    public static readonly PlanetColor[] Order = PlanetColorOrder.All;
+
+    /// <summary>表示の色（3Dのミープルの駒 Assets/Models/Meeple と同じ赤・青・黄）</summary>
+    public static Color Of(PlanetColor c) => c switch
+    {
+        PlanetColor.Red => new Color32(214, 40, 40, 255),   // #D62828
+        PlanetColor.Blue => new Color32(40, 103, 214, 255), // #2867D6
+        _ => new Color32(255, 211, 30, 255),                // #FFD31E
+    };
+}
+
 /// <summary>惑星の定義（表示名・説明・色・描き方）</summary>
 public sealed class SpacePlanetDef
 {
@@ -11,6 +26,8 @@ public sealed class SpacePlanetDef
     public string Name;   // 表示名（カタカナ）
     public string En;     // 英字の名前（小見出し）
     public string Desc;   // ひとこと説明（1行に収まる長さ）
+    /// <summary>惑星の色（赤・青・黄。混ざった色は複数）</summary>
+    public PlanetColor Colors;
     public Color Accent;  // 惑星のまわりの光・ホームのオーブの光
     /// <summary>ルミナ: 最初からあるシアン〜すみれ色のオーブ（テクスチャを使わない）</summary>
     public bool IsOrb;
@@ -50,6 +67,12 @@ public sealed class SpacePlanetDef
 public static class SpacePlanets
 {
     public const string DEFAULT_ID = "lumina";
+    /// <summary>
+    /// 最初に選べる惑星（2026-11-10 ユーザー指定。赤・青・黄の順）。新しく登録した人はホームで1つ選ぶ（SpaceStarterPicker）。
+    /// 選ばなかった2つは7回目の来店でもらえる（JourneyRules.VISIT_PLANETS）。以前からの会員はルミナを持ったまま
+    /// </summary>
+    public static readonly (PlanetColor color, string id)[] STARTERS =
+        { (PlanetColor.Red, "rubra"), (PlanetColor.Blue, "lumina"), (PlanetColor.Yellow, "limona") };
     private const string PREF_KEY = "space_planet";
     private const int SMALL = 256;
     private const int LARGE = 1024;
@@ -65,88 +88,104 @@ public static class SpacePlanets
         new SpacePlanetDef
         {
             Id = "lumina", Name = "ルミナ", En = "LUMINA", Desc = "はじまりの光をまとう星",
+            Colors = PlanetColor.Blue, // シアン〜すみれ色の光（青が主）
             Accent = Hex(0x5CE1FF), IsOrb = true,
         },
         new SpacePlanetDef
         {
             Id = "aquaris", Name = "アクアリス", En = "AQUARIS", Desc = "青い海と白い雲の惑星",
+            Colors = PlanetColor.Blue | PlanetColor.Yellow, // 青い海＋緑の陸（緑＝青＋黄）
             Accent = Hex(0x4FC3FF), Tilt = 12f, Incline = 10f, Ambient = 0.07f, Rim = Hex(0x7FD8FF), RimAlpha = 0.9f,
         },
         new SpacePlanetDef
         {
             Id = "verdia", Name = "ヴェルディア", En = "VERDIA", Desc = "夜になると森が光る惑星",
+            Colors = PlanetColor.Blue | PlanetColor.Yellow, // 緑の森（緑＝青＋黄）
             Accent = Hex(0x5CFFB8), Tilt = -8f, Incline = 8f, Ambient = 0.06f, Rim = Hex(0x8CFFC8), RimAlpha = 0.85f,
         },
         new SpacePlanetDef
         {
             Id = "ignis", Name = "イグニス", En = "IGNIS", Desc = "溶岩が脈打つ灼熱の惑星",
+            Colors = PlanetColor.Red | PlanetColor.Yellow, // 橙の溶岩（橙＝赤＋黄）
             Accent = Hex(0xFF7A3C), Tilt = 15f, Incline = 6f, Ambient = 0.10f, Rim = Hex(0xFF9A5A), RimAlpha = 0.85f,
             GlowBase = 0.45f, SpinPeriod = 110f,
         },
         new SpacePlanetDef
         {
             Id = "glacia", Name = "グラシア", En = "GLACIA", Desc = "氷河に閉ざされた白銀の惑星",
+            Colors = PlanetColor.Blue, // 白銀と水色の氷
             Accent = Hex(0xA8E6FF), Tilt = -14f, Incline = 12f, Ambient = 0.10f, Rim = Hex(0xCFF4FF), RimAlpha = 0.9f,
         },
         new SpacePlanetDef
         {
             Id = "tempesta", Name = "テンペスタ", En = "TEMPESTA", Desc = "青い大嵐が渦巻くガスの惑星",
+            Colors = PlanetColor.All, // 茶色の縞（茶＝全色）＋青い嵐
             Accent = Hex(0xFFB86B), Tilt = 6f, Incline = 4f, Ambient = 0.06f, Rim = Hex(0xFFD9A8), RimAlpha = 0.75f,
             SpinPeriod = 70f, StartSpin = 0.80f,
         },
         new SpacePlanetDef
         {
             Id = "orbis", Name = "オルビス", En = "ORBIS", Desc = "金色の環をまとう惑星",
+            Colors = PlanetColor.Red | PlanetColor.Yellow, // 桃色がかったクリーム色の縞（＝赤＋黄）＋金色の環
             Accent = Hex(0xFFD37A), Tilt = -20f, Incline = 16f, Ambient = 0.07f, Rim = Hex(0xFFE2B8), RimAlpha = 0.8f,
             Scale = 0.72f, Ring = true, SpinPeriod = 80f,
         },
         new SpacePlanetDef
         {
             Id = "mistia", Name = "ミスティア", En = "MISTIA", Desc = "すみれ色の霧がたゆたう惑星",
+            Colors = PlanetColor.Red | PlanetColor.Blue, // すみれ色（紫＝赤＋青）
             Accent = Hex(0xB98BFF), Tilt = 10f, Incline = 10f, Ambient = 0.08f, Rim = Hex(0xE0A8FF), RimAlpha = 0.9f,
         },
         new SpacePlanetDef
         {
             Id = "rubra", Name = "ルブラ", En = "RUBRA", Desc = "赤い砂丘と峡谷の惑星",
+            Colors = PlanetColor.Red, // 赤い砂丘
             Accent = Hex(0xFF7A5C), Tilt = -10f, Incline = 10f, Ambient = 0.06f, Rim = Hex(0xFFB08A), RimAlpha = 0.75f,
         },
         new SpacePlanetDef
         {
             Id = "lunaris", Name = "ルナリス", En = "LUNARIS", Desc = "クレーターだらけの静かな月",
+            Colors = PlanetColor.All, // 灰色の月（灰色＝全色）
             Accent = Hex(0xD9DEF2), Tilt = 0f, Incline = 0f, Ambient = 0.05f, Rim = Hex(0xFFFFFF), RimAlpha = 0.25f,
             SpinPeriod = 160f,
         },
         new SpacePlanetDef
         {
             Id = "crysta", Name = "クリスタ", En = "CRYSTA", Desc = "宝石の結晶がきらめく惑星",
+            Colors = PlanetColor.Red | PlanetColor.Blue, // 桃色・紫・水色の結晶
             Accent = Hex(0xFF8AD8), Tilt = 18f, Incline = 10f, Ambient = 0.12f, Rim = Hex(0xFFC2F0), RimAlpha = 0.9f,
             GlowBase = 0.15f,
         },
         new SpacePlanetDef
         {
             Id = "noctis", Name = "ノクティス", En = "NOCTIS", Desc = "夜側に街の灯りが広がる惑星",
+            Colors = PlanetColor.Blue | PlanetColor.Yellow, // 紺色の海＋金色の街の灯り（2026-11-10 色の数をそろえるため黄も数える）
             Accent = Hex(0x6F8CFF), Tilt = -12f, Incline = 10f, Ambient = 0.035f, Rim = Hex(0x7FA8FF), RimAlpha = 0.8f,
         },
         new SpacePlanetDef
         {
             Id = "soleil", Name = "ソレイユ", En = "SOLEIL", Desc = "燃えさかる小さな太陽",
+            Colors = PlanetColor.Red | PlanetColor.Yellow, // 橙の太陽（橙＝赤＋黄）
             Accent = Hex(0xFFB347), Tilt = 0f, Incline = 6f, Ambient = 1f, Rim = Hex(0xFFE7A0), RimAlpha = 0.9f,
             RimEven = true, HaloScale = 2.6f, HaloAlpha = 0.75f, HaloPulse = true, SpinPeriod = 80f,
         },
         new SpacePlanetDef
         {
             Id = "coralia", Name = "コーラリア", En = "CORALIA", Desc = "サンゴ礁がきらめく南の海の惑星",
+            Colors = PlanetColor.Blue | PlanetColor.Yellow, // 青緑の海＋緑の陸
             Accent = Hex(0x4FE3D8), Tilt = 14f, Incline = 10f, Ambient = 0.07f, Rim = Hex(0x8FF2FF), RimAlpha = 0.9f,
         },
         new SpacePlanetDef
         {
             Id = "hexia", Name = "ヘクシア", En = "HEXIA", Desc = "六角形のマスでできたボードゲームの惑星",
+            Colors = PlanetColor.All, // いろいろな色のマス
             Accent = Hex(0x9BD46E), Tilt = 8f, Incline = 14f, Ambient = 0.10f, Rim = Hex(0xDDF7C8), RimAlpha = 0.7f,
             SpinPeriod = 120f,
         },
         new SpacePlanetDef
         {
             Id = "noir", Name = "ノワール", En = "NOIR", Desc = "漆黒に光の円盤をまとう星",
+            Colors = PlanetColor.All, // 漆黒（黒＝全色）
             Accent = Hex(0x9B7BFF), Tilt = -8f, Incline = 12f, Ambient = 0.04f, Rim = Hex(0xB892FF), RimAlpha = 1f,
             RimEven = true, HaloScale = 2.0f, HaloAlpha = 0.5f, Scale = 0.62f,
             Ring = true, RingOuter = 2.25f, RingInner = 0.50f, SpinPeriod = 90f,
@@ -154,52 +193,88 @@ public static class SpacePlanets
         new SpacePlanetDef
         {
             Id = "mocha", Name = "モカ", En = "MOCHA", Desc = "カフェラテのように渦巻く惑星",
+            Colors = PlanetColor.All, // カフェラテの茶色（茶＝全色）
             Accent = Hex(0xE0B080), Tilt = 10f, Incline = 10f, Ambient = 0.08f, Rim = Hex(0xFFE2C2), RimAlpha = 0.75f,
         },
         new SpacePlanetDef
         {
             Id = "celesta", Name = "セレスタ", En = "CELESTA", Desc = "大きく傾いた環をもつ氷の巨大惑星",
+            Colors = PlanetColor.Blue, // 水色の氷の巨大惑星
             Accent = Hex(0x7FE0FF), Tilt = 62f, Incline = 22f, Ambient = 0.08f, Rim = Hex(0xD9FCFF), RimAlpha = 0.85f,
             Scale = 0.70f, Ring = true, RingOuter = 1.85f, RingInner = 0.84f, SpinPeriod = 75f,
         },
         new SpacePlanetDef
         {
             Id = "opalia", Name = "オパーリア", En = "OPALIA", Desc = "虹色にゆらめくオパールの惑星",
+            Colors = PlanetColor.All, // 虹色のオパール
             Accent = Hex(0xE6C8FF), Tilt = -6f, Incline = 8f, Ambient = 0.12f, Rim = Hex(0xFFFFFF), RimAlpha = 0.7f,
         },
         new SpacePlanetDef
         {
             Id = "voltia", Name = "ボルティア", En = "VOLTIA", Desc = "雷雲がとどろく嵐の惑星",
+            Colors = PlanetColor.Blue, // 紺色の雷雲
             Accent = Hex(0x7FCBFF), Tilt = -10f, Incline = 10f, Ambient = 0.06f, Rim = Hex(0x9FC4FF), RimAlpha = 0.8f,
             GlowBase = 0.25f, Flicker = true,
         },
         new SpacePlanetDef
         {
             Id = "pastelia", Name = "パステリア", En = "PASTELIA", Desc = "わたあめのような雲の惑星",
+            Colors = PlanetColor.Red | PlanetColor.Blue, // 桃色と水色の雲
             Accent = Hex(0xFFB3DE), Tilt = -12f, Incline = 10f, Ambient = 0.14f, Rim = Hex(0xFFE0F2), RimAlpha = 0.85f,
         },
         new SpacePlanetDef
         {
             Id = "galaxia", Name = "ガラクシア", En = "GALAXIA", Desc = "星空を閉じこめた惑星",
+            Colors = PlanetColor.Red | PlanetColor.Blue, // 紫の星空（紫＝赤＋青）
             Accent = Hex(0x8E7BFF), Tilt = 12f, Incline = 12f, Ambient = 0.18f, Rim = Hex(0xB9A6FF), RimAlpha = 0.8f,
             GlowBase = 0.75f,
         },
         new SpacePlanetDef
         {
             Id = "limona", Name = "リモナ", En = "LIMONA", Desc = "レモン色の雲が流れる惑星",
+            Colors = PlanetColor.Yellow, // レモン色の雲
             Accent = Hex(0xF5E86A), Tilt = -8f, Incline = 8f, Ambient = 0.08f, Rim = Hex(0xFFF6B8), RimAlpha = 0.8f,
         },
         new SpacePlanetDef
         {
             Id = "neonia", Name = "ネオニア", En = "NEONIA", Desc = "光の回路が走るネオンの惑星",
+            Colors = PlanetColor.All, // 黒い地に色とりどりのネオン
             Accent = Hex(0x3FF0FF), Tilt = 10f, Incline = 12f, Ambient = 0.10f, Rim = Hex(0x7F9BFF), RimAlpha = 0.8f,
             GlowBase = 0.55f,
+        },
+        // ---- 2026-11-10 追加（ユーザー指定「黄と赤が青より少ないので、同じ量になるよう4つ作る」）。4つとも赤＋黄 ----
+        new SpacePlanetDef
+        {
+            Id = "folia", Name = "フォリア", En = "FOLIA", Desc = "紅葉の森が燃えるように色づく惑星",
+            Colors = PlanetColor.Red | PlanetColor.Yellow, // 赤・朱・橙・金の紅葉
+            Accent = Hex(0xFF8A3D), Tilt = 10f, Incline = 9f, Ambient = 0.08f, Rim = Hex(0xFFC08A), RimAlpha = 0.85f,
+        },
+        new SpacePlanetDef
+        {
+            Id = "vespera", Name = "ヴェスペラ", En = "VESPERA", Desc = "夕焼け色の縞が流れるガスの惑星",
+            Colors = PlanetColor.Red | PlanetColor.Yellow, // 紅〜珊瑚色〜橙〜金の縞
+            Accent = Hex(0xFF6F5C), Tilt = -7f, Incline = 5f, Ambient = 0.07f, Rim = Hex(0xFFB59A), RimAlpha = 0.8f,
+        },
+        new SpacePlanetDef
+        {
+            Id = "ambaria", Name = "アンバリア", En = "AMBARIA", Desc = "琥珀の中に光の粒が眠る惑星",
+            Colors = PlanetColor.Red | PlanetColor.Yellow, // 琥珀色（橙）と金の粒
+            Accent = Hex(0xF2A03D), Tilt = 14f, Incline = 10f, Ambient = 0.09f, Rim = Hex(0xFFD9A0), RimAlpha = 0.85f,
+            GlowBase = 0.25f,
+        },
+        new SpacePlanetDef
+        {
+            Id = "lanterna", Name = "ランテルナ", En = "LANTERNA", Desc = "夜になると提灯の灯りがともる惑星",
+            Colors = PlanetColor.Red | PlanetColor.Yellow, // 朱色の大地と金色の灯り
+            Accent = Hex(0xFF5A4A), Tilt = -11f, Incline = 10f, Ambient = 0.05f, Rim = Hex(0xFFB08A), RimAlpha = 0.8f,
+            GlowBase = 0.15f,
         },
         // 古参の人への贈りもの（2026-11-07 ユーザー指定「以前から来ている人しかゲットできない惑星」）。
         // 配るのは tools/firestore/grant-legacy-planet.js。持っていない人の一覧・解放の数には出さない（Visible）
         new SpacePlanetDef
         {
             Id = LEGACY_ID, Name = "レガシア", En = "LEGACIA", Desc = "古き冒険者たちの記憶が眠る瑠璃と白銀の惑星",
+            Colors = PlanetColor.Blue, // 瑠璃色と白銀
             Accent = Hex(0x9CC8FF), Tilt = -14f, Incline = 12f, Ambient = 0.08f, Rim = Hex(0xEAF3FF), RimAlpha = 0.95f,
             GlowBase = 0.35f, HaloScale = 2.1f, HaloAlpha = 0.5f, SpinPeriod = 130f, Legacy = true,
         },
@@ -259,15 +334,21 @@ public static class SpacePlanets
 
     /// <summary>
     /// ホームの中央に置く惑星（この端末に保存。未設定ならルミナ）。
-    /// 保存されていても、ログイン中のアカウントが持っていない惑星ならルミナを返す
-    /// （同じ端末で別のアカウントに切り替えたときなど）。
+    /// 保存されていても、ログイン中のアカウントが持っていない惑星なら、最初に選んだ惑星か、持っている最初の惑星を返す
+    /// （同じ端末で別のアカウントに切り替えたとき・最初にルミナ以外を選んだ人が入れ直したときなど）。
     /// </summary>
     public static SpacePlanetDef Current
     {
         get
         {
             if (_saved == null) _saved = Find(PlayerPrefs.GetString(PREF_KEY, DEFAULT_ID)) ?? All[0];
-            return IsOwned(_saved) ? _saved : All[0];
+            if (IsOwned(_saved)) return _saved;
+            var data = UserDataManager.instance != null ? UserDataManager.instance.UserData : null;
+            var starter = data != null ? Find(data.Starter) : null;
+            if (starter != null && IsOwned(starter)) return starter;
+            foreach (var d in All)
+                if (IsOwned(d)) return d;
+            return All[0]; // まだ1つも持っていない（初期惑星を選ぶ前）
         }
         set
         {
@@ -294,13 +375,54 @@ public static class SpacePlanets
     private const string QR_SALT = "intales/space-planet/2026";
     private const string PREF_NEWS = "space_planet_news"; // 惑星ボタンの「新着」の点（1=表示）
 
-    /// <summary>ログイン中のアカウントがその惑星を持っているか（ルミナは最初から持っている）</summary>
+    /// <summary>
+    /// ログイン中のアカウントがその惑星を持っているか。以前からの会員（最初の惑星を選ぶしくみより前に登録した人。
+    /// starter が無い）はルミナを最初から持っている。データを読む前もルミナは持っている扱い（ホームの中央に置けるように）
+    /// </summary>
     public static bool IsOwned(SpacePlanetDef def)
     {
         if (def == null) return false;
-        if (def.IsOrb) return true;
         var data = UserDataManager.instance != null ? UserDataManager.instance.UserData : null;
+        if (def.Id == DEFAULT_ID && (data == null || data.Starter == null)) return true;
         return data != null && data.Planets.Contains(def.Id);
+    }
+
+    /// <summary>最初の惑星をまだ選んでいない（新しく登録した人。ホームで SpaceStarterPicker を出す）</summary>
+    public static bool NeedsStarter
+    {
+        get
+        {
+            var data = UserDataManager.instance != null ? UserDataManager.instance.UserData : null;
+            return data != null && data.Starter != null && data.Starter.Length == 0;
+        }
+    }
+
+    /// <summary>
+    /// 最初の惑星を選ぶ（1回だけ）。starter に入れ、planets にも足して、ホームの中央に置く。成功したら true
+    /// </summary>
+    public static async UniTask<bool> ChooseStarterAsync(SpacePlanetDef def)
+    {
+        var m = UserDataManager.instance;
+        var data = m != null ? m.UserData : null;
+        if (def == null || data == null || string.IsNullOrEmpty(m.UID)) return false;
+        try
+        {
+            await Firebase.Firestore.FirebaseFirestore.DefaultInstance.Collection("users").Document(m.UID)
+                .UpdateAsync(new Dictionary<string, object>
+                {
+                    { "starter", def.Id },
+                    { "planets", Firebase.Firestore.FieldValue.ArrayUnion(def.Id) },
+                }).AsUniTask();
+        }
+        catch (Exception ex)
+        {
+            Debug.LogWarning($"[SpacePlanets] 最初の惑星を保存できませんでした: {ex.Message}");
+            return false;
+        }
+        data.Starter = def.Id;
+        if (!data.Planets.Contains(def.Id)) data.Planets.Add(def.Id);
+        Current = def;
+        return true;
     }
 
     /// <summary>解放済みの数（ルミナを含む）</summary>
@@ -318,14 +440,17 @@ public static class SpacePlanets
     /// <summary>惑星を解放するQRの中身</summary>
     public static string QrPayload(SpacePlanetDef def) => QR_PREFIX + def.Id + ":" + Sign(def.Id);
 
-    /// <summary>読み取ったQRが正しい惑星QRなら、その惑星を返す（署名違い・存在しない惑星・ルミナは null）</summary>
+    /// <summary>
+    /// 読み取ったQRが正しい惑星QRなら、その惑星を返す（署名違い・存在しない惑星は null）。
+    /// ルミナも最初にほかの色を選んだ人は持っていないので、QRで解放できる（2026-11-10）
+    /// </summary>
     public static SpacePlanetDef ParseQr(string text)
     {
         if (string.IsNullOrEmpty(text) || !text.StartsWith(QR_PREFIX)) return null;
         var parts = text.Trim().Substring(QR_PREFIX.Length).Split(':');
         if (parts.Length != 2) return null;
         var def = Find(parts[0]);
-        if (def == null || def.IsOrb) return null;
+        if (def == null) return null;
         return string.Equals(parts[1], Sign(def.Id), StringComparison.OrdinalIgnoreCase) ? def : null;
     }
 

@@ -180,6 +180,17 @@ public class UserData
     [FirestoreProperty("fivehour_coupon")]
     public int FiveHourCoupon { get; set; }
 
+    // コマ（2026-11-10 追加）。入店した日に、ホームの中央の惑星の色のコマを1色につき1個もらえる（JourneyRules・SpaceMeeples）
+    /// <summary>赤コマの数</summary>
+    [FirestoreProperty("red_meeple")]
+    public int RedMeeple { get; set; }
+    /// <summary>青コマの数</summary>
+    [FirestoreProperty("blue_meeple")]
+    public int BlueMeeple { get; set; }
+    /// <summary>黄コマの数</summary>
+    [FirestoreProperty("yellow_meeple")]
+    public int YellowMeeple { get; set; }
+
     /// <summary>誕生月（1〜12。0＝未登録。アカウント作成時に聞く。登録したあとは本人は変えられない画面にしている）</summary>
     [FirestoreProperty("birth_month")]
     public int BirthMonth { get; set; }
@@ -290,8 +301,8 @@ public class UserData
 
     /// <summary>
     /// 解放済みの惑星ID（新ホームの中央に置ける惑星。アチーブメント報酬）。
-    /// ルミナは最初から持っているので入れない。店頭の惑星QRを読むと ArrayUnion で1つずつ増える
-    /// （CallMethodFromQR.UnlockPlanet）。判定は SpacePlanets.IsOwned 経由で行う。
+    /// 以前からの会員のルミナは入れない（最初から持っている扱い）。最初に選んだ惑星（Starter）は入れる。
+    /// 店頭の惑星QRを読むと ArrayUnion で1つずつ増える（CallMethodFromQR.UnlockPlanet）。判定は SpacePlanets.IsOwned 経由で行う。
     /// </summary>
     [FirestoreProperty("planets")]
     public List<string> Planets
@@ -300,6 +311,14 @@ public class UserData
         set => _planets = value;
     }
     private List<string> _planets;
+
+    /// <summary>
+    /// 最初に選んだ惑星（2026-11-10 ユーザー指定。赤＝ルブラ・青＝ルミナ・黄＝リモナから1つ。SpacePlanets.STARTERS）。
+    /// 新しく登録した人は "" で作り、ホームで選ぶまで ""（選ぶ画面 SpaceStarterPicker を出す）。
+    /// 以前からの会員には無い（null）＝ルミナを最初から持っている
+    /// </summary>
+    [FirestoreProperty("starter")]
+    public string Starter { get; set; }
 
     /// <summary>
     /// 来店の記録（惑星と来店のしくみ。公転・流れ星・★特典の状態）の Firestore のマップそのまま。

@@ -45,11 +45,7 @@ public static class JourneyService
     /// </summary>
     public static int DisplayStreak => Journey != null ? Journey.Streak : 0;
 
-    /// <summary>惑星のパワー（0〜JourneyRules.POWER_MAX）</summary>
-    public static int PowerOf(string planetId) => Journey != null ? Journey.PowerOf(planetId) : 0;
-
-    /// <summary>惑星のパワーが MAX（中央に置いていると流れ星で7%オフが出やすい）</summary>
-    public static bool IsPowerMax(string planetId) => PowerOf(planetId) >= JourneyRules.POWER_MAX;
+    // 惑星のパワーは 2026-11-10 にやめた（JourneyRules）
 
     /// <summary>今の公転で来店済みか</summary>
     public static bool VisitedThisOrbit => Journey != null && Journey.Period == StoreCalendar.CurrentPeriod;
@@ -77,7 +73,7 @@ public static class JourneyService
         var today = StoreCalendar.TodayBusiness;
         string center = SpacePlanets.Current.Id;
         return JourneyRules.Roll(new System.Random(), Math.Max(1, DisplayStreak), center,
-            today.DayOfWeek, StoreCalendar.SeasonOf(today), IsPowerMax(center));
+            today.DayOfWeek, StoreCalendar.SeasonOf(today));
     }
 
     /// <summary>
@@ -117,7 +113,7 @@ public static class JourneyService
     /// <summary>今の公転で、まだ使える軌道修正の数</summary>
     public static int RescuesLeft(string centerId)
     {
-        int allowance = 1; // 惑星の能力（セレスタ）は 2026-11-09 にやめた
+        int allowance = JourneyRules.RESCUE_ALLOWANCE; // 惑星によって変わらない（セレスタの2回は 2026-11-09 にやめた）
         var j = Journey;
         if (j == null) return allowance;
         int now = StoreCalendar.CurrentPeriod;
@@ -140,6 +136,7 @@ public static class JourneyService
 
         var jst = StoreCalendar.ToJst(visitUtc);
         var day = StoreCalendar.BusinessDate(jst);
+        var center = SpacePlanets.Current;
         var ctx = new JourneyRules.VisitContext
         {
             DayKey = StoreCalendar.DayKey(day),
@@ -147,7 +144,8 @@ public static class JourneyService
             Weekday = day.DayOfWeek,
             Season = StoreCalendar.SeasonOf(day),
             FullMoon = StoreCalendar.IsFullMoonDay(day),
-            Center = SpacePlanets.Current.Id,
+            Center = center.Id,
+            CenterColors = center.Colors, // この色のコマを1個ずつ（その営業日の最初の入店のとき。2026-11-10）
             InAt = new DateTimeOffset(visitUtc.ToUniversalTime()).ToUnixTimeSeconds(),
             SeedDays = LocalDistinctDays(),
         };
@@ -211,7 +209,7 @@ public static class JourneyService
             if (rubra && !j.Extra.Contains(JourneyRules.EXTRA_RUBRA))
             {
                 j.Extra.Add(JourneyRules.EXTRA_RUBRA);
-                JourneyRules.AddPrize(JourneyRules.Roll(rng, j.Streak, center, weekday, season, j.PowerOf(center) >= JourneyRules.POWER_MAX), owned, r);
+                JourneyRules.AddPrize(JourneyRules.Roll(rng, j.Streak, center, weekday, season), owned, r);
             }
             tx.Update(doc, BuildUpdates(j, r));
             journey = j;
@@ -359,7 +357,7 @@ public static class JourneyService
                     if (center == "opalia" && !j.Extra.Contains(JourneyRules.EXTRA_TOGETHER) && j.StarPeriod == period)
                     {
                         j.Extra.Add(JourneyRules.EXTRA_TOGETHER);
-                        JourneyRules.AddPrize(JourneyRules.Roll(rng, j.Streak, center, weekday, season, j.PowerOf(center) >= JourneyRules.POWER_MAX), owned, r);
+                        JourneyRules.AddPrize(JourneyRules.Roll(rng, j.Streak, center, weekday, season), owned, r);
                         gifts.Add(kv.Key);
                     }
                 }
@@ -368,14 +366,14 @@ public static class JourneyService
                 {
                     j.Extra.Add(JourneyRules.EXTRA_FIRST);
                     changed = true;
-                    JourneyRules.AddPrize(JourneyRules.Roll(rng, j.Streak, center, weekday, season, j.PowerOf(center) >= JourneyRules.POWER_MAX), owned, r);
+                    JourneyRules.AddPrize(JourneyRules.Roll(rng, j.Streak, center, weekday, season), owned, r);
                     if (!gifts.Contains(kv.Key)) gifts.Add(kv.Key);
                 }
                 if (f.Gift == today && !j.Extra.Contains(JourneyRules.EXTRA_GIFT) && j.StarPeriod == period)
                 {
                     j.Extra.Add(JourneyRules.EXTRA_GIFT);
                     changed = true;
-                    JourneyRules.AddPrize(JourneyRules.Roll(rng, j.Streak, center, weekday, season, j.PowerOf(center) >= JourneyRules.POWER_MAX), owned, r);
+                    JourneyRules.AddPrize(JourneyRules.Roll(rng, j.Streak, center, weekday, season), owned, r);
                 }
             }
             if (!changed) return null;
@@ -566,6 +564,11 @@ public static class JourneyService
             var coupon = CouponOf(g.Key);
             if (coupon != null) updates[coupon.Field] = FieldValue.Increment(g.Count());
         }
+        foreach (var g in r.Meeples.GroupBy(m => m))
+        {
+            var meeple = SpaceMeeples.Of(g.Key);
+            if (meeple != null) updates[meeple.Field] = FieldValue.Increment(g.Count());
+        }
         if (r.Unlocked.Count > 0) updates["planets"] = FieldValue.ArrayUnion(r.Unlocked.Cast<object>().ToArray());
         return updates;
     }
@@ -580,6 +583,8 @@ public static class JourneyService
         {
             foreach (var p in r.Prizes)
                 CouponOf(p)?.Add(d, 1);
+            foreach (var m in r.Meeples)
+                SpaceMeeples.Of(m)?.Add(d, 1);
             foreach (var id in r.Unlocked)
                 if (!d.Planets.Contains(id)) d.Planets.Add(id);
             if (r.Unlocked.Count > 0) SpacePlanets.MarkNews();
@@ -592,13 +597,10 @@ public static class JourneyService
     {
         if (r == null) return;
         if (r.NewOrbit) LocalHistoryLog.Add("visit", $"公転 {r.Streak} 連続");
-        if (!string.IsNullOrEmpty(r.PowerPlanet))
-        {
-            var pdef = SpacePlanets.Find(r.PowerPlanet);
-            LocalHistoryLog.Add("planet", r.PowerMaxed
-                ? $"{pdef?.Name}のパワーがMAXになった（7%オフが出やすい）"
-                : $"{pdef?.Name}にパワーをチャージ（{r.Power}/{JourneyRules.POWER_MAX}）");
-        }
+        if (r.Meeples.Count > 0)
+            LocalHistoryLog.Add("meeple", r.Meeples.Count == 1
+                ? $"入店で {SpaceMeeples.Names(r.Meeples)} を1個 入手"
+                : $"入店で {SpaceMeeples.Names(r.Meeples)} を1個ずつ 入手");
         foreach (var p in r.Prizes)
         {
             if (p == StarPrize.Noir) continue;
@@ -618,6 +620,8 @@ public static class JourneyService
         if (map.TryGetValue("planets", out var raw) && raw is IEnumerable<object> list)
             foreach (var o in list)
                 if (o != null) set.Add(o.ToString());
+        // 以前からの会員（starter が無い）はルミナを最初から持っている（7回目の来店で「ルミナを解放」と出さないように）
+        if (!map.TryGetValue("starter", out var starter) || starter == null) set.Add(SpacePlanets.DEFAULT_ID);
         return set;
     }
 

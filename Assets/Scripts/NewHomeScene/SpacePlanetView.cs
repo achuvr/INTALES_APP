@@ -45,7 +45,7 @@ public class SpacePlanetView : MonoBehaviour
         view.Size = size;
         view._quality = quality;
         view.Animate = animate;
-        view._locked = locked && !def.IsOrb;
+        view._locked = locked; // ルミナ（オーブ）も、最初にほかの色を選んだ人には未解放の影で出す（2026-11-10）
         view._phase = view._cloudPhase = def.StartSpin;
         view.Build();
         return view;
@@ -75,7 +75,7 @@ public class SpacePlanetView : MonoBehaviour
 
         if (Def.IsOrb)
         {
-            BuildOrb(rt, Size * SPHERE_RATIO);
+            BuildOrb(rt, Size * SPHERE_RATIO, _locked);
             return;
         }
 
@@ -139,23 +139,30 @@ public class SpacePlanetView : MonoBehaviour
         return img;
     }
 
-    /// <summary>ルミナ: 元の新ホームのオーブ（d=380 のとき元と同じ寸法）</summary>
-    private static void BuildOrb(RectTransform rt, float d)
+    /// <summary>
+    /// ルミナ: 元の新ホームのオーブ（d=380 のとき元と同じ寸法）。locked なら、ほかの未解放の惑星と同じ
+    /// ほぼ黒の影にして、光をほとんど消す（最初にほかの色を選んだ人の、惑星を選ぶ画面）
+    /// </summary>
+    private static void BuildOrb(RectTransform rt, float d, bool locked)
     {
         float k = d / 380f;
         bool small = d < 250f;
         var halo = SpaceTheme.Rect("Halo", rt, SpaceTheme.CENTER, Vector2.zero, new Vector2(520f * k, 520f * k));
-        SpaceTheme.Img(halo, SpaceSprites.Glow, new Color(0.51f, 0.43f, 1f, 0.47f));
+        SpaceTheme.Img(halo, SpaceSprites.Glow, new Color(0.51f, 0.43f, 1f, locked ? 0.12f : 0.47f));
         var face = SpaceTheme.Rect("Face", rt, SpaceTheme.CENTER, Vector2.zero, new Vector2(d, d));
-        SpaceTheme.Gradient(SpaceTheme.Img(face, SpaceSprites.Circle, Color.white),
-            new Color(0.34f, 0.86f, 1f, 1f), new Color(0.59f, 0.38f, 1f, 1f));
+        if (locked) SpaceTheme.Img(face, SpaceSprites.Circle, LOCKED_TINT);
+        else
+            SpaceTheme.Gradient(SpaceTheme.Img(face, SpaceSprites.Circle, Color.white),
+                new Color(0.34f, 0.86f, 1f, 1f), new Color(0.59f, 0.38f, 1f, 1f));
         var sheen = SpaceTheme.Rect("Sheen", rt, SpaceTheme.CENTER, new Vector2(-70f * k, 80f * k),
             new Vector2(300f * k, 300f * k));
-        SpaceTheme.Img(sheen, SpaceSprites.Glow, SpaceTheme.A(Color.white, 0.31f));
+        SpaceTheme.Img(sheen, SpaceSprites.Glow, SpaceTheme.A(Color.white, locked ? 0.05f : 0.31f));
         var rim = SpaceTheme.Rect("Rim", rt, SpaceTheme.CENTER, Vector2.zero, new Vector2(d, d));
-        SpaceTheme.Img(rim, small ? SpaceSprites.RingSmall : SpaceSprites.Ring, SpaceTheme.A(Color.white, 0.47f));
+        SpaceTheme.Img(rim, small ? SpaceSprites.RingSmall : SpaceSprites.Ring,
+            locked ? SpaceTheme.A(new Color(0.6f, 0.55f, 1f), 0.4f) : SpaceTheme.A(Color.white, 0.47f));
         var outer = SpaceTheme.Rect("OuterRing", rt, SpaceTheme.CENTER, Vector2.zero, new Vector2(420f * k, 420f * k));
-        SpaceTheme.Img(outer, small ? SpaceSprites.RingSmall : SpaceSprites.Ring, SpaceTheme.A(SpaceTheme.LINE, 0.24f));
+        SpaceTheme.Img(outer, small ? SpaceSprites.RingSmall : SpaceSprites.Ring,
+            SpaceTheme.A(SpaceTheme.LINE, locked ? 0.1f : 0.24f));
     }
 
     // ================================================================

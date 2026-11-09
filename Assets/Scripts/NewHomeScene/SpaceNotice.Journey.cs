@@ -33,12 +33,8 @@ public static partial class SpaceNotice
     private const string T_STAR_NOIR = "ひみつの惑星";
     private const string T_STAR_NOIR_HINT = "めったに出会えない惑星です";
     private const string T_TOGETHER = "さんと一緒に来店しました！";
-    private const string T_POWER_CHARGED = "にパワーをチャージ！";
-    private const string T_POWER_FULL = "のパワーはMAXです";
-    private const string T_POWER_MAXED = "パワーMAX！流れ星で7%オフが出やすくなりました";
-    private const string T_POWER_KEEP = "中央に置いているあいだ、流れ星で7%オフが出やすくなります";
-    private const string T_POWER_LEFT_A = "あと";
-    private const string T_POWER_LEFT_B = "回でパワーMAX（流れ星で7%オフが出やすくなる）";
+    private const string T_MEEPLE_GOT = "コマをもらいました"; // 入店した日に、中央の惑星の色のコマ（2026-11-10）
+    // 惑星のパワー（チャージ・MAX の知らせ）は 2026-11-10 にやめた
 
     /// <summary>このお知らせの定型文（NewHome の起動時にまとめてフォントへ登録する）</summary>
     public static string JourneyGlyphText => new StringBuilder()
@@ -47,8 +43,7 @@ public static partial class SpaceNotice
         .Append(T_ORBIT_BROKEN).Append(T_ORBIT_INSURANCE).Append(T_ORBIT_NEXT_A).Append(T_ORBIT_NEXT_B)
         .Append(T_ORBIT_FIRST).Append(T_VISITS_A).Append(T_VISITS_B).Append(T_STAR_CAPTION).Append(T_STAR_TITLE)
         .Append(T_STAR_GOT).Append(T_STAR_HINT).Append(T_STAR_NOIR).Append(T_STAR_NOIR_HINT).Append(T_TOGETHER)
-        .Append(T_POWER_CHARGED).Append(T_POWER_FULL).Append(T_POWER_MAXED).Append(T_POWER_KEEP)
-        .Append(T_POWER_LEFT_A).Append(T_POWER_LEFT_B)
+        .Append(T_MEEPLE_GOT).Append(SpaceMeeples.GlyphText)
         .Append(StoreCalendar.GlyphText).Append(SpaceGachaMeteor.GlyphText).ToString();
 
     /// <summary>
@@ -106,6 +101,9 @@ public static partial class SpaceNotice
             SpaceTheme.TEXT_SUB, FontStyles.Bold);
         Stack(until.rectTransform, ref y, 44f, 0f);
 
+        // 入店でもらったコマ（その営業日の最初の入店のとき。中央の惑星の色ごとに1個。2026-11-10）
+        if (r.Meeples.Count > 0) MeepleStrip(card, r.Meeples, ref y);
+
         var lines = new List<(string text, Color color)>();
         if (r.FirstEver && r.Visits > 1) lines.Add((T_ORBIT_FIRST, SpaceTheme.TEXT_SUB));
         if (!r.NewOrbit) lines.Add((T_ORBIT_SAME, SpaceTheme.TEXT_MUTED));
@@ -118,26 +116,6 @@ public static partial class SpaceNotice
             var t = SpaceTheme.Text(card, "Line" + i, lines[i].text, 28, lines[i].color, FontStyles.Bold);
             Wrap(t);
             Stack(t.rectTransform, ref y, Measure(t, 40f), i == 0 ? 18f : 4f);
-        }
-
-        // パワーのチャージ（その公転にもう来ている状態での来店）
-        if (!string.IsNullOrEmpty(r.PowerPlanet))
-        {
-            var pdef = SpacePlanets.Find(r.PowerPlanet);
-            bool full = r.Power >= JourneyRules.POWER_MAX;
-            string head = (pdef?.Name ?? "") + (full && !r.PowerMaxed ? T_POWER_FULL : T_POWER_CHARGED);
-            var headText = SpaceTheme.Text(card, "Power", head, 34, SpaceTheme.GOLD, FontStyles.Bold);
-            Stack(headText.rectTransform, ref y, 48f, 22f);
-            var gauge = SpaceTheme.Rect("PowerGauge", card);
-            Stack(gauge, ref y, 48f, 8f, 420f);
-            PowerGauge(gauge, r.Power, SpaceTheme.GOLD);
-            string note = r.PowerMaxed ? T_POWER_MAXED
-                : full ? T_POWER_KEEP
-                : T_POWER_LEFT_A + (JourneyRules.POWER_MAX - r.Power) + T_POWER_LEFT_B;
-            var noteText = SpaceTheme.Text(card, "PowerNote", note, 26, full ? SpaceTheme.GOLD : SpaceTheme.TEXT_SUB,
-                FontStyles.Bold);
-            Wrap(noteText);
-            Stack(noteText.rectTransform, ref y, Measure(noteText, 38f), 8f);
         }
 
         if (goal.HasValue && goal.Value.n > r.Streak)
@@ -155,27 +133,38 @@ public static partial class SpaceNotice
         return root;
     }
 
-    /// <summary>パワーのゲージ（JourneyRules.POWER_MAX 個の丸。たまった数だけ光る）。公転の画面でも使う</summary>
-    public static void PowerGauge(RectTransform parent, int power, Color on)
+    /// <summary>入店でもらったコマ: 金色の枠の中に「コマをもらいました」と、色ごとのコマの絵と「赤コマ +1」を横に並べる</summary>
+    private static void MeepleStrip(RectTransform card, List<PlanetColor> colors, ref float y)
     {
-        int max = JourneyRules.POWER_MAX;
-        const float SIZE = 34f, GAP = 24f;
-        float total = max * SIZE + (max - 1) * GAP;
-        for (int i = 0; i < max; i++)
+        const float CELL = 220f, ICON = 96f, TOP_PAD = 62f;
+        var box = SpaceTheme.Rect("Meeples", card);
+        Stack(box, ref y, TOP_PAD + ICON + 64f, 24f);
+        SpaceTheme.Rounded(box, SpaceTheme.A(SpaceTheme.GOLD, 0.07f), 32f);
+        var edge = SpaceTheme.Rect("Edge", box);
+        SpaceTheme.Stretch(edge);
+        SpaceTheme.RoundedStroke(edge, SpaceTheme.A(SpaceTheme.GOLD, 0.35f), 32f);
+
+        var top = new Vector2(0.5f, 1f);
+        SpaceTheme.Text(box, "Label", T_MEEPLE_GOT, 28, SpaceTheme.GOLD, top, new Vector2(0f, -36f),
+            new Vector2(INNER - 40f, 40f), FontStyles.Bold);
+        for (int i = 0; i < colors.Count; i++)
         {
-            bool lit = i < power;
-            var pip = SpaceTheme.Rect("Pip" + i, parent, SpaceTheme.CENTER,
-                new Vector2(-total * 0.5f + SIZE * 0.5f + i * (SIZE + GAP), 0f), new Vector2(SIZE, SIZE));
-            if (lit)
-            {
-                var glow = SpaceTheme.Rect("Glow", pip, SpaceTheme.CENTER, Vector2.zero, new Vector2(SIZE * 2.4f, SIZE * 2.4f));
-                SpaceTheme.Img(glow, SpaceSprites.Glow, SpaceTheme.A(on, 0.45f));
-            }
-            var dot = SpaceTheme.Rect("Dot", pip);
-            SpaceTheme.Stretch(dot);
-            SpaceTheme.Img(dot, SpaceSprites.Circle, lit ? on : SpaceTheme.A(SpaceTheme.LINE, 0.18f));
+            var def = SpaceMeeples.Of(colors[i]);
+            if (def == null) continue;
+            float x = (i - (colors.Count - 1) * 0.5f) * CELL;
+            var icon = SpaceTheme.Rect("Icon" + i, box, top, new Vector2(x, -(TOP_PAD + ICON * 0.5f)),
+                new Vector2(ICON, ICON));
+            var img = SpaceTheme.Img(icon, def.Icon, Color.white);
+            img.preserveAspect = true;
+            img.enabled = def.Icon != null;
+            var name = SpaceTheme.Text(box, "Name" + i, def.Name + " +1", 26, SpaceTheme.TEXT, top,
+                new Vector2(x, -(TOP_PAD + ICON + 26f)), new Vector2(CELL - 10f, 36f), FontStyles.Bold);
+            name.enableAutoSizing = true;
+            name.fontSizeMin = 18f;
+            name.fontSizeMax = 26f;
         }
     }
+
 
     /// <summary>
     /// 公転の輪: 中央の惑星のまわりを、目標（次の節目）の数に分けた弧が囲み、続いた数だけ光る。

@@ -154,6 +154,7 @@ public class NewHomeController : MonoBehaviour
     private SpaceAdminQrList _qrList;
     private SpaceAdminPassList _passList;   // 管理者用: 1か月パスの購入者の一覧
     private SpaceNoticeComposer _composer;  // 管理者用: お知らせ通知を送る画面
+    private SpaceStarterPicker _starter;    // 新しく登録した人: 最初の惑星を選ぶ画面（選ぶまで閉じない。2026-11-10）
     private SpaceBoardGameZukan _zukan;      // ボードゲーム図鑑（開いている間）
     private RectTransform _zukanBtn, _zukanMoon;
     private CanvasGroup _zukanGroup;
@@ -296,7 +297,7 @@ public class NewHomeController : MonoBehaviour
           .Append(SpaceAdminQrList.GlyphText).Append(SpaceHistoryPanel.GlyphText).Append(SpaceNewsPage.GlyphText)
           .Append(SpaceRenameDialog.GlyphText).Append(StorePasses.GlyphText).Append(SpacePassCard.GlyphText)
           .Append(SpacePassViewer.GlyphText).Append(SpaceAdminPassList.GlyphText).Append(SpaceAdminNewsImages.GlyphText).Append(SpacePricePage.GlyphText).Append(T_BAG_PASS)
-          .Append(SpaceNoticeComposer.GlyphText)
+          .Append(SpaceNoticeComposer.GlyphText).Append(SpaceStarterPicker.GlyphText)
           .Append(SpaceBoardGameZukan.GlyphText).Append(SpaceConstellationPage.GlyphText)
           .Append(SpaceMemberView.GlyphText).Append(Referral.GlyphText).Append(SpaceNotice.GiftGlyphText)
           .Append(SpaceMonthPicker.GlyphText).Append(SpaceQrSheet.T_CLOSE).Append(SpacePlayLog.GlyphText).Append(SpacePlayCalendar.GlyphText)
@@ -981,8 +982,26 @@ public class NewHomeController : MonoBehaviour
         }
         _couponSnapshot = now;
         RefreshBagSub();
+        if (announce) CheckStarter(); // 贈りものの知らせより先に（選ぶ画面が開いている間は贈りものを待たせる）
         if (announce) CheckLegacyGift();
         if (announce && !_giftBusy) UpdateGifts();
+    }
+
+    /// <summary>
+    /// 新しく登録した人（starter が ""）: 最初の惑星を赤・青・黄から選ぶ画面を出す（選ぶまで閉じない。2026-11-10）。
+    /// 選んだら中央の惑星を差し替えて、惑星を手に入れたときと同じ知らせを出す
+    /// </summary>
+    private void CheckStarter()
+    {
+        if (_starter != null || !_built || !SpacePlanets.NeedsStarter) return;
+        if (PanelOpen || _landing || SpaceNoticeQueue.Running || SpaceNotice.AnyOpen) return;
+        _starter = SpaceStarterPicker.Open(_canvas, def =>
+        {
+            if (this == null) return;
+            ApplyPlanet(def);
+            SpaceNotice.PlanetUnlocked(def, SpaceStarterPicker.T_DONE_TITLE, SpaceStarterPicker.T_DONE_NOTE,
+                SpaceStarterPicker.T_DONE_OK);
+        }, () => _starter = null);
     }
 
     // ---- 贈りもの（誕生月・友だち紹介。2026-11-07）----
@@ -1118,7 +1137,7 @@ public class NewHomeController : MonoBehaviour
     /// <summary>ホームの上に何か開いているか（重ねて開かない・カメラも起動しない）</summary>
     private bool PanelOpen => _inventory != null || _history != null || _news != null
                               || _picker != null || _qrList != null || _passList != null || _composer != null
-                              || _zukan != null
+                              || _starter != null || _zukan != null
                               || _prices != null || _orbitPanel != null || _accountMenu.IsOpen
                               || SpaceConstellationPage.Instance != null;
 
@@ -1860,6 +1879,7 @@ public class NewHomeController : MonoBehaviour
             // 手前から閉じる: QR読み取り後のお知らせ → QRコード一覧（管理者）→ 惑星を選ぶ画面 → 所持品 → 履歴
             // → お知らせページ → 設定メニュー
             if (SpaceNotice.CloseTop()) { }
+            else if (_starter != null) _starter.HandleBack(); // 最初の惑星を選ぶまでは閉じない
             else if (SpaceConstellationPage.Instance != null) SpaceConstellationPage.Instance.HandleBack();
             else if (_zukan != null) _zukan.HandleBack();
             else if (_prices != null) _prices.HandleBack();

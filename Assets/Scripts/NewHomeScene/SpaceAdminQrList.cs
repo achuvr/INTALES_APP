@@ -403,12 +403,8 @@ public class SpaceAdminQrList : MonoBehaviour
         int rows = Mathf.CeilToInt(all.Length / (float)COLS);
         float contentH = PAD_TOP + rows * CELL_H + (rows - 1) * GAP + PAD_BOTTOM;
         var content = BuildScroll("PlanetList", contentH, out var page);
-        for (int i = 0; i < all.Length; i++)
-        {
-            // ルミナは最初から持っているので解放QRはない。マスだけ空けて並びをそろえる
-            if (all[i].IsOrb) BuildBlank(content, i);
-            else BuildPlanetCell(content, all[i], i);
-        }
+        // ルミナも、最初にほかの色を選んだ人は持っていないので解放QRを出す（2026-11-10。以前は空けていた）
+        for (int i = 0; i < all.Length; i++) BuildPlanetCell(content, all[i], i);
         return page;
     }
 
@@ -419,16 +415,6 @@ public class SpaceAdminQrList : MonoBehaviour
         return new Vector2(CELL_W * 0.5f + col * (CELL_W + GAP), -(PAD_TOP + CELL_H * 0.5f + row * (CELL_H + GAP)));
     }
 
-    /// <summary>空きマス（うすい枠だけ。押せない）</summary>
-    private static void BuildBlank(RectTransform content, int index)
-    {
-        var rt = SpaceTheme.Rect("Blank", content, new Vector2(0f, 1f), CellPos(index), new Vector2(CELL_W, CELL_H));
-        SpaceTheme.Rounded(rt, new Color(1f, 1f, 1f, 0.025f), 34f);
-        var edge = SpaceTheme.Rect("Edge", rt);
-        SpaceTheme.Stretch(edge);
-        SpaceTheme.RoundedStroke(edge, SpaceTheme.A(SpaceTheme.LINE, 0.12f), 34f);
-    }
-
     private void BuildPlanetCell(RectTransform content, SpacePlanetDef def, int index)
     {
         var rt = SpaceTheme.Rect("Cell_" + def.Id, content, new Vector2(0f, 1f), CellPos(index),
@@ -436,14 +422,23 @@ public class SpaceAdminQrList : MonoBehaviour
         var face = SpaceTheme.Glass(rt, 34f, new Color(0.07f, 0.09f, 0.24f, 0.78f), null, true);
 
         var pos = new Vector2(0f, 26f);
-        float d = THUMB * SpacePlanetView.SPHERE_RATIO * def.Scale;
-        var halo = SpaceTheme.Rect("Halo", rt, SpaceTheme.CENTER, pos, new Vector2(d * def.HaloScale, d * def.HaloScale));
-        SpaceTheme.Img(halo, SpaceSprites.Glow, SpaceTheme.A(def.Accent, def.HaloAlpha));
-        float side = THUMB * SpacePlanetView.SPHERE_RATIO / SpacePlanets.THUMB_SPHERE_FRAC;
-        var thumb = SpaceTheme.Rect("Thumb", rt, SpaceTheme.CENTER, pos, new Vector2(side, side));
-        var raw = thumb.gameObject.AddComponent<RawImage>();
-        raw.raycastTarget = false;
-        SetThumb(raw, def).Forget();
+        if (def.IsOrb)
+        {
+            // ルミナ（光の玉）は画像を使わずにその場で描く（惑星を選ぶ画面と同じ）
+            var view = SpacePlanetView.Create(rt, def, THUMB, SpacePlanetView.Quality.Thumb, false);
+            ((RectTransform)view.transform).anchoredPosition = pos;
+        }
+        else
+        {
+            float d = THUMB * SpacePlanetView.SPHERE_RATIO * def.Scale;
+            var halo = SpaceTheme.Rect("Halo", rt, SpaceTheme.CENTER, pos, new Vector2(d * def.HaloScale, d * def.HaloScale));
+            SpaceTheme.Img(halo, SpaceSprites.Glow, SpaceTheme.A(def.Accent, def.HaloAlpha));
+            float side = THUMB * SpacePlanetView.SPHERE_RATIO / SpacePlanets.THUMB_SPHERE_FRAC;
+            var thumb = SpaceTheme.Rect("Thumb", rt, SpaceTheme.CENTER, pos, new Vector2(side, side));
+            var raw = thumb.gameObject.AddComponent<RawImage>();
+            raw.raycastTarget = false;
+            SetThumb(raw, def).Forget();
+        }
 
         SpaceTheme.Text(rt, "Name", def.Name, 26, SpaceTheme.TEXT, SpaceTheme.CENTER, new Vector2(0f, -CELL_H * 0.5f + 34f),
             new Vector2(CELL_W - 12f, 36f), FontStyles.Bold);
@@ -522,15 +517,23 @@ public class SpaceAdminQrList : MonoBehaviour
 
         // 惑星（小さく）
         var planet = SpaceTheme.Rect("Planet", safe, new Vector2(0.5f, 1f), new Vector2(0f, -150f), new Vector2(1f, 1f));
-        float d = 150f * def.Scale;
-        var halo = SpaceTheme.Rect("Halo", planet, SpaceTheme.CENTER, Vector2.zero,
-            new Vector2(d * def.HaloScale, d * def.HaloScale));
-        SpaceTheme.Img(halo, SpaceSprites.Glow, SpaceTheme.A(def.Accent, def.HaloAlpha));
-        var thumb = SpaceTheme.Rect("Thumb", planet, SpaceTheme.CENTER, Vector2.zero,
-            new Vector2(150f / SpacePlanets.THUMB_SPHERE_FRAC, 150f / SpacePlanets.THUMB_SPHERE_FRAC));
-        var raw = thumb.gameObject.AddComponent<RawImage>();
-        raw.raycastTarget = false;
-        SetThumb(raw, def).Forget();
+        if (def.IsOrb)
+        {
+            // ルミナ（光の玉）はその場で描く（球の直径 150）
+            SpacePlanetView.Create(planet, def, 150f / SpacePlanetView.SPHERE_RATIO, SpacePlanetView.Quality.Thumb, false);
+        }
+        else
+        {
+            float d = 150f * def.Scale;
+            var halo = SpaceTheme.Rect("Halo", planet, SpaceTheme.CENTER, Vector2.zero,
+                new Vector2(d * def.HaloScale, d * def.HaloScale));
+            SpaceTheme.Img(halo, SpaceSprites.Glow, SpaceTheme.A(def.Accent, def.HaloAlpha));
+            var thumb = SpaceTheme.Rect("Thumb", planet, SpaceTheme.CENTER, Vector2.zero,
+                new Vector2(150f / SpacePlanets.THUMB_SPHERE_FRAC, 150f / SpacePlanets.THUMB_SPHERE_FRAC));
+            var raw = thumb.gameObject.AddComponent<RawImage>();
+            raw.raycastTarget = false;
+            SetThumb(raw, def).Forget();
+        }
 
         FillDetail(safe, def.En, def.Accent, def.Name, SpacePlanets.QrPayload(def),
             T_SCAN_A + def.Name + T_SCAN_PLANET_B, null);

@@ -50,13 +50,11 @@ public class SpaceOrbitPanel : MonoBehaviour
     private const string T_RESCUE_B = "回（3か月に";
     private const string T_RESCUE_C = "回まで）";
     private const string T_INSURANCE_HAVE = "1つ持っています";
-    private const string T_INSURANCE_NONE = "なし（オルビスを中央に置いて土曜に来ると貯まる）";
+    // 休みの保険は 2026-11-09 から貯まらない（オルビスの能力をやめた）ので、持っている人にだけ行を出す（2026-11-10）
     private const string T_TIMES = "回";
     private const string T_STREAK = " 連続";
     private const string T_FOOTER = "公転は木曜はじまりの2週間です。2週間に1回来店すると続きます";
-    private const string T_ROW_POWER = "パワー";
-    private const string T_POWER_MAX = " MAX（7%オフが出やすい）";
-    private const string T_FOOTER_POWER = "同じ公転にもう一度来ると（1日1回）、中央の惑星にパワーがたまります（6回でMAX）";
+    // 惑星のパワーの行・説明は 2026-11-10 にやめた
 
     /// <summary>この画面で表示しうる文字</summary>
     public static string GlyphText => new StringBuilder()
@@ -65,9 +63,8 @@ public class SpaceOrbitPanel : MonoBehaviour
         .Append(T_MISSED_RESCUE).Append(T_MISSED_INSURANCE).Append(T_MISSED_BROKEN).Append(T_ROW_NEXT)
         .Append(T_ROW_STAR).Append(T_ROW_RESCUE).Append(T_ROW_INSURANCE).Append(T_ROW_VISITS).Append(T_ROW_BEST)
         .Append(T_NEXT_A).Append(T_NEXT_B).Append(T_NEXT_ALL).Append(T_STAR_DONE).Append(T_STAR_READY)
-        .Append(T_RESCUE_A).Append(T_RESCUE_B).Append(T_RESCUE_C).Append(T_INSURANCE_HAVE).Append(T_INSURANCE_NONE)
-        .Append(T_TIMES).Append(T_STREAK).Append(T_FOOTER).Append(T_ROW_POWER).Append(T_POWER_MAX)
-        .Append(T_FOOTER_POWER).ToString();
+        .Append(T_RESCUE_A).Append(T_RESCUE_B).Append(T_RESCUE_C).Append(T_INSURANCE_HAVE)
+        .Append(T_TIMES).Append(T_STREAK).Append(T_FOOTER).ToString();
 
     private Canvas _canvas;
     private CanvasGroup _group;
@@ -238,27 +235,20 @@ public class SpaceOrbitPanel : MonoBehaviour
         Row(content, ref y, T_ROW_NEXT, next, SpaceTheme.CYAN);
         bool drawn = j.StarPeriod == period;
         Row(content, ref y, T_ROW_STAR, drawn ? T_STAR_DONE : T_STAR_READY, drawn ? SpaceTheme.TEXT_SUB : SpaceTheme.GOLD);
-        int allowance = center.Id == "celesta" ? 2 : 1;
+        // 軌道修正の回数は惑星によって変わらない（判定と同じ JourneyRules.RESCUE_ALLOWANCE）
         Row(content, ref y, T_ROW_RESCUE,
-            T_RESCUE_A + JourneyService.RescuesLeft(center.Id) + T_RESCUE_B + allowance + T_RESCUE_C, SpaceTheme.TEXT);
-        Row(content, ref y, T_ROW_INSURANCE, j.Insurance > 0 ? T_INSURANCE_HAVE : T_INSURANCE_NONE,
-            j.Insurance > 0 ? SpaceTheme.MINT : SpaceTheme.TEXT_SUB);
-        int power = JourneyService.PowerOf(center.Id);
-        bool powerMax = power >= JourneyRules.POWER_MAX;
-        Row(content, ref y, T_ROW_POWER,
-            center.Name + (powerMax ? T_POWER_MAX : " " + power + "/" + JourneyRules.POWER_MAX),
-            powerMax ? SpaceTheme.GOLD : SpaceTheme.TEXT);
+            T_RESCUE_A + JourneyService.RescuesLeft(center.Id) + T_RESCUE_B + JourneyRules.RESCUE_ALLOWANCE + T_RESCUE_C,
+            SpaceTheme.TEXT);
+        // 休みの保険はもう貯まらないので、残っている人にだけ出す（使い道は変わらない）
+        if (j.Insurance > 0) Row(content, ref y, T_ROW_INSURANCE, T_INSURANCE_HAVE, SpaceTheme.MINT);
         Row(content, ref y, T_ROW_VISITS, j.Visits + T_TIMES, SpaceTheme.TEXT);
         Row(content, ref y, T_ROW_BEST, j.Best + T_STREAK, SpaceTheme.TEXT);
 
         y += 20f;
-        foreach (var text in new[] { T_FOOTER, T_FOOTER_POWER })
-        {
-            var foot = Line(content, ref y, text, 24, SpaceTheme.TEXT_MUTED, 36f);
-            foot.enableAutoSizing = true;
-            foot.fontSizeMin = 18f;
-            foot.fontSizeMax = 24f;
-        }
+        var foot = Line(content, ref y, T_FOOTER, 24, SpaceTheme.TEXT_MUTED, 36f);
+        foot.enableAutoSizing = true;
+        foot.fontSizeMin = 18f;
+        foot.fontSizeMax = 24f;
         return y + 16f;
     }
 

@@ -27,14 +27,11 @@ public sealed class JourneyData
     public string MetDay;         // フレンドと一緒に来店した記録を最後に処理した営業日
     public List<string> MetUids = new List<string>(); // その日に処理済みのフレンド
     /// <summary>
-    /// 惑星ごとのパワー（0〜JourneyRules.POWER_MAX）。その公転にもう来ている状態でまた来店すると（1日1回）、
-    /// 中央の惑星に1たまる。MAX の惑星を中央に置いていると、流れ星で7%オフが出やすい（2026-11-06 ユーザー指定）
+    /// 惑星ごとのパワー（0〜6）の記録。パワー（同じ公転にもう一度来ると中央の惑星にたまり、MAX で流れ星の7%オフが
+    /// 出やすい。2026-11-06）は 2026-11-10 にやめた（ユーザー指定「お客様に説明が難しい」）。
+    /// 記録は消さずに残す（読み込んだ値をそのまま書き戻すだけで、増やさない・使わない）
     /// </summary>
     public Dictionary<string, int> Power = new Dictionary<string, int>();
-
-    /// <summary>その惑星のパワー</summary>
-    public int PowerOf(string planetId) =>
-        !string.IsNullOrEmpty(planetId) && Power.TryGetValue(planetId, out var n) ? n : 0;
 
     public static JourneyData From(object raw)
     {

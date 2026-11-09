@@ -254,7 +254,12 @@ public static partial class SpaceNotice
     /// </summary>
     /// <param name="title">見出し（省略時は「新しい惑星を解放しました！」）</param>
     /// <param name="note">説明の下に金色で添える一文（古参の惑星の贈りものなど。省略可）</param>
-    public static GameObject PlanetUnlocked(SpacePlanetDef def, string title = null, string note = null)
+    /// <param name="okLabel">
+    /// 指定すると、ボタンはこの文字の1つだけにする（「あとで」と選び方の案内は出さない）。
+    /// 最初の惑星を選んだとき（もうホームの中央に置いてある）に使う
+    /// </param>
+    public static GameObject PlanetUnlocked(SpacePlanetDef def, string title = null, string note = null,
+        string okLabel = null)
     {
         var card = Overlay("__PlanetUnlockModal", out var root, SpaceTheme.A(def.Accent, 0.55f));
         if (card == null) return null;
@@ -304,18 +309,22 @@ public static partial class SpaceNotice
             SpacePlanets.Current = def;
             Object.Destroy(root);
         });
-        var useLabel = SpaceTheme.Text(use, "Label", T_PLANET_USE, 40, SpaceTheme.TEXT_DARK, FontStyles.Bold);
+        var useLabel = SpaceTheme.Text(use, "Label", okLabel ?? T_PLANET_USE, 40, SpaceTheme.TEXT_DARK, FontStyles.Bold);
         SpaceTheme.Stretch(useLabel.rectTransform);
 
-        var later = SpaceTheme.Rect("Later", card);
-        Stack(later, ref y, 76f, 12f, 320f);
-        var laterHit = SpaceTheme.HitArea(later);
-        SpaceTheme.Clickable(later.gameObject, laterHit, () => Object.Destroy(root));
-        var laterLabel = SpaceTheme.Text(later, "Label", T_PLANET_LATER, 32, SpaceTheme.TEXT_SUB, FontStyles.Bold);
-        SpaceTheme.Stretch(laterLabel.rectTransform);
+        if (okLabel == null)
+        {
+            var later = SpaceTheme.Rect("Later", card);
+            Stack(later, ref y, 76f, 12f, 320f);
+            var laterHit = SpaceTheme.HitArea(later);
+            SpaceTheme.Clickable(later.gameObject, laterHit, () => Object.Destroy(root));
+            var laterLabel = SpaceTheme.Text(later, "Label", T_PLANET_LATER, 32, SpaceTheme.TEXT_SUB, FontStyles.Bold);
+            SpaceTheme.Stretch(laterLabel.rectTransform);
 
-        var hint = SpaceTheme.Text(card, "Hint", SpacePlanets.T_HOW_TO_CHOOSE, 24, SpaceTheme.TEXT_MUTED, FontStyles.Bold);
-        Stack(hint.rectTransform, ref y, 34f, 4f);
+            var hint = SpaceTheme.Text(card, "Hint", SpacePlanets.T_HOW_TO_CHOOSE, 24, SpaceTheme.TEXT_MUTED,
+                FontStyles.Bold);
+            Stack(hint.rectTransform, ref y, 34f, 4f);
+        }
 
         y += 44f;
         card.sizeDelta = new Vector2(WIDTH, y);

@@ -4,7 +4,7 @@ using System.Text;
 /// <summary>惑星を解放する条件の種類</summary>
 public enum UnlockKind
 {
-    Start,     // はじめから持っている（ルミナ）
+    Start,     // はじめから持っている（もとはルミナ。2026-11-10 に最初の惑星を選ぶしくみにして、今はどの惑星も使っていない）
     Visits,    // 来店回数（Param 回目）
     Weekday,   // その曜日に来店（Param = System.DayOfWeek）
     Streak,    // 公転を Param 回続ける
@@ -47,6 +47,7 @@ public sealed class PlanetPower
 
 /// <summary>
 /// 惑星の能力は 2026-11-09 にすべてやめた（ユーザー指定「惑星は見た目を変える機能とパワーを持つ機能だけ」）。
+/// 残っていたパワー（JourneyRules）も 2026-11-10 にやめたので、惑星は見た目と解放の条件だけ（ユーザー指定「お客様に説明が難しい」）。
 /// いまは解放の条件だけを持つ。能力・お店の特典の欄（AbilityText・Store など）は残してあるが、どの惑星にも入れていない。
 /// 以下はもとの説明:
 /// 24個の惑星の解放の条件と能力（2026-11 企画書「惑星と来店のしくみ 案1」の表。定休日が月・火・水になったので、
@@ -62,12 +63,16 @@ public static class PlanetPowers
 
     public static readonly PlanetPower[] All =
     {
-        new PlanetPower { Id = "lumina", Unlock = UnlockKind.Start, UnlockText = "はじめから持っている" },
+        // ---- 最初に選べる3つ（2026-11-10 ユーザー指定。選ばなかったものは7回目の来店。以前からの会員はルミナを持っている） ----
+        new PlanetPower { Id = "rubra", Unlock = UnlockKind.Visits, Param = 7, UnlockText = "最初に選ぶ（赤）か、7回目の来店" },
+        new PlanetPower { Id = "lumina", Unlock = UnlockKind.Visits, Param = 7, UnlockText = "最初に選ぶ（青）か、7回目の来店" },
+        new PlanetPower { Id = "limona", Unlock = UnlockKind.Visits, Param = 7, UnlockText = "最初に選ぶ（黄）か、7回目の来店" },
 
         // ---- 来店回数 ----
         new PlanetPower { Id = "aquaris", Unlock = UnlockKind.Visits, Param = 2, UnlockText = "2回目の来店" },
-        new PlanetPower { Id = "limona", Unlock = UnlockKind.Visits, Param = 5, UnlockText = "5回目の来店" },
+        new PlanetPower { Id = "vespera", Unlock = UnlockKind.Visits, Param = 5, UnlockText = "5回目の来店" },
         new PlanetPower { Id = "mocha", Unlock = UnlockKind.Visits, Param = 10, UnlockText = "10回目の来店" },
+        new PlanetPower { Id = "ambaria", Unlock = UnlockKind.Visits, Param = 15, UnlockText = "15回目の来店" },
         new PlanetPower { Id = "voltia", Unlock = UnlockKind.Visits, Param = 25, UnlockText = "25回目の来店" },
         new PlanetPower { Id = "noctis", Unlock = UnlockKind.Visits, Param = 50, UnlockText = "50回目の来店" },
 
@@ -89,6 +94,7 @@ public static class PlanetPowers
         new PlanetPower { Id = "mistia", Unlock = UnlockKind.Streak, Param = 2, UnlockText = "2公転（約1か月）続ける" },
         new PlanetPower { Id = "tempesta", Unlock = UnlockKind.Streak, Param = 4, UnlockText = "4公転（約2か月）続ける" },
         new PlanetPower { Id = "celesta", Unlock = UnlockKind.Streak, Param = 6, UnlockText = "6公転（約3か月）続ける" },
+        new PlanetPower { Id = "lanterna", Unlock = UnlockKind.Streak, Param = 9, UnlockText = "9公転（約4か月）続ける" },
         new PlanetPower { Id = "neonia", Unlock = UnlockKind.Streak, Param = 13, UnlockText = "13公転（約半年）続ける" },
         new PlanetPower { Id = "galaxia", Unlock = UnlockKind.Streak, Param = 26, UnlockText = "26公転（約1年）続ける" },
 
@@ -97,7 +103,7 @@ public static class PlanetPowers
             UnlockText = "春（3〜5月）に来店" },
         new PlanetPower { Id = "coralia", Unlock = UnlockKind.Season, Param = (int)StoreCalendar.Season.Summer,
             UnlockText = "夏（6〜8月）に来店" },
-        new PlanetPower { Id = "rubra", Unlock = UnlockKind.Season, Param = (int)StoreCalendar.Season.Autumn,
+        new PlanetPower { Id = "folia", Unlock = UnlockKind.Season, Param = (int)StoreCalendar.Season.Autumn,
             UnlockText = "秋（9〜11月）に来店" },
         new PlanetPower { Id = "glacia", Unlock = UnlockKind.Season, Param = (int)StoreCalendar.Season.Winter,
             UnlockText = "冬（12〜2月）に来店" },

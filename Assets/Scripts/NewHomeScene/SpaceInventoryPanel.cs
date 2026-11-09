@@ -159,6 +159,11 @@ public class SpaceInventoryPanel : MonoBehaviour
     private const string T_PASS_EXPIRED = "期限切れ";
     private const string T_PASS_EXTENDED = "（臨時休業ぶん延長）"; // 営業カレンダーの臨時休業で期限が延びたとき（2026-11-10）
     private const string T_FOOTER = "使うときはスタッフに画面を見せてください";
+    // コマ（2026-11-10。入店した日に、ホームの中央の惑星の色のコマをもらえる。SpaceMeeples）
+    private const string T_MEEPLE_SECTION = "コマ";
+    private const string T_MEEPLE_HINT = "入店した日に、ホームの惑星の色のコマがもらえます";
+    private const string T_MEEPLE_INFO =
+        "ホームの真ん中に置いた惑星の色のコマを、入店した日に1個もらえます（色が2つ以上の惑星は、それぞれ1個ずつ）";
     private const string T_MEMBER = "会員証";
     private const string T_MEMBER_CAPTION = "MEMBER CARD";
     private const string T_MEMBER_TITLE = "会員証";
@@ -218,7 +223,8 @@ public class SpaceInventoryPanel : MonoBehaviour
               .Append(T_PERK_MSG_EVENING).Append(T_PERK_MSG_SEASON).Append(T_PERK_CONFIRM_TITLE)
               .Append(T_PERK_CONFIRM_BODY).Append(T_PERK_DONE)
               .Append(T_DISCOUNT_TITLE).Append(T_DISCOUNT_DESC).Append(T_DISCOUNT_NONE).Append("・")
-              .Append("合計OFF枚×0123456789%/: ");
+              .Append("合計OFF枚×0123456789%/: ")
+              .Append(T_MEEPLE_SECTION).Append(T_MEEPLE_HINT).Append(T_MEEPLE_INFO).Append(SpaceMeeples.GlyphText);
             foreach (var c in SpaceCoupons.All) sb.Append(c.Name).Append(c.RowDesc).Append(c.Desc);
             return sb.ToString();
         }
@@ -435,7 +441,12 @@ public class SpaceInventoryPanel : MonoBehaviour
 
         int n = SpaceCoupons.All.Length;
         for (int i = 0; i < n; i++) BuildRow(_content, SpaceCoupons.All[i], -(y + i * (ROW_H + ROW_GAP)));
-        float listH = y + n * ROW_H + (n - 1) * ROW_GAP;
+        y += n * ROW_H + (n - 1) * ROW_GAP;
+
+        // コマ（クーポンの下。3色を1枚のカードに並べる）
+        y = SectionLabel(T_MEEPLE_SECTION, y + ROW_GAP, T_MEEPLE_HINT);
+        BuildMeepleRow(_content, -y);
+        float listH = y + ROW_H;
 
         float sheetH = Mathf.Min(HEADER_H + listH + FOOTER_H, _safeH - TOP_MARGIN - BOTTOM_MARGIN);
         _sheet.sizeDelta = new Vector2(-64f, sheetH);
@@ -444,13 +455,91 @@ public class SpaceInventoryPanel : MonoBehaviour
         UpdateRows();
     }
 
-    /// <summary>一覧の中の見出し（「パス」「クーポン」）を置き、次の行の位置を返す</summary>
-    private float SectionLabel(string text, float y)
+    /// <summary>一覧の中の見出し（「パス」「クーポン」「コマ」）を置き、次の行の位置を返す。hint は右寄せの小さな説明</summary>
+    private float SectionLabel(string text, float y, string hint = null)
     {
+        float cy = -(y + SECTION_H * 0.5f - 6f);
         SpaceTheme.Text(_content, "Section_" + text, text, 28, SpaceTheme.TEXT_MUTED, new Vector2(0f, 1f),
-            new Vector2(24f, -(y + SECTION_H * 0.5f - 6f)), new Vector2(400f, 40f), FontStyles.Bold,
+            new Vector2(24f, cy), new Vector2(400f, 40f), FontStyles.Bold,
             TextAlignmentOptions.Left, new Vector2(0f, 0.5f));
+        if (!string.IsNullOrEmpty(hint))
+        {
+            var h = SpaceTheme.Text(_content, "Hint_" + text, hint, 22, SpaceTheme.TEXT_MUTED, new Vector2(1f, 1f),
+                new Vector2(-24f, cy), new Vector2(660f, 36f), FontStyles.Bold,
+                TextAlignmentOptions.Right, new Vector2(1f, 0.5f));
+            h.enableAutoSizing = true;
+            h.fontSizeMin = 16f;
+            h.fontSizeMax = 22f;
+        }
         return y + SECTION_H;
+    }
+
+    // ================================================================
+    // コマ（赤・青・黄。入店した日に中央の惑星の色のコマをもらえる。今は持つだけ）
+    // ================================================================
+    private const float MEEPLE_ICON = 112f;
+    private const float MEEPLE_TEXT_X = 24f + MEEPLE_ICON + 14f;
+
+    /// <summary>コマの欄: 3色を1枚のカードに横に並べ、それぞれの数を出す。押すと、もらい方を知らせる</summary>
+    private void BuildMeepleRow(RectTransform content, float y)
+    {
+        var row = SpaceTheme.Rect("Meeples", content);
+        row.anchorMin = new Vector2(0f, 1f);
+        row.anchorMax = new Vector2(1f, 1f);
+        row.pivot = new Vector2(0.5f, 1f);
+        row.sizeDelta = new Vector2(0f, ROW_H);
+        row.anchoredPosition = new Vector2(0f, y);
+        var face = SpaceTheme.Glass(row, 36f, SpaceTheme.GLASS, null, true);
+        SpaceTheme.Clickable(row.gameObject, face, () =>
+        {
+            if (_busy || _useSheet != null || _result != null || _closing) return;
+            SpaceTheme.Toast(T_MEEPLE_INFO, _canvas);
+        });
+
+        var d = Data;
+        int count = SpaceMeeples.All.Length;
+        for (int i = 0; i < count; i++)
+        {
+            var m = SpaceMeeples.All[i];
+            int n = d != null ? Mathf.Max(0, m.Get(d)) : 0;
+            // カードを3等分した1つ分（横幅は端末の幅に合わせて伸び縮みする）
+            var cell = SpaceTheme.Rect("Meeple_" + m.Field, row);
+            cell.anchorMin = new Vector2(i / (float)count, 0f);
+            cell.anchorMax = new Vector2((i + 1) / (float)count, 1f);
+            cell.offsetMin = cell.offsetMax = Vector2.zero;
+            cell.gameObject.AddComponent<CanvasGroup>().alpha = n > 0 ? 1f : 0.5f;
+
+            var icon = SpaceTheme.Rect("Icon", cell, new Vector2(0f, 0.5f), new Vector2(24f + MEEPLE_ICON * 0.5f, 0f),
+                new Vector2(MEEPLE_ICON, MEEPLE_ICON));
+            var img = SpaceTheme.Img(icon, m.Icon, Color.white);
+            img.preserveAspect = true;
+            img.enabled = m.Icon != null;
+
+            var name = SpaceTheme.Text(cell, "Name", m.Name, 32, SpaceTheme.TEXT, FontStyles.Bold);
+            name.alignment = TextAlignmentOptions.Left;
+            FillCellRight(name.rectTransform, 26f, 44f);
+            name.enableAutoSizing = true;
+            name.fontSizeMin = 22f;
+            name.fontSizeMax = 32f;
+            var num = SpaceTheme.Text(cell, "Count",
+                $"{n}<size=43%><color={SpaceTheme.SUB_HEX}> {SpaceMeeples.T_UNIT}</color></size>", 52,
+                n > 0 ? SpaceTheme.GOLD : SpaceTheme.TEXT_MUTED, FontStyles.Bold);
+            num.alignment = TextAlignmentOptions.Left;
+            FillCellRight(num.rectTransform, -28f, 64f);
+            num.enableAutoSizing = true;
+            num.fontSizeMin = 30f;
+            num.fontSizeMax = 52f;
+        }
+    }
+
+    /// <summary>コマの欄の1色分の中で、絵の右から右端までの幅に文字を置く（y は縦の中心からのずれ）</summary>
+    private static void FillCellRight(RectTransform r, float y, float h)
+    {
+        r.anchorMin = new Vector2(0f, 0.5f);
+        r.anchorMax = new Vector2(1f, 0.5f);
+        r.pivot = new Vector2(0f, 0.5f);
+        r.offsetMin = new Vector2(MEEPLE_TEXT_X, y - h * 0.5f);
+        r.offsetMax = new Vector2(-10f, y + h * 0.5f);
     }
 
     // ================================================================

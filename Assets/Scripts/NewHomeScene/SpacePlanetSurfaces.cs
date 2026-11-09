@@ -393,6 +393,10 @@ public static class SpacePlanetSurfaces
             case "neonia": return new Neonia();
             case "limona": return new Limona();
             case "legacia": return new Legacia();
+            case "folia": return new Folia();
+            case "vespera": return new Vespera();
+            case "ambaria": return new Ambaria();
+            case "lanterna": return new Lanterna();
             default: return new Aquaris();
         }
     }
@@ -1304,6 +1308,160 @@ public static class SpacePlanetSurfaces
             px.Surface = C3.Lerp(c, C3.Hex(0xF4F8FF), lit * 0.9f);
             px.Glow = C3.Hex(0xD8E8FF);
             px.GlowA = Math.Max(line, dust * 0.5f);
+        }
+    }
+
+    // ---------------------------------------------------------------- 2026-11-10 追加（4つとも赤＋黄）
+    /// <summary>
+    /// 紅葉の惑星（フォリア）: 森がまだらに紅・朱・橙・金に色づく。谷は暗い赤茶の筋、木々の粒で細かくざわめく。
+    /// 青・緑は使わない（色分けは赤＋黄）。うすい雲が少しだけ流れる
+    /// </summary>
+    private sealed class Folia : Painter
+    {
+        private readonly Noise _n = new Noise(2501), _w = new Noise(2502), _l = new Noise(2503), _c = new Noise(2504);
+        public override bool HasClouds => true;
+
+        public override void Paint(float x, float y, float z, float lat, ref Px px)
+        {
+            float wx = _w.Fbm(x * 1.6f, y * 1.6f + 2f, z * 1.6f, 3);
+            float wz = _w.Fbm(x * 1.6f + 5f, y * 1.6f, z * 1.6f, 3);
+            // 大きな色のまだら（紅 → 朱 → 橙 → 金）
+            float h = _n.Fbm(x * 2.2f + wx * 0.9f, y * 2.2f, z * 2.2f + wz * 0.9f, 5);
+            float t = Clamp01(0.42f + h * 1.5f);
+            C3 c = t < 0.34f ? C3.Lerp(C3.Hex(0x9E1B22), C3.Hex(0xD8352A), Smooth(0f, 0.34f, t))
+                : t < 0.67f ? C3.Lerp(C3.Hex(0xD8352A), C3.Hex(0xF06A22), Smooth(0.34f, 0.67f, t))
+                : C3.Lerp(C3.Hex(0xF06A22), C3.Hex(0xF7AE35), Smooth(0.67f, 1f, t));
+            c = C3.Lerp(c, C3.Hex(0xFFCB4A), Smooth(0.86f, 1f, t) * 0.6f); // ところどころ明るい金
+            // 木々の粒（葉のざわめき）: 明るさを細かく揺らす
+            float leaf = _l.Fbm(x * 26f, y * 26f, z * 26f, 3);
+            c *= 0.9f + 0.16f * Smooth(-0.3f, 0.3f, leaf);
+            // 谷（ノイズのゼロ交差）を暗い赤茶の筋に
+            float valley = Smooth(0.045f, 0f, MathF.Abs(_w.Fbm(x * 3.1f + 1f, y * 3.1f, z * 3.1f, 4)));
+            c = C3.Lerp(c, C3.Hex(0x5C1A12), valley * 0.6f);
+            // 極は金色がかった明るい落ち葉色
+            float pole = MathF.Abs(lat) / (MathF.PI / 2f) + 0.06f * h;
+            c = C3.Lerp(c, C3.Hex(0xFFE3A3), Smooth(0.86f, 0.93f, pole) * 0.8f);
+            px.Surface = c;
+        }
+
+        public override float Cloud(float x, float y, float z, float lat) =>
+            Smooth(0.22f, 0.45f, _c.Fbm(x * 2.4f, y * 3.2f, z * 2.4f, 5)) * 0.32f;
+    }
+
+    /// <summary>
+    /// 夕焼けの惑星（ヴェスペラ）: 赤道の金色から、琥珀・橙・珊瑚色を経て、極の深い紅へと移る縞。
+    /// 縞は風で細かく波打ち、ところどころに金〜橙の渦が浮かぶ。色分けは赤＋黄
+    /// </summary>
+    private sealed class Vespera : Painter
+    {
+        private readonly Noise _n = new Noise(2601), _f = new Noise(2602);
+        // 赤道（0）→ 極（1）
+        private static readonly float[] StopT = { 0f, 0.16f, 0.34f, 0.52f, 0.70f, 0.86f, 1f };
+        private static readonly int[] StopC = { 0xFFE08A, 0xFFC25A, 0xF89A3E, 0xEE6A3E, 0xD9434A, 0xA9213C, 0x7A1530 };
+        private readonly C3[] _stops;
+        // 渦（緯度・経度・横と縦の大きさ。ラジアン）
+        private static readonly (float lat, float lon, float a, float b)[] Ovals =
+        {
+            (0.30f, 0.6f, 0.21f, 0.11f), (-0.46f, 2.4f, 0.16f, 0.09f), (0.62f, -1.9f, 0.13f, 0.07f),
+            (-0.14f, -0.8f, 0.12f, 0.065f),
+        };
+
+        public Vespera()
+        {
+            _stops = new C3[StopC.Length];
+            for (int i = 0; i < StopC.Length; i++) _stops[i] = C3.Hex(StopC[i]);
+        }
+
+        public override void Paint(float x, float y, float z, float lat, ref Px px)
+        {
+            float lon = MathF.Atan2(x, z);
+            float t = MathF.Abs(lat) / (MathF.PI / 2f);
+            float turb = _n.Fbm(x * 2.4f, y * 8f, z * 2.4f, 5) * 0.06f + _f.Fbm(x * 6f, y * 20f, z * 6f, 3) * 0.02f;
+            float bt = Clamp01(t + turb);
+            C3 c = Palette(bt);
+            c *= 0.93f + 0.07f * MathF.Sin(lat * 60f + _f.At(x * 3f, y * 3f, z * 3f) * 4f);
+            foreach (var o in Ovals)
+            {
+                float dLon = WrapPi(lon - o.lon) * MathF.Cos(o.lat);
+                float dLat = lat - o.lat;
+                float d = MathF.Sqrt((dLon / o.a) * (dLon / o.a) + (dLat / o.b) * (dLat / o.b));
+                if (d >= 1.2f) continue;
+                C3 oval = C3.Lerp(C3.Hex(0xFFD27A), C3.Hex(0xF2703A), Smooth(0f, 1f, d));
+                c = C3.Lerp(c, oval, Smooth(1.2f, 0.4f, d) * 0.85f);
+                c = C3.Lerp(c, C3.Hex(0xFFF0C8), Gauss(d, 1.0f, 0.07f) * 0.4f); // 渦の縁
+            }
+            px.Surface = c;
+        }
+
+        private C3 Palette(float t)
+        {
+            for (int i = 1; i < StopT.Length; i++)
+            {
+                if (t <= StopT[i])
+                {
+                    float k = (t - StopT[i - 1]) / (StopT[i] - StopT[i - 1]);
+                    return C3.Lerp(_stops[i - 1], _stops[i], Smooth(0f, 1f, k));
+                }
+            }
+            return _stops[_stops.Length - 1];
+        }
+    }
+
+    /// <summary>
+    /// 琥珀の惑星（アンバリア）: とろりと流れた跡のある蜂蜜色〜濃い琥珀色。ところどころに暗い内包物があり、
+    /// 金色の光の粒が閉じこめられている。夜側ではその粒がほのかに光る（GlowBase で昼もかすかに）。色分けは赤＋黄
+    /// </summary>
+    private sealed class Ambaria : Painter
+    {
+        private readonly Noise _n = new Noise(2701), _w = new Noise(2702), _s = new Noise(2703);
+        public override bool HasGlow => true;
+
+        public override void Paint(float x, float y, float z, float lat, ref Px px)
+        {
+            float qx = _w.Fbm(x * 1.3f, y * 1.3f, z * 1.3f, 4), qz = _w.Fbm(x * 1.3f + 6f, y * 1.3f, z * 1.3f, 4);
+            // 流れた跡: ゆがめた座標の縞
+            float flow = 0.5f + 0.5f * MathF.Sin((y * 2.2f + qx * 3.2f + qz * 1.6f) * 6.5f);
+            float depth = _n.Fbm(x * 2f + qx, y * 2f, z * 2f + qz, 5);
+            C3 c = C3.Lerp(C3.Hex(0xB04E0A), C3.Hex(0xF59A22), Smooth(-0.35f, 0.35f, depth));
+            c = C3.Lerp(c, C3.Hex(0xFFD36A), Smooth(0.5f, 1f, flow) * 0.55f);
+            // 内包物（暗いしみ）
+            float inc = Smooth(0.34f, 0.46f, _s.Fbm(x * 5f + 3f, y * 5f, z * 5f, 3));
+            c = C3.Lerp(c, C3.Hex(0x6A2C06), inc * 0.45f);
+            // 光の粒（細かいノイズの山の頂だけ）
+            float spark = Smooth(0.40f, 0.54f, _s.Fbm(x * 40f, y * 40f, z * 40f, 2));
+            c = C3.Lerp(c, C3.Hex(0xFFF0B0), spark * 0.8f);
+            px.Surface = c;
+            px.Glow = C3.Hex(0xFFD77A);
+            px.GlowA = Clamp01(spark * 1.2f);
+        }
+    }
+
+    /// <summary>
+    /// 提灯の惑星（ランテルナ）: 朱色〜深い紅の大地に、金色の細い曲線の模様（蒔絵のよう）。
+    /// 夜側では、道に沿って点々と連なる提灯の灯りと、集まった町の灯りが金色にともる（GlowBase で昼もかすかに）。色分けは赤＋黄
+    /// </summary>
+    private sealed class Lanterna : Painter
+    {
+        private readonly Noise _n = new Noise(2801), _w = new Noise(2802), _l = new Noise(2803), _g = new Noise(2804);
+        public override bool HasGlow => true;
+
+        public override void Paint(float x, float y, float z, float lat, ref Px px)
+        {
+            float wx = _w.Fbm(x * 1.4f, y * 1.4f + 2f, z * 1.4f, 3), wz = _w.Fbm(x * 1.4f + 7f, y * 1.4f, z * 1.4f, 3);
+            float h = _n.Fbm(x * 2.0f + wx, y * 2.0f, z * 2.0f + wz, 5);
+            C3 c = C3.Lerp(C3.Hex(0x7A1424), C3.Hex(0xD3362E), Smooth(-0.3f, 0.35f, h));
+            c = C3.Lerp(c, C3.Hex(0xE5553A), Smooth(0.25f, 0.5f, h) * 0.5f);
+            // 金の模様: ゼロ交差の細い曲線
+            float gold = Smooth(0.03f, 0f, MathF.Abs(_g.Fbm(x * 3.4f + wx, y * 3.4f, z * 3.4f + wz, 3)));
+            c = C3.Lerp(c, C3.Hex(0xF5C65A), gold * 0.85f);
+            px.Surface = c;
+            // 灯り: 道（ゼロ交差の網目）に沿って間をあけて並ぶ提灯＋町の灯りの粒
+            float road = Smooth(0.03f, 0f, MathF.Abs(_l.Fbm(x * 5f + 2f, y * 5f, z * 5f, 3)));
+            float beads = Smooth(0.35f, 0.75f, 0.5f + 0.5f * MathF.Sin((x * 31f + y * 37f + z * 29f) * 2.2f));
+            float town = Smooth(0.20f, 0.42f, _l.Fbm(x * 20f, y * 20f, z * 20f, 3)) * Smooth(0.05f, 0.35f, h);
+            float light = Math.Max(road * beads, town);
+            px.Glow = C3.Lerp(C3.Hex(0xFF9A3C), C3.Hex(0xFFD98A), Smooth(0f, 1f, town));
+            px.GlowA = Clamp01(light * 1.2f);
         }
     }
 

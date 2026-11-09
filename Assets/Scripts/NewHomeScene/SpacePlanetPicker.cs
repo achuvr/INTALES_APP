@@ -30,13 +30,12 @@ public class SpacePlanetPicker : MonoBehaviour
     private const string T_UNLOCKED = "解放";
     private const string T_CONDITION = "解放の条件：";
     private const string T_ABILITY_SEP = "：";
-    private const string T_POWER = "パワー ";
-    private const string T_POWER_MAX = "パワー MAX";
+    // 惑星のパワー（プレビューの右の「パワー 3/6」）は 2026-11-10 にやめた
 
     /// <summary>この画面で表示しうる文字（惑星の名前・説明は SpacePlanets.GlyphText）</summary>
     public static string GlyphText =>
         T_CAPTION + T_TITLE + T_CHOOSE + T_CURRENT + T_LOCKED + T_LOCKED_SUB + T_UNLOCKED + T_CONDITION + T_ABILITY_SEP
-        + T_POWER + T_POWER_MAX + "0123456789/";
+        + "0123456789/";
 
     // 配置（セーフエリア基準）
     private const int COLS = 4;
@@ -60,9 +59,7 @@ public class SpacePlanetPicker : MonoBehaviour
     private CanvasGroup _group;
     private RectTransform _previewHolder, _previewSlot, _orbit;
     private SpacePlanetView _preview;
-    private TextMeshProUGUI _enText, _nameText, _descText, _abilityText, _lockedSub, _powerText;
-    private GameObject _powerChip;
-    private Image _powerChipBg;
+    private TextMeshProUGUI _enText, _nameText, _descText, _abilityText, _lockedSub;
     private GameObject _chooseWrap, _currentWrap, _lockedWrap;
     private readonly List<Cell> _cells = new List<Cell>();
     private SpacePlanetDef _current, _selected;
@@ -150,14 +147,6 @@ public class SpacePlanetPicker : MonoBehaviour
 
         _previewHolder = SpaceTheme.Rect("Preview", safe, new Vector2(0.5f, 1f), new Vector2(0f, planetY),
             new Vector2(PREVIEW, PREVIEW));
-
-        // パワー（プレビューの惑星の右。解放済みの惑星だけ）
-        var chip = SpaceTheme.Rect("Power", safe, new Vector2(0.5f, 1f), new Vector2(330f, planetY),
-            new Vector2(220f, 56f));
-        _powerChipBg = SpaceTheme.Rounded(chip, SpaceTheme.A(SpaceTheme.GOLD, 0.12f), 28f);
-        _powerText = SpaceTheme.Text(chip, "Label", "", 26, SpaceTheme.TEXT, FontStyles.Bold);
-        SpaceTheme.Stretch(_powerText.rectTransform);
-        _powerChip = chip.gameObject;
 
         float textTop = HEADER_H + BLOCK_PLANET;
         _enText = SpaceTheme.Text(safe, "En", "", 26, SpaceTheme.A(SpaceTheme.CYAN, 0.9f), new Vector2(0.5f, 1f),
@@ -314,6 +303,7 @@ public class SpacePlanetPicker : MonoBehaviour
         SpaceTheme.Text(rt, "Name", def.Name, 26,
             inUse ? SpaceTheme.MINT : (owned ? SpaceTheme.TEXT : SpaceTheme.TEXT_MUTED), SpaceTheme.CENTER,
             new Vector2(0f, -CELL_H * 0.5f + 30f), new Vector2(CELL_W - 12f, 36f), FontStyles.Bold);
+        ColorDots(rt, def.Colors);
 
         if (inUse)
         {
@@ -340,6 +330,29 @@ public class SpacePlanetPicker : MonoBehaviour
     }
 
     /// <summary>
+    /// 惑星の色（赤・青・黄。PlanetColor）を、マスの左上の角に丸で出す（2026-11-10 ユーザー指定）。
+    /// 1色は角に1つ、2色は横に2つ、3色は2つの下に1つの三角（惑星の絵にかからないよう角に寄せる）。
+    /// 暗い縁で囲んで、惑星や背景の上でも色が分かるようにする。未解放の惑星にも出す
+    /// </summary>
+    private static void ColorDots(RectTransform cell, PlanetColor colors)
+    {
+        var list = new List<PlanetColor>();
+        foreach (var c in PlanetColors.Order)
+            if ((colors & c) != 0) list.Add(c);
+        if (list.Count == 0) return;
+        var pos = list.Count == 3
+            ? new[] { new Vector2(23f, -23f), new Vector2(48f, -23f), new Vector2(35.5f, -45f) }
+            : new[] { new Vector2(23f, -23f), new Vector2(48f, -23f) };
+        for (int i = 0; i < list.Count; i++)
+        {
+            var dot = SpaceTheme.Rect("Color_" + list[i], cell, new Vector2(0f, 1f), pos[i], new Vector2(24f, 24f));
+            SpaceTheme.Img(dot, SpaceSprites.Circle, new Color(0.03f, 0.04f, 0.12f, 0.95f));
+            var fill = SpaceTheme.Rect("Fill", dot, SpaceTheme.CENTER, Vector2.zero, new Vector2(19f, 19f));
+            SpaceTheme.Img(fill, SpaceSprites.Circle, PlanetColors.Of(list[i]));
+        }
+    }
+
+    /// <summary>
     /// 一覧の惑星。ルミナ（オーブ）は画像なしで描けるのでそのまま、ほかは止まった1枚絵（できるまでは光だけ）。
     /// 1枚絵は球の直径が THUMB×0.8 になる大きさで置く。まわりの光だけは別の画像で後ろに敷く。
     /// 未解放の惑星は1枚絵を暗い色で染めて影の姿にし、光もほとんど消す。
@@ -348,7 +361,8 @@ public class SpacePlanetPicker : MonoBehaviour
     {
         if (def.IsOrb)
         {
-            var view = SpacePlanetView.Create(cell, def, THUMB, SpacePlanetView.Quality.Thumb, false);
+            // ルミナも、最初にほかの色を選んだ人には未解放の影で出す（2026-11-10）
+            var view = SpacePlanetView.Create(cell, def, THUMB, SpacePlanetView.Quality.Thumb, false, !owned);
             ((RectTransform)view.transform).anchoredPosition = pos;
             return;
         }
@@ -410,17 +424,11 @@ public class SpacePlanetPicker : MonoBehaviour
         _nameText.text = _selected.Name;
         _descText.text = _selected.Desc;
         var power = PlanetPowers.Of(_selected);
-        // 惑星の能力は 2026-11-09 にやめた（見た目とパワーだけ）ので、能力の行は空にする
+        // 惑星の能力は 2026-11-09、パワーは 2026-11-10 にやめた（惑星は見た目と解放の条件だけ）ので、能力の行は空にする
         _abilityText.text = "";
         _lockedSub.text = power != null ? T_CONDITION + power.UnlockText : T_LOCKED_SUB;
         bool owned = SpacePlanets.IsOwned(_selected);
         bool isCurrent = _selected == _current;
-        int charge = JourneyService.PowerOf(_selected.Id);
-        bool powerMax = charge >= JourneyRules.POWER_MAX;
-        _powerChip.SetActive(owned);
-        _powerText.text = powerMax ? T_POWER_MAX : T_POWER + charge + "/" + JourneyRules.POWER_MAX;
-        _powerText.color = powerMax ? SpaceTheme.GOLD : SpaceTheme.TEXT_SUB;
-        _powerChipBg.color = SpaceTheme.A(SpaceTheme.GOLD, powerMax ? 0.22f : 0.08f);
         _nameText.color = owned ? SpaceTheme.TEXT : SpaceTheme.TEXT_SUB;
         _chooseWrap.SetActive(owned && !isCurrent);
         _currentWrap.SetActive(owned && isCurrent);

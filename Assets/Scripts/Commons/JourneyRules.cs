@@ -20,11 +20,10 @@ public sealed class JourneyResult
     public int Visits;
     public int Period;
     public string Together;       // 一緒に来店したフレンドの名前（フレンドのQRを読んだとき）
-    public string PowerPlanet;    // パワーをためた惑星（その公転にもう来ている状態での来店）
-    public int Power;             // ためたあとのパワー（0〜JourneyRules.POWER_MAX）
-    public bool PowerMaxed;       // この来店でパワーが MAX になった
     public readonly List<StarPrize> Prizes = new List<StarPrize>();
     public readonly List<string> Unlocked = new List<string>(); // 解放した惑星のID
+    /// <summary>もらったコマの色（1色1個。赤・青・黄の順。入店した日の最初の入店のときだけ）</summary>
+    public readonly List<PlanetColor> Meeples = new List<PlanetColor>();
 
     public bool HasRewards => Prizes.Count > 0 || Unlocked.Count > 0;
 }
@@ -35,29 +34,32 @@ public sealed class JourneyResult
 /// </summary>
 public static class JourneyRules
 {
-    // 節目（公転を続けた数）・来店回数・曜日・季節で解放する惑星
+    // 節目（公転を続けた数）・来店回数・曜日・季節で解放する惑星。
+    // 2026-11-10: 新しい惑星（ランテルナ=9公転・ヴェスペラ=5回目・アンバリア=15回目・フォリア=秋）を足し、
+    // 最初に選べる3つ（ルブラ・ルミナ・リモナ）は、選ばなかったものを7回目の来店で解放する（ルブラの秋・リモナの5回目はやめた）
     public static readonly (int n, string id)[] STREAK_PLANETS =
-        { (2, "mistia"), (4, "tempesta"), (6, "celesta"), (13, "neonia"), (26, "galaxia") };
+        { (2, "mistia"), (4, "tempesta"), (6, "celesta"), (9, "lanterna"), (13, "neonia"), (26, "galaxia") };
     public static readonly (int n, string id)[] VISIT_PLANETS =
-        { (2, "aquaris"), (5, "limona"), (10, "mocha"), (25, "voltia"), (50, "noctis") };
+    {
+        (2, "aquaris"), (5, "vespera"), (7, "rubra"), (7, "lumina"), (7, "limona"), (10, "mocha"), (15, "ambaria"),
+        (25, "voltia"), (50, "noctis"),
+    };
     public static readonly Dictionary<DayOfWeek, string> WEEKDAY_PLANETS = new Dictionary<DayOfWeek, string>
     {
         { DayOfWeek.Thursday, "verdia" }, { DayOfWeek.Friday, "crysta" },
         { DayOfWeek.Saturday, "orbis" }, { DayOfWeek.Sunday, "soleil" },
     };
-    public static readonly string[] SEASON_PLANETS = { "pastelia", "coralia", "rubra", "glacia" };
+    public static readonly string[] SEASON_PLANETS = { "pastelia", "coralia", "folia", "glacia" }; // 秋は 2026-11-10 にルブラからフォリアへ
 
     /// <summary>軌道修正を数える範囲（公転の数）。「3か月（6公転）に1回まで」</summary>
     public const int RESCUE_WINDOW = 6;
+    /// <summary>軌道修正できる回数（RESCUE_WINDOW の中で。セレスタの2回は 2026-11-09 にやめた。公転の画面の表示もこれ）</summary>
+    public const int RESCUE_ALLOWANCE = 1;
     /// <summary>秋のルブラで流れ星をもう1回引ける滞在時間（分）</summary>
     public const int RUBRA_STAY_MINUTES = 4 * 60;
 
-    /// <summary>
-    /// パワーの MAX（2026-11-06 ユーザー指定「6回チャージで MAX」）。その公転にもう来ている状態でまた来店すると
-    /// （1日1回）、中央の惑星に1たまる。MAX の惑星を中央に置いていると、流れ星で7%オフが POWER_SEVEN 倍出やすい
-    /// </summary>
-    public const int POWER_MAX = 6;
-    public const double POWER_SEVEN = 5.0;
+    // 惑星のパワー（同じ公転にもう一度来ると中央の惑星にたまり、MAX で流れ星の7%オフが出やすい）は
+    // 2026-11-10 にやめた（ユーザー指定「お客様に説明が難しい」）。たまっていた値は JourneyData.Power にそのまま残る
 
     // 「もう1回」の種類（1公転に1回ずつ）
     public const string EXTRA_TOGETHER = "together"; // オパーリア: フレンドと一緒に来店
@@ -88,6 +90,7 @@ public static class JourneyRules
         public bool FullMoon;
         public bool Recruit;
         public string Center;
+        public PlanetColor CenterColors; // 中央の惑星の色（コマを配る）
         public long InAt;
         public int SeedDays;
     }
@@ -109,6 +112,12 @@ public static class JourneyRules
         if (!j.Days.Contains((int)c.Weekday)) j.Days.Add((int)c.Weekday);
         r.Visits = j.Visits;
 
+        // ---- コマ（2026-11-10 ユーザー指定「その色の惑星で入店したときに、その色のミープルを1個。
+        //      複数の色を持つ惑星は、それぞれ1個ずつ」）。来店回数と同じく1営業日に1回（入店しなおしても増えない） ----
+        if (r.NewDay)
+            foreach (var color in PlanetColorOrder.All)
+                if ((c.CenterColors & color) != 0) r.Meeples.Add(color);
+
         // ---- 公転 ----
         r.PrevStreak = j.Streak;
         if (j.Period <= 0 || j.Streak <= 0)
@@ -120,7 +129,7 @@ public static class JourneyRules
         else if (c.Period > j.Period)
         {
             r.NewOrbit = true;
-            int allowance = 1; // 惑星の能力（セレスタ）は 2026-11-09 にやめた
+            int allowance = RESCUE_ALLOWANCE;
             int streak = j.Streak;
             var rescues = new List<int>(j.Rescues);
             int insurance = j.Insurance;
@@ -153,17 +162,7 @@ public static class JourneyRules
         r.Period = j.Period;
         j.Best = Math.Max(j.Best, j.Streak);
 
-        // ---- パワーのチャージ（その公転にもう来ている状態で、別の日にまた来た） ----
-        if (!first && !r.NewOrbit && r.NewDay && !string.IsNullOrEmpty(c.Center))
-        {
-            int before = j.PowerOf(c.Center);
-            int after = Math.Min(POWER_MAX, before + 1);
-            j.Power[c.Center] = after;
-            r.PowerPlanet = c.Center;
-            r.Power = after;
-            r.PowerMaxed = before < POWER_MAX && after >= POWER_MAX;
-        }
-
+        // パワーのチャージ（同じ公転にもう一度来たとき）は 2026-11-10 にやめた
         // 休みの保険（オルビスの能力）は 2026-11-09 にやめた。貯まっている分は使える
 
         // ---- 惑星の解放 ----
@@ -182,9 +181,8 @@ public static class JourneyRules
             j.StarPeriod = c.Period;
             j.Extra.Clear();
             int draws = 1; // 惑星の能力（テンペスタの2回）は 2026-11-09 にやめた
-            bool powerMax = j.PowerOf(c.Center) >= POWER_MAX;
             for (int i = 0; i < draws; i++)
-                AddPrize(Roll(rng, j.Streak, c.Center, c.Weekday, c.Season, powerMax), owned, r);
+                AddPrize(Roll(rng, j.Streak, c.Center, c.Weekday, c.Season), owned, r);
         }
         return j;
     }
@@ -207,16 +205,14 @@ public static class JourneyRules
     }
 
     /// <summary>
-    /// 流れ星を1回引く（中央の惑星の能力で当たりやすさが変わる）。
-    /// powerMax: 中央の惑星のパワーが MAX（7%オフが POWER_SEVEN 倍出やすい）
+    /// 流れ星を1回引く。当たりやすさは公転の数（3段階）だけで決まる
+    /// （惑星ごとの当たりやすさは 2026-11-09、パワー MAX の7%オフの出やすさは 2026-11-10 にやめた）
     /// </summary>
     public static StarPrize Roll(System.Random rng, int streak, string center, DayOfWeek weekday,
-        StoreCalendar.Season season, bool powerMax = false)
+        StoreCalendar.Season season)
     {
         int tier = streak >= 13 ? 2 : streak >= 4 ? 1 : 0;
         var w = (double[])ODDS[tier].Clone(); // 5% / ドリンク / コーヒー / 7% / ノワール / 5時間無料 / フリータイム
-        // 惑星ごとの当たりやすさ（能力）は 2026-11-09 にやめた。効くのはパワーMAXの7%オフだけ
-        if (powerMax) w[3] *= POWER_SEVEN;
 
         double total = w.Sum();
         double x = rng.NextDouble() * total;
