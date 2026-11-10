@@ -1,7 +1,8 @@
-# INTALES WORLD の世界地図（オリジナル。手続き生成）を PNG に書き出す（2026-11-10）
+# INTALES WORLD の世界地図（オリジナル。手続き生成）を PNG に書き出す（2026-11-10。2026-11-11 に5か所目を追加）
 #   python make_world_map.py <書き出し先.png> [確認用の縮小版.png]
-# 4か所の置き場（SpaceWorld.Areas の Pos と同じ割合の位置）には、必ずそれらしい陸を作る:
+# 5か所の置き場（SpaceWorld.Areas の Pos と同じ割合の位置）には、必ずそれらしい陸を作る:
 #   0 星見の丘（北の雪山）/ 1 惑星の神殿（東の小島）/ 2 コマの工房（西の平原と森）/ 3 商人の港（南東の入り江）
+#   4 星くずの島（南西の小島。まわりの海に星くずがきらめく。何色のコマでも置ける保険の置き場）
 import sys
 
 import numpy as np
@@ -14,7 +15,7 @@ SEED = 20261110
 rng = np.random.default_rng(SEED)
 
 # 置き場の位置（横・縦の割合。SpaceWorld.cs の Areas と同じ値にする）
-SPOTS = [(0.30, 0.21), (0.75, 0.37), (0.27, 0.60), (0.70, 0.80)]
+SPOTS = [(0.30, 0.21), (0.75, 0.37), (0.27, 0.60), (0.70, 0.80), (0.125, 0.855)]
 
 
 def noise(scale, octaves=5, persistence=0.5):
@@ -48,7 +49,8 @@ shape += bump(0.31, 0.42, 0.20, 2.0) * 0.86
 shape += bump(0.66, 0.76, 0.19, 1.15) * 0.80
 shape += bump(0.80, 0.15, 0.13, 0.75) * 0.95
 shape += bump(0.90, 0.52, 0.05, 1.4) * 0.70  # 東の細長い島
-shape += bump(0.12, 0.88, 0.04) * 0.60  # 南西の小島
+shape += bump(*SPOTS[4], 0.045) * 0.62  # 南西の小島（星くずの島。2026-11-11 に置き場にするため少し大きく・上へ）
+shape -= bump(0.165, 0.80, 0.04) * 0.45  # 星くずの島と大陸の間の海峡
 edge = np.minimum.reduce([u, 1 - u, v, 1 - v])
 shape -= np.clip(0.09 - edge, 0, None) * 8.0
 shape -= 0.46
@@ -61,6 +63,8 @@ for i, rr in ((0, 0.07), (2, 0.08)):
 # 商人の港: 港の南東を入り江にして、港は海ぎわの陸に
 shape -= bump(SPOTS[3][0] + 0.085, SPOTS[3][1] + 0.01, 0.06, 1.3) * 0.95
 shape = np.where(bump(*SPOTS[3], 0.03) > 0.5, np.maximum(shape, 0.05), shape)
+# 星くずの島: 置き場は必ず陸に
+shape = np.where(bump(*SPOTS[4], 0.03) > 0.5, np.maximum(shape, 0.06), shape)
 
 land = shape > 0
 landf = land.astype(np.float64)
@@ -174,6 +178,29 @@ for x, y in jitter_points(22):
         d.ellipse((x - r0, y - r0 + 2, x + r0, y + r0 + 2), fill=(28, 60, 36, 150))
         d.ellipse((x - r0, y - r0, x + r0, y + r0), fill=(48, 104, 62, 255))
         d.ellipse((x - r0 * 0.5, y - r0 * 0.7, x + r0 * 0.1, y - r0 * 0.1), fill=(96, 160, 104, 200))
+
+# ---- 星くずの島のまわりの海に、小さな星くず（4本の光のきらめき。別の乱数で描く） ----
+srng = np.random.default_rng(SEED + 4)
+scx, scy = SPOTS[4][0] * W, SPOTS[4][1] * H
+for i in range(16):
+    ang = srng.uniform(0, np.pi * 2)
+    rr = srng.uniform(78, 150)
+    x, y = scx + np.cos(ang) * rr, scy + np.sin(ang) * rr * 0.85
+    if land[min(H - 1, int(y)), min(W - 1, int(x))]:
+        continue
+    s0 = srng.uniform(4, 9)
+    col = (255, 244, 200, 235) if srng.random() < 0.6 else (210, 230, 255, 225)
+    d.polygon([(x, y - s0 * 1.8), (x + s0 * 0.32, y), (x, y + s0 * 1.8), (x - s0 * 0.32, y)], fill=col)
+    d.polygon([(x - s0 * 1.8, y), (x, y + s0 * 0.32), (x + s0 * 1.8, y), (x, y - s0 * 0.32)], fill=col)
+    d.ellipse((x - 1.6, y - 1.6, x + 1.6, y + 1.6), fill=(255, 255, 255, 255))
+for i in range(40):
+    ang = srng.uniform(0, np.pi * 2)
+    rr = srng.uniform(66, 170)
+    x, y = scx + np.cos(ang) * rr, scy + np.sin(ang) * rr * 0.85
+    if land[min(H - 1, int(y)), min(W - 1, int(x))]:
+        continue
+    r0 = srng.uniform(0.8, 2.0)
+    d.ellipse((x - r0, y - r0, x + r0, y + r0), fill=(255, 246, 214, int(srng.uniform(140, 230))))
 
 # ---- 方位記号（右下の海） ----
 cx, cy, R = W * 0.88, H * 0.92, 58

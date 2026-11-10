@@ -10,9 +10,10 @@ using UnityEngine.UI;
 
 /// <summary>
 /// INTALES WORLD の世界地図（2026-11-10 ユーザー指定。ホームの所持品の下の「INTALES WORLD」から開く全画面）。
-/// オリジナルの世界地図（SpaceWorld.MapSprite）の上に置き場が4か所あり、置かれたコマの色と数を全員で同期して出す。
+/// オリジナルの世界地図（SpaceWorld.MapSprite）の上に置き場が5か所あり、置かれたコマの色と数を全員で同期して出す。
 /// 置き場を押すと下からシートが出て、色を選んで「ここに置く」→ 確認 → 置く（SpaceWorld.PlaceAsync）→ 効果のお知らせ。
 ///  ・まだ誰も置いていなければ好きな色、1体でも置かれていればその色だけ（マストフォロー）
+///  ・左下の星くずの島だけは何色でも置ける保険の置き場（輪が赤・青・黄の3つの弧。2026-11-11）
 ///  ・1日1体まで／入店中だけ／置いたコマは戻らない（置けないときは、シートの下に理由を出す）
 ///  ・惑星の神殿（惑星を3つアクティブにする）は、力を失った惑星が4つ以上なら、置く前に戻す3つを選ぶ
 /// </summary>
@@ -51,6 +52,12 @@ public class SpaceWorldMap : MonoBehaviour
     private const string T_CHOOSE_TITLE = "力を戻す惑星を3つ選んでください";
     private const string T_CHOOSE_OK = "この3つに力を戻す";
     private const string T_CANCEL = "キャンセル";
+    // 保険の置き場（何色でも置ける。2026-11-11）と、カケラの集まり具合
+    private const string T_ANY_EMPTY = "まだ誰も置いていません。何色のコマでも置けます";
+    private const string T_ANY_PLACED = "置かれているコマ：";
+    private const string T_ANY_UNIT = "体";
+    private const string T_HAVE = "持っている";
+    private const string T_HAVE_SEP = "：";
 
     /// <summary>この画面で出しうる文字（置き場の名前・効果は SpaceWorld.GlyphText、惑星の名前は SpacePlanets.GlyphText）</summary>
     public static string GlyphText => new StringBuilder()
@@ -62,8 +69,9 @@ public class SpaceWorldMap : MonoBehaviour
         .Append(T_BLOCK_NO_EXHAUSTED).Append(T_BLOCK_NO_COLOR).Append(T_CONFIRM_B).Append(T_CONFIRM_NOTE)
         .Append(T_CONFIRM_NOTE_ADMIN)
         .Append(T_CONFIRM_REVIVE).Append(T_OK).Append(T_PLACING).Append(T_CHOOSE_TITLE).Append(T_CHOOSE_OK)
-        .Append(T_CANCEL).Append(SpaceWorld.GlyphText).Append(SpaceMeeples.GlyphText)
-        .Append("0123456789×/ ").ToString();
+        .Append(T_CANCEL).Append(T_ANY_EMPTY).Append(T_ANY_PLACED).Append(T_ANY_UNIT).Append(T_HAVE).Append(T_HAVE_SEP)
+        .Append(SpaceWorld.GlyphText).Append(SpaceMeeples.GlyphText)
+        .Append("0123456789×/ ・").ToString();
 
     // 配置（セーフエリア基準）
     private const float HEADER_H = 170f;
@@ -71,7 +79,9 @@ public class SpaceWorldMap : MonoBehaviour
     private const float MAP_ASPECT = 1080f / 1440f; // 地図の絵の 横÷縦
     private const float SPOT = 112f;
     private const float LABEL_W = 300f, LABEL_H = 92f;
+    private const float LABEL_H_NOTE = 116f; // 3行目（補足）のある札
     private const float SHEET_H = 900f;
+    private const float DETAIL_H = 76f;      // シートの説明（置き場の Detail）の分だけ高くする
 
     private sealed class Spot
     {
@@ -79,6 +89,8 @@ public class SpaceWorldMap : MonoBehaviour
         public Image Ring, Glow, Meeple, Badge;
         public GameObject EffectIcon, BadgeGo, You;
         public TextMeshProUGUI BadgeText;
+        public Image[] Arcs;  // 保険の置き場: 赤・青・黄の3つの弧の輪
+        public Image[] Minis; // 保険の置き場: 置かれた色ごとの小さなコマ（赤・青・黄の順）
     }
 
     private sealed class ColorCard
@@ -263,14 +275,47 @@ public class SpaceWorldMap : MonoBehaviour
         var ring = SpaceTheme.Rect("Ring", rt);
         SpaceTheme.Stretch(ring);
         s.Ring = SpaceTheme.Img(ring, SpaceSprites.Ring, Color.white);
+        if (area.AnyColor)
+        {
+            // 何色でも置ける保険の置き場: 輪を赤・青・黄の3つの弧にする（すき間は弧の間に半分ずつ）
+            s.Ring.enabled = false;
+            const float GAP = 0.03f;
+            s.Arcs = new Image[PlanetColorOrder.All.Length];
+            for (int k = 0; k < s.Arcs.Length; k++)
+            {
+                var arc = SpaceTheme.Rect("Arc" + k, rt);
+                SpaceTheme.Stretch(arc);
+                arc.localEulerAngles = new Vector3(0f, 0f, -360f * k / s.Arcs.Length - GAP * 180f);
+                var img = SpaceTheme.Img(arc, SpaceSprites.Ring, PlanetColors.Of(PlanetColorOrder.All[k]));
+                img.type = Image.Type.Filled;
+                img.fillMethod = Image.FillMethod.Radial360;
+                img.fillOrigin = (int)Image.Origin360.Top;
+                img.fillClockwise = true;
+                img.fillAmount = 1f / s.Arcs.Length - GAP;
+                s.Arcs[k] = img;
+            }
+        }
 
-        // まだ誰も置いていない: 効果の印 ／ 置かれている: その色のコマ
+        // まだ誰も置いていない: 効果の印 ／ 置かれている: その色のコマ（保険の置き場は、置かれた色ごとの小さなコマ）
         var icon = SpaceTheme.Rect("Effect", rt, SpaceTheme.CENTER, Vector2.zero, new Vector2(SPOT, SPOT));
         BuildEffectIcon(icon, area);
         s.EffectIcon = icon.gameObject;
         var meeple = SpaceTheme.Rect("Meeple", rt, SpaceTheme.CENTER, new Vector2(0f, 2f), new Vector2(76f, 76f));
         s.Meeple = SpaceTheme.Img(meeple, null, Color.white);
         s.Meeple.preserveAspect = true;
+        if (area.AnyColor)
+        {
+            s.Meeple.enabled = false;
+            s.Minis = new Image[PlanetColorOrder.All.Length];
+            for (int k = 0; k < s.Minis.Length; k++)
+            {
+                var def = SpaceMeeples.Of(PlanetColorOrder.All[k]);
+                var mini = SpaceTheme.Rect("Mini" + k, rt, SpaceTheme.CENTER, Vector2.zero, new Vector2(48f, 48f));
+                s.Minis[k] = SpaceTheme.Img(mini, def?.Icon, Color.white);
+                s.Minis[k].preserveAspect = true;
+                s.Minis[k].enabled = false;
+            }
+        }
 
         // 置かれた数（右上の札。真ん中のコマに重ならないよう、丸の外側へ寄せる）
         var badge = SpaceTheme.Rect("Count", rt, new Vector2(1f, 1f), new Vector2(22f, -2f), new Vector2(76f, 46f));
@@ -286,27 +331,39 @@ public class SpaceWorldMap : MonoBehaviour
         SpaceTheme.Stretch(youText.rectTransform);
         s.You = you.gameObject;
 
-        // 名前と効果の札（置き場の下。地図の端からはみ出さないように寄せる）
+        // 名前と効果の札（置き場の下。地図の端からはみ出さないように寄せる）。補足（Note）のある置き場は3行
+        bool hasNote = !string.IsNullOrEmpty(area.Note);
+        float labelH = hasNote ? LABEL_H_NOTE : LABEL_H;
         float lx = Mathf.Clamp(x, LABEL_W * 0.5f + 6f, mapW - LABEL_W * 0.5f - 6f) - x;
         var label = SpaceTheme.Rect("Label", rt, new Vector2(0.5f, 0f), new Vector2(lx, -8f),
-            new Vector2(LABEL_W, LABEL_H), new Vector2(0.5f, 1f));
+            new Vector2(LABEL_W, labelH), new Vector2(0.5f, 1f));
         var labelFace = SpaceTheme.Glass(label, 26f, new Color(0.03f, 0.05f, 0.14f, 0.86f), SpaceTheme.A(area.Accent, 0.55f),
             true);
         SpaceTheme.Clickable(label.gameObject, labelFace, () => OpenSheet(area), false);
-        var name = SpaceTheme.Text(label, "Name", area.Name, 30, SpaceTheme.TEXT, new Vector2(0.5f, 1f),
-            new Vector2(0f, -26f), new Vector2(LABEL_W - 20f, 40f), FontStyles.Bold);
+        var top = new Vector2(0.5f, 1f);
+        var name = SpaceTheme.Text(label, "Name", area.Name, 30, SpaceTheme.TEXT, top,
+            new Vector2(0f, hasNote ? -24f : -26f), new Vector2(LABEL_W - 20f, hasNote ? 38f : 40f), FontStyles.Bold);
         name.enableAutoSizing = true;
         name.fontSizeMin = 20f;
         name.fontSizeMax = 30f;
-        var fx = SpaceTheme.Text(label, "Effect", area.Text, 22, SpaceTheme.A(area.Accent, 0.95f), new Vector2(0.5f, 0f),
-            new Vector2(0f, 24f), new Vector2(LABEL_W - 20f, 32f), FontStyles.Bold);
+        var fx = SpaceTheme.Text(label, "Effect", area.Text, 22, SpaceTheme.A(area.Accent, 0.95f), top,
+            new Vector2(0f, hasNote ? -58f : -(LABEL_H - 24f)), new Vector2(LABEL_W - 20f, hasNote ? 30f : 32f),
+            FontStyles.Bold);
         fx.enableAutoSizing = true;
         fx.fontSizeMin = 15f;
         fx.fontSizeMax = 22f;
+        if (hasNote)
+        {
+            var note = SpaceTheme.Text(label, "Note", area.Note, 19, SpaceTheme.TEXT_SUB, top, new Vector2(0f, -89f),
+                new Vector2(LABEL_W - 20f, 26f), FontStyles.Bold);
+            note.enableAutoSizing = true;
+            note.fontSizeMin = 13f;
+            note.fontSizeMax = 19f;
+        }
         return s;
     }
 
-    /// <summary>効果の印（流れ星＝きらめき／惑星／3色のコマ／5%OFFチケット）</summary>
+    /// <summary>効果の印（流れ星＝きらめき／惑星／3色のコマ／5%OFFチケット／星のカケラ）</summary>
     private static void BuildEffectIcon(RectTransform rt, SpaceWorldArea area)
     {
         switch (area.Effect)
@@ -341,6 +398,14 @@ public class SpaceWorldMap : MonoBehaviour
             {
                 var coupon = SpaceCoupons.ByField("five_coupon");
                 SpaceInventoryPanel.RoundedIcon(rt, coupon?.Icon(), SpaceTheme.CENTER, Vector2.zero, 64f, 14f);
+                break;
+            }
+            case WorldEffect.StarFragment:
+            {
+                var img = SpaceTheme.Rect("StarFragment", rt, SpaceTheme.CENTER, Vector2.zero, new Vector2(80f, 80f));
+                var image = SpaceTheme.Img(img, SpaceWorld.StarFragmentIcon, Color.white);
+                image.preserveAspect = true;
+                image.enabled = SpaceWorld.StarFragmentIcon != null;
                 break;
             }
         }
@@ -395,6 +460,11 @@ public class SpaceWorldMap : MonoBehaviour
             int i = s.Area.Index;
             var c = b.Colors[i];
             int n = b.Counts[i];
+            if (s.Area.AnyColor)
+            {
+                RefreshFreeSpot(s, b, n, mine == i);
+                continue;
+            }
             bool has = c != PlanetColor.None;
             var tint = has ? PlanetColors.Of(c) : s.Area.Accent;
             s.Ring.color = has ? tint : SpaceTheme.A(SpaceTheme.TEXT, 0.45f);
@@ -439,6 +509,42 @@ public class SpaceWorldMap : MonoBehaviour
         if (_sheet != null) RefreshSheet();
     }
 
+    /// <summary>
+    /// 保険の置き場（何色でも置ける）: まだ誰も置いていなければ効果の印、置かれていれば置かれた色ごとの小さなコマを並べる。
+    /// 数の札は全色の合計（金色）
+    /// </summary>
+    private static void RefreshFreeSpot(Spot s, SpaceWorld.WorldBoard b, int total, bool mine)
+    {
+        int i = s.Area.Index;
+        bool has = total > 0;
+        foreach (var arc in s.Arcs) arc.color = SpaceTheme.A(arc.color, has ? 1f : 0.6f);
+        s.Glow.color = SpaceTheme.A(s.Area.Accent, has ? 0.45f : 0.3f);
+        s.EffectIcon.SetActive(!has);
+
+        // 置かれた色だけを、数に合わせた大きさと並びで出す（1色: 真ん中に大きく／2色: 左右／3色: 山形）
+        var shown = new List<int>();
+        for (int k = 0; k < s.Minis.Length; k++)
+            if (b.ByColor[i, k] > 0) shown.Add(k);
+        float size = shown.Count <= 1 ? 76f : shown.Count == 2 ? 58f : 48f;
+        for (int k = 0; k < s.Minis.Length; k++) s.Minis[k].enabled = false;
+        for (int j = 0; j < shown.Count; j++)
+        {
+            var img = s.Minis[shown[j]];
+            img.enabled = img.sprite != null;
+            Vector2 pos = shown.Count == 1 ? new Vector2(0f, 2f)
+                : shown.Count == 2 ? new Vector2(j == 0 ? -17f : 17f, 0f)
+                : new Vector2((j - 1) * 22f, j == 1 ? 7f : -5f);
+            img.rectTransform.anchoredPosition = pos;
+            img.rectTransform.sizeDelta = new Vector2(size, size);
+        }
+
+        s.BadgeGo.SetActive(total > 0);
+        s.Badge.color = s.Area.Accent;
+        s.BadgeText.text = "×" + total;
+        s.BadgeText.color = SpaceTheme.TEXT_DARK;
+        s.You.SetActive(mine);
+    }
+
     // ================================================================
     // 置き場のシート
     // ================================================================
@@ -462,8 +568,11 @@ public class SpaceWorldMap : MonoBehaviour
         var safe = SpaceTheme.Rect("Safe", root);
         SpaceTheme.Stretch(safe);
         safe.gameObject.AddComponent<SpaceSafeArea>();
+        // 説明（Detail）のある置き場は、その分だけシートを高くして、下の段をずらす
+        bool hasDetail = !string.IsNullOrEmpty(area.Detail);
+        float extra = hasDetail ? DETAIL_H : 0f;
         var panel = SpaceTheme.Rect("Panel", safe, new Vector2(0.5f, 0f), new Vector2(0f, 24f),
-            new Vector2(_safeW - 48f, SHEET_H), new Vector2(0.5f, 0f));
+            new Vector2(_safeW - 48f, SHEET_H + extra), new Vector2(0.5f, 0f));
         SpaceTheme.Glass(panel, 52f, SpaceTheme.GLASS_DEEP, SpaceTheme.A(area.Accent, 0.6f), true);
         BuildCloseButtonSmall(panel, CloseSheet);
 
@@ -478,7 +587,17 @@ public class SpaceWorldMap : MonoBehaviour
         fx.enableAutoSizing = true;
         fx.fontSizeMin = 24f;
         fx.fontSizeMax = 34f;
-        _sheetState = SpaceTheme.Text(panel, "State", "", 26, SpaceTheme.TEXT_SUB, top, new Vector2(0f, -258f),
+        if (hasDetail)
+        {
+            // 置き場の説明（2枚で完成・何色でも置ける・5個で流れ星 など。2026-11-11）
+            var detail = SpaceTheme.Text(panel, "Detail", area.Detail, 25, SpaceTheme.TEXT, top, new Vector2(0f, -240f),
+                new Vector2(_safeW - 140f, 68f), FontStyles.Bold);
+            detail.textWrappingMode = TextWrappingModes.Normal;
+            detail.enableAutoSizing = true;
+            detail.fontSizeMin = 18f;
+            detail.fontSizeMax = 25f;
+        }
+        _sheetState = SpaceTheme.Text(panel, "State", "", 26, SpaceTheme.TEXT_SUB, top, new Vector2(0f, -(258f + extra)),
             new Vector2(_safeW - 140f, 84f), FontStyles.Bold);
         _sheetState.textWrappingMode = TextWrappingModes.Normal;
         _sheetState.enableAutoSizing = true;
@@ -491,7 +610,7 @@ public class SpaceWorldMap : MonoBehaviour
         {
             var m = SpaceMeeples.All[i];
             float x = (i - 1) * (CW + GAP);
-            _cards.Add(BuildColorCard(panel, m, new Vector2(x, -(330f + CH * 0.5f)), new Vector2(CW, CH)));
+            _cards.Add(BuildColorCard(panel, m, new Vector2(x, -(330f + extra + CH * 0.5f)), new Vector2(CW, CH)));
         }
 
         // 置くボタン／置けない理由
@@ -578,21 +697,44 @@ public class SpaceWorldMap : MonoBehaviour
         var b = SpaceWorld.Board ?? new SpaceWorld.WorldBoard();
         var c = b.Colors[area.Index];
         int n = b.Counts[area.Index];
-        string state = c == PlanetColor.None
-            ? T_EMPTY_AREA
-            : SpaceWorld.ColorName(c) + T_FOLLOW_A + n + T_FOLLOW_B + SpaceWorld.ColorName(c) + T_FOLLOW_C;
+        string state;
+        if (area.AnyColor)
+        {
+            // 保険の置き場: 色は決まらない。置かれた数を色ごとに出す
+            if (n <= 0) state = T_ANY_EMPTY;
+            else
+            {
+                var parts = PlanetColorOrder.All.Select(pc =>
+                    SpaceWorld.ColorName(pc) + " " + b.CountOf(area.Index, pc) + T_ANY_UNIT);
+                state = T_ANY_PLACED + string.Join(" ・ ", parts);
+            }
+        }
+        else
+        {
+            state = c == PlanetColor.None
+                ? T_EMPTY_AREA
+                : SpaceWorld.ColorName(c) + T_FOLLOW_A + n + T_FOLLOW_B + SpaceWorld.ColorName(c) + T_FOLLOW_C;
+        }
         int exhausted = area.Effect == WorldEffect.Planets ? SpaceWorld.ExhaustedPlanets().Count : -1;
         if (exhausted >= 0) state += "\n" + T_EXHAUSTED_A + exhausted + T_EXHAUSTED_B;
+        var d = Data;
+        // カケラの集まり具合（持っている5%OFFチケットのカケラ：1 / 2 ・ 持っている星のカケラ：3 / 5）
+        if (d != null && area.Effect == WorldEffect.Coupon)
+            state += "\n" + T_HAVE + SpaceWorld.FRAGMENT_NAME + T_HAVE_SEP
+                     + Mathf.Clamp(d.FiveFragment, 0, SpaceWorld.FRAGMENTS_PER_COUPON) + " / " + SpaceWorld.FRAGMENTS_PER_COUPON;
+        if (d != null && area.Effect == WorldEffect.StarFragment)
+            state += "\n" + T_HAVE + SpaceWorld.STAR_FRAGMENT_NAME + T_HAVE_SEP
+                     + Mathf.Clamp(d.StarFragment, 0, SpaceWorld.STAR_FRAGMENTS_PER_STAR) + " / "
+                     + SpaceWorld.STAR_FRAGMENTS_PER_STAR;
         _sheetState.text = state;
 
-        var d = Data;
         int allowedCount = 0;
         ColorCard only = null;
         foreach (var card in _cards)
         {
             var m = SpaceMeeples.Of(card.Color);
             int owned = d != null && m != null ? Mathf.Max(0, m.Get(d)) : 0;
-            card.Allowed = (c == PlanetColor.None || c == card.Color) && owned > 0;
+            card.Allowed = (area.AnyColor || c == PlanetColor.None || c == card.Color) && owned > 0;
             card.Owned.text = T_OWNED + owned;
             if (card.Allowed)
             {
@@ -724,16 +866,12 @@ public class SpaceWorldMap : MonoBehaviour
         switch (r.Area.Effect)
         {
             case WorldEffect.Star:
-                foreach (var p in r.Star.Prizes)
-                {
-                    var prize = p;
-                    steps.Add(() => SpaceGachaMeteor.Play(prize)); // 入店のときと同じ流れ星の演出 → 当たりのカード
-                }
-                foreach (var id in r.Star.Unlocked)
-                {
-                    var def = SpacePlanets.Find(id);
-                    if (def != null) steps.Add(() => SpaceNotice.PlanetUnlocked(def));
-                }
+                AddStarSteps(r, steps);
+                break;
+            case WorldEffect.StarFragment:
+                // 星のカケラ（5つの枠が星の形に並び、集まった数だけ埋まる）。5個そろったら、閉じたあと流れ星（2026-11-11）
+                steps.Add(() => SpaceNotice.StarFragmentGot(r.Area.Name, r.StarFragments, r.StarCompleted));
+                if (r.StarCompleted) AddStarSteps(r, steps);
                 break;
             case WorldEffect.Planets:
             {
@@ -750,6 +888,21 @@ public class SpaceWorldMap : MonoBehaviour
                 break;
         }
         SpaceNoticeQueue.Run(steps, null);
+    }
+
+    /// <summary>流れ星（入店のときと同じ演出 → 当たりのカード）と、ノワールが当たったときの新しい惑星のお知らせ</summary>
+    private static void AddStarSteps(SpaceWorld.PlaceResult r, List<Func<GameObject>> steps)
+    {
+        foreach (var p in r.Star.Prizes)
+        {
+            var prize = p;
+            steps.Add(() => SpaceGachaMeteor.Play(prize));
+        }
+        foreach (var id in r.Star.Unlocked)
+        {
+            var def = SpacePlanets.Find(id);
+            if (def != null) steps.Add(() => SpaceNotice.PlanetUnlocked(def));
+        }
     }
 
     // ================================================================

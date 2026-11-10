@@ -204,6 +204,9 @@ public class UserData
     /// <summary>5%OFFチケットのカケラの数（INTALES WORLD の商人の港でもらう。2枚そろうと5%OFFチケットになって0に戻る）</summary>
     [FirestoreProperty("five_fragment")]
     public int FiveFragment { get; set; }
+    /// <summary>星のカケラの数（INTALES WORLD の星くずの島でもらう。5個そろうと流れ星を1回見て0に戻る。2026-11-11）</summary>
+    [FirestoreProperty("star_fragment")]
+    public int StarFragment { get; set; }
 
     /// <summary>誕生月（1〜12。0＝未登録。アカウント作成時に聞く。登録したあとは本人は変えられない画面にしている）</summary>
     [FirestoreProperty("birth_month")]

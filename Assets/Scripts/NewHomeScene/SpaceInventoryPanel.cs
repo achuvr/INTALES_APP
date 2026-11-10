@@ -166,6 +166,10 @@ public class SpaceInventoryPanel : MonoBehaviour
     private const string T_FRAGMENT_DESC = "2枚集めると5%OFFチケットになります";
     private const string T_FRAGMENT_INFO =
         "INTALES WORLD の商人の港にコマを置くと1枚もらえます。2枚そろうと5%OFFチケットになります";
+    // 星のカケラ（2026-11-11。INTALES WORLD の星くずの島でもらう。5個で流れ星を1回）
+    private const string T_STAR_FRAGMENT_DESC = "5個集めると流れ星を1回見られます";
+    private const string T_STAR_FRAGMENT_INFO =
+        "INTALES WORLD の星くずの島にコマを置くと1個もらえます。5個そろうと流れ星を1回見られます";
     // コマの欄を押したときの説明（2026-11-10 ユーザー指定の文言。画面の表記は「コマ」にそろえる）
     private const string T_MEEPLE_INFO =
         "入店時、選択中の惑星の色のコマを手に入れることができる。\n一度使用した惑星は一時的に力を失う。";
@@ -230,7 +234,8 @@ public class SpaceInventoryPanel : MonoBehaviour
               .Append(T_DISCOUNT_TITLE).Append(T_DISCOUNT_DESC).Append(T_DISCOUNT_NONE).Append("・")
               .Append("合計OFF枚×0123456789%/: ")
               .Append(T_MEEPLE_SECTION).Append(T_MEEPLE_HINT).Append(T_MEEPLE_INFO).Append(SpaceMeeples.GlyphText)
-              .Append(T_FRAGMENT_DESC).Append(T_FRAGMENT_INFO).Append(SpaceWorld.FRAGMENT_NAME);
+              .Append(T_FRAGMENT_DESC).Append(T_FRAGMENT_INFO).Append(SpaceWorld.FRAGMENT_NAME)
+              .Append(T_STAR_FRAGMENT_DESC).Append(T_STAR_FRAGMENT_INFO).Append(SpaceWorld.STAR_FRAGMENT_NAME);
             foreach (var c in SpaceCoupons.All) sb.Append(c.Name).Append(c.RowDesc).Append(c.Desc);
             return sb.ToString();
         }
@@ -456,8 +461,16 @@ public class SpaceInventoryPanel : MonoBehaviour
             BuildMeepleRow(_content, -y);
             y += ROW_H;
             // 5%OFFチケットのカケラ（INTALES WORLD の商人の港でもらう。2枚で5%OFFチケット。2026-11-10）
+            var d = Data;
             y += ROW_GAP;
-            BuildFragmentRow(_content, -y);
+            BuildFragmentRow(_content, -y, "Fragment", SpaceWorld.FragmentIcon, true, SpaceWorld.FRAGMENT_NAME,
+                T_FRAGMENT_DESC, T_FRAGMENT_INFO, d != null ? d.FiveFragment : 0, SpaceWorld.FRAGMENTS_PER_COUPON);
+            y += ROW_H;
+            // 星のカケラ（INTALES WORLD の星くずの島でもらう。5個で流れ星を1回。2026-11-11）
+            y += ROW_GAP;
+            BuildFragmentRow(_content, -y, "StarFragment", SpaceWorld.StarFragmentIcon, false, SpaceWorld.STAR_FRAGMENT_NAME,
+                T_STAR_FRAGMENT_DESC, T_STAR_FRAGMENT_INFO, d != null ? d.StarFragment : 0,
+                SpaceWorld.STAR_FRAGMENTS_PER_STAR);
             y += ROW_H;
         }
         float listH = y;
@@ -546,10 +559,14 @@ public class SpaceInventoryPanel : MonoBehaviour
         }
     }
 
-    /// <summary>5%OFFチケットのカケラの行（いくつ集まったか / 2）。押すと、もらい方を知らせる</summary>
-    private void BuildFragmentRow(RectTransform content, float y)
+    /// <summary>
+    /// カケラの行（いくつ集まったか / そろう数）。押すと、もらい方を知らせる。
+    /// 5%OFFチケットのカケラ（絵は角を丸める）と星のカケラ（透明な背景の絵をそのまま）で使う
+    /// </summary>
+    private void BuildFragmentRow(RectTransform content, float y, string id, Sprite icon, bool roundedIcon, string title,
+        string desc, string info, int have, int need)
     {
-        var row = SpaceTheme.Rect("Fragment", content);
+        var row = SpaceTheme.Rect(id, content);
         row.anchorMin = new Vector2(0f, 1f);
         row.anchorMax = new Vector2(1f, 1f);
         row.pivot = new Vector2(0.5f, 1f);
@@ -559,24 +576,30 @@ public class SpaceInventoryPanel : MonoBehaviour
         SpaceTheme.Clickable(row.gameObject, face, () =>
         {
             if (_busy || _useSheet != null || _result != null || _closing) return;
-            SpaceTheme.Toast(T_FRAGMENT_INFO, _canvas);
+            SpaceTheme.Toast(info, _canvas);
         });
 
-        var d = Data;
-        int n = d != null ? Mathf.Clamp(d.FiveFragment, 0, SpaceWorld.FRAGMENTS_PER_COUPON) : 0;
+        int n = Mathf.Clamp(have, 0, need);
         row.gameObject.AddComponent<CanvasGroup>().alpha = n > 0 ? 1f : 0.55f;
-        RoundedIcon(row, SpaceWorld.FragmentIcon, new Vector2(0f, 0.5f), new Vector2(24f + 64f, 0f), 128f, 28f);
-        var name = SpaceTheme.Text(row, "Name", SpaceWorld.FRAGMENT_NAME, 40, SpaceTheme.TEXT,
+        if (roundedIcon) RoundedIcon(row, icon, new Vector2(0f, 0.5f), new Vector2(24f + 64f, 0f), 128f, 28f);
+        else
+        {
+            var iconRt = SpaceTheme.Rect("Icon", row, new Vector2(0f, 0.5f), new Vector2(24f + 64f, 0f), new Vector2(128f, 128f));
+            var img = SpaceTheme.Img(iconRt, icon, Color.white);
+            img.preserveAspect = true;
+            img.enabled = icon != null;
+        }
+        var name = SpaceTheme.Text(row, "Name", title, 40, SpaceTheme.TEXT,
             new Vector2(0f, 0.5f), new Vector2(176f, 26f), new Vector2(500f, 56f), FontStyles.Bold,
             TextAlignmentOptions.Left, new Vector2(0f, 0.5f));
         name.enableAutoSizing = true;
         name.fontSizeMin = 26f;
         name.fontSizeMax = 40f;
-        SpaceTheme.Text(row, "Desc", T_FRAGMENT_DESC, 26, SpaceTheme.TEXT_SUB,
+        SpaceTheme.Text(row, "Desc", desc, 26, SpaceTheme.TEXT_SUB,
             new Vector2(0f, 0.5f), new Vector2(176f, -28f), new Vector2(560f, 40f), FontStyles.Bold,
             TextAlignmentOptions.Left, new Vector2(0f, 0.5f));
         SpaceTheme.Text(row, "Count",
-            $"{n}<size=43%><color={SpaceTheme.SUB_HEX}> / {SpaceWorld.FRAGMENTS_PER_COUPON}</color></size>", 60,
+            $"{n}<size=43%><color={SpaceTheme.SUB_HEX}> / {need}</color></size>", 60,
             n > 0 ? SpaceTheme.GOLD : SpaceTheme.TEXT_MUTED, new Vector2(1f, 0.5f), new Vector2(-40f, 0f),
             new Vector2(220f, 80f), FontStyles.Bold, TextAlignmentOptions.Right, new Vector2(1f, 0.5f));
     }

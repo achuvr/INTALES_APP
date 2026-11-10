@@ -13,7 +13,8 @@ public enum WorldEffect
     Star,    // 流れ星を見る（入店のときと同じ流れ星を1回）
     Planets, // 惑星を3つアクティブにする（力を失った惑星に力を戻す）
     Meeples, // 各色のコマを1個ずつもらう
-    Coupon,  // 5%OFFチケットをもらう
+    Coupon,  // 5%OFFチケットのカケラをもらう（2枚で5%OFFチケット）
+    StarFragment, // 星のカケラをもらう（5個で流れ星を1回。2026-11-11）
 }
 
 /// <summary>INTALES WORLD の置き場1つ分</summary>
@@ -24,6 +25,15 @@ public sealed class SpaceWorldArea
     public string Name;   // 置き場の名前（「星見の丘」など）
     public string En;     // 英字の名前（見出し）
     public string Text;   // 効果（ユーザー指定の文言そのまま）
+    /// <summary>地図の札の3行目に出す短い補足（なければ null）</summary>
+    public string Note;
+    /// <summary>置き場のシートに出す説明（なければ null）</summary>
+    public string Detail;
+    /// <summary>
+    /// 何色のコマでも置ける保険の置き場（マストフォローなし。2026-11-11 ユーザー指定）。
+    /// 置き場の文書には色を決めず、色ごとの数（red4・blue4・yellow4 のように「色の名前＋番号」）を数える
+    /// </summary>
+    public bool AnyColor;
     /// <summary>地図の上の位置（左上が 0,0・右下が 1,1 の割合。tools/world/make_world_map.py の SPOTS と同じ）</summary>
     public Vector2 Pos;
     public Color Accent;
@@ -34,8 +44,9 @@ public sealed class SpaceWorldArea
 /// 使いたい人だけが歯車メニューからダウンロードする（端末に記録。PlayerPrefs）。
 ///  ・ダウンロードしていない人: 所持品のコマの欄を出さない・入店でコマをもらえない・惑星が力を失うこともない
 ///  ・ダウンロードした人: ホームの所持品の下に「INTALES WORLD」のボタン → オリジナルの世界地図（SpaceWorldMap）
-/// 世界地図には置き場が4か所あり、コマを1体置くと、その置き場の効果をもらえる（ワーカープレイスメント）。
+/// 世界地図には置き場が5か所あり、コマを1体置くと、その置き場の効果をもらえる（ワーカープレイスメント）。
 ///  ・その日まだ誰も置いていない置き場には、好きな色を置ける。1体でも置かれたら、その日は同じ色しか置けない（マストフォロー）
+///  ・ただし左下の「星くずの島」だけは、何色でも置ける保険の置き場（2026-11-11 ユーザー指定。星のカケラ5個で流れ星1回）
 ///  ・1人が置けるのは1日1体だけ（どこか1か所）／置いたコマは使い切り（戻らない）／置けるのは入店中だけ
 ///    （以上 2026-11-10 ユーザーの回答）
 ///  ・置き場ごとの色と数は全員で共有して、リアルタイムに同期する（world/{営業日}。毎朝4時の営業日の変わり目でリセット）
@@ -75,14 +86,43 @@ public static class SpaceWorld
         },
         new SpaceWorldArea
         {
-            // 2026-11-10 ユーザー指定で「5%OFFチケット」から「5%OFFチケットのカケラ（2枚で完成）」に変更
+            // 2026-11-10 ユーザー指定で「5%OFFチケット」から「5%OFFチケットのカケラ（2枚で完成）」に変更。
+            // 2枚集めると完成することを置き場にも書く（2026-11-11 ユーザー指定）
             Index = 3, Effect = WorldEffect.Coupon, Name = "商人の港", En = "MERCHANT PORT", Text = "5%OFFチケットのカケラをもらう",
+            Note = "2枚集めると5%OFFチケットが完成", Detail = "カケラを2枚集めると、5%OFFチケットが1枚完成します",
             Pos = new Vector2(0.70f, 0.80f), Accent = SpaceTheme.Hex(0x6FA8FF),
+        },
+        new SpaceWorldArea
+        {
+            // 地図の左下の小島（2026-11-11 ユーザー指定）。ここだけは何色のコマでも置ける保険の置き場
+            Index = 4, Effect = WorldEffect.StarFragment, Name = "星くずの島", En = "STARDUST ISLE", Text = "星のカケラをもらう",
+            Note = "何色でも置ける ・ 5個で流れ星", Detail = "ここだけは何色のコマでも置けます\n星のカケラを5個集めると、流れ星を1回見られます",
+            AnyColor = true, Pos = new Vector2(0.125f, 0.855f), Accent = SpaceTheme.Hex(0xFFD36E),
         },
     };
 
+    /// <summary>置き場の数（置き場の文書の c0..c3・n0..n3 と red4 などの番号）</summary>
+    public const int AREA_COUNT = 5;
+
     /// <summary>「惑星を3つアクティブにする」で力を戻す数</summary>
     public const int REVIVE_COUNT = 3;
+
+    // ---- 星のカケラ（2026-11-11 ユーザー指定「5個集めると1回だけ流れ星を見ることができる」） ----
+    public const string STAR_FRAGMENT_FIELD = "star_fragment";
+    public const string STAR_FRAGMENT_NAME = "星のカケラ";
+    /// <summary>流れ星を1回見られる星のカケラの数</summary>
+    public const int STAR_FRAGMENTS_PER_STAR = 5;
+
+    private static Sprite _starFragmentIcon, _starFragmentPiece;
+
+    /// <summary>星のカケラの絵（金色の五芒星の1片。Resources/ItemIcon/StarFragment。tools/world/make_star_fragment_icon.py で作る）</summary>
+    public static Sprite StarFragmentIcon =>
+        _starFragmentIcon != null ? _starFragmentIcon : (_starFragmentIcon = Resources.Load<Sprite>("ItemIcon/StarFragment"));
+
+    /// <summary>星を組み立てる1片（星の中心＝絵の中心で上向き。72度ずつ回して5つ並べると星になる）</summary>
+    public static Sprite StarFragmentPiece =>
+        _starFragmentPiece != null ? _starFragmentPiece
+            : (_starFragmentPiece = Resources.Load<Sprite>("ItemIcon/StarFragmentPiece"));
 
     // ---- 5%OFFチケットのカケラ（2026-11-10 ユーザー指定「2枚集めると完成」） ----
     public const string FRAGMENT_FIELD = "five_fragment";
@@ -162,9 +202,23 @@ public static class SpaceWorld
     public sealed class WorldBoard
     {
         public string Day;
-        public readonly PlanetColor[] Colors = new PlanetColor[4]; // まだ誰も置いていなければ None
-        public readonly int[] Counts = new int[4];
+        public readonly PlanetColor[] Colors = new PlanetColor[AREA_COUNT]; // まだ誰も置いていなければ None（保険の置き場はいつも None）
+        public readonly int[] Counts = new int[AREA_COUNT];                 // 置かれた数（保険の置き場は全色の合計）
+        /// <summary>保険の置き場（AnyColor）の色ごとの数。[置き場, 色]（色は PlanetColorOrder.All の順＝赤・青・黄）</summary>
+        public readonly int[,] ByColor = new int[AREA_COUNT, 3];
+
+        /// <summary>置き場 area に置かれた color のコマの数</summary>
+        public int CountOf(int area, PlanetColor color)
+        {
+            int k = Array.IndexOf(PlanetColorOrder.All, color);
+            if (area < 0 || area >= AREA_COUNT || k < 0) return 0;
+            if (Areas[area].AnyColor) return ByColor[area, k];
+            return Colors[area] == color ? Counts[area] : 0;
+        }
     }
+
+    /// <summary>保険の置き場で色ごとの数を数えるフィールドの名前（「red4」など）</summary>
+    public static string FreeKey(int area, PlanetColor color) => ColorKey(color) + area;
 
     public static WorldBoard Board { get; private set; } = new WorldBoard();
 
@@ -215,8 +269,21 @@ public static class SpaceWorld
         var b = new WorldBoard { Day = day };
         if (snap == null || !snap.Exists) return b;
         var d = snap.ToDictionary();
-        for (int i = 0; i < 4; i++)
+        for (int i = 0; i < AREA_COUNT; i++)
         {
+            if (Areas[i].AnyColor)
+            {
+                // 保険の置き場: 色は決めず、色ごとの数（まだ誰も置いていない日・前の版のアプリが作った文書には無い）
+                int sum = 0;
+                for (int k = 0; k < PlanetColorOrder.All.Length; k++)
+                {
+                    int n = (int)Math.Max(0, Long(d, FreeKey(i, PlanetColorOrder.All[k])));
+                    b.ByColor[i, k] = n;
+                    sum += n;
+                }
+                b.Counts[i] = sum;
+                continue;
+            }
             b.Colors[i] = ColorOf(d.TryGetValue("c" + i, out var c) ? c as string : null);
             b.Counts[i] = (int)Long(d, "n" + i);
         }
@@ -287,11 +354,14 @@ public static class SpaceWorld
         public string Error;
         public SpaceWorldArea Area;
         public PlanetColor Color;
-        public int Count;                                     // 置いたあとの、その置き場の数
+        public int Count;                                     // 置いたあとの、その置き場の数（保険の置き場は全色の合計）
+        public int ColorCount;                                // 置いたあとの、その置き場のその色の数
         public readonly JourneyResult Star = new JourneyResult(); // 流れ星の当たり（Prizes）・ノワール（Unlocked）
         public readonly List<string> Revived = new List<string>(); // 力を戻した惑星
         public int Fragments;                                 // 商人の港: もらったあとのカケラの数（完成したら0）
         public bool CouponCompleted;                          // 商人の港: カケラがそろって5%OFFチケットになった
+        public int StarFragments;                             // 星くずの島: もらったあとの星のカケラの数（そろったら0）
+        public bool StarCompleted;                            // 星くずの島: 星のカケラがそろって流れ星を見られる（当たりは Star）
         internal JourneyData Journey;                         // 力を戻したあとの来店の記録
         internal readonly Dictionary<string, long> Delta = new Dictionary<string, long>(); // 増減した数（フィールドごと）
     }
@@ -369,32 +439,35 @@ public static class SpaceWorld
         int a = area.Index;
         string cKey = "c" + a, nKey = "n" + a;
         var b = boardSnap != null && boardSnap.Exists ? boardSnap.ToDictionary() : null;
-        string placed = b != null ? Str(b, cKey) ?? "" : "";
-        if (placed.Length > 0 && placed != ColorKey(color))
+        string placed = "";
+        long count, colorCount;
+        if (area.AnyColor)
         {
-            r.Error = T_ERR_COLOR;
-            return r;
+            // 保険の置き場: 何色でも置ける（マストフォローなし）。色ごとに数える
+            colorCount = b != null ? Math.Max(0, Long(b, FreeKey(a, color))) : 0;
+            count = 0;
+            if (b != null)
+                foreach (var each in PlanetColorOrder.All) count += Math.Max(0, Long(b, FreeKey(a, each)));
         }
-        long count = b != null ? Long(b, nKey) : 0;
+        else
+        {
+            placed = b != null ? Str(b, cKey) ?? "" : "";
+            if (placed.Length > 0 && placed != ColorKey(color))
+            {
+                r.Error = T_ERR_COLOR;
+                return r;
+            }
+            count = b != null ? Long(b, nKey) : 0;
+            colorCount = count;
+        }
 
         var updates = new Dictionary<string, object>();
         r.Delta[meeple.Field] = -1;
         switch (area.Effect)
         {
             case WorldEffect.Star:
-            {
-                var j = JourneyData.From(u.TryGetValue("journey", out var raw) ? raw : null);
-                var owned = JourneyService.OwnedPlanetsOf(u);
-                JourneyRules.AddPrize(JourneyRules.Roll(rng, j?.Streak ?? 0, centerId, weekday, season), owned, r.Star);
-                foreach (var p in r.Star.Prizes)
-                {
-                    var coupon = JourneyService.CouponOf(p);
-                    if (coupon != null) Add(r.Delta, coupon.Field, 1);
-                }
-                if (r.Star.Unlocked.Count > 0)
-                    updates["planets"] = FieldValue.ArrayUnion(r.Star.Unlocked.Cast<object>().ToArray());
+                RollStar(u, r, updates, rng, centerId, weekday, season);
                 break;
-            }
             case WorldEffect.Planets:
             {
                 var j = JourneyData.From(u.TryGetValue("journey", out var raw) ? raw : null);
@@ -434,6 +507,20 @@ public static class SpaceWorld
                 r.Fragments = (int)fragments;
                 break;
             }
+            case WorldEffect.StarFragment:
+            {
+                // 星のカケラを1個。5個そろったら流れ星を1回（入店のときと同じ当たりを引く）、カケラは0から
+                long stars = Math.Max(0, Long(u, STAR_FRAGMENT_FIELD)) + 1;
+                if (stars >= STAR_FRAGMENTS_PER_STAR)
+                {
+                    stars -= STAR_FRAGMENTS_PER_STAR;
+                    r.StarCompleted = true;
+                    RollStar(u, r, updates, rng, centerId, weekday, season);
+                }
+                updates[STAR_FRAGMENT_FIELD] = stars;
+                r.StarFragments = (int)stars;
+                break;
+            }
         }
         foreach (var kv in r.Delta)
             if (kv.Value != 0) updates[kv.Key] = FieldValue.Increment(kv.Value);
@@ -443,13 +530,21 @@ public static class SpaceWorld
 
         if (b == null)
         {
+            // その日の最初の1体: 色の決まる置き場（c0..c3・n0..n3）を空で作り、置いた所だけ1にする。
+            // 保険の置き場の色ごとの数は、そこに置いたときだけ足す（ほかの置き場なら前の版と同じ形の文書になる）
             var doc = new Dictionary<string, object>();
-            for (int i = 0; i < 4; i++)
+            for (int i = 0; i < AREA_COUNT; i++)
             {
+                if (Areas[i].AnyColor) continue;
                 doc["c" + i] = i == a ? ColorKey(color) : "";
                 doc["n" + i] = i == a ? 1L : 0L;
             }
+            if (area.AnyColor) doc[FreeKey(a, color)] = 1L;
             tx.Set(boardRef, doc);
+        }
+        else if (area.AnyColor)
+        {
+            tx.Update(boardRef, new Dictionary<string, object> { { FreeKey(a, color), colorCount + 1 } });
         }
         else
         {
@@ -459,8 +554,28 @@ public static class SpaceWorld
         }
         tx.Update(userRef, updates);
         r.Count = (int)(count + 1);
+        r.ColorCount = (int)(colorCount + 1);
         r.Ok = true;
         return r;
+    }
+
+    /// <summary>
+    /// 流れ星を1回引いて結果（r.Star）に足す。星見の丘と、星のカケラが5個そろったとき。
+    /// 当たりやすさは入店のときと同じ（公転の数）。クーポンは数を増やし、ノワールは惑星に足す
+    /// </summary>
+    private static void RollStar(Dictionary<string, object> u, PlaceResult r, Dictionary<string, object> updates,
+        System.Random rng, string centerId, DayOfWeek weekday, StoreCalendar.Season season)
+    {
+        var j = JourneyData.From(u.TryGetValue("journey", out var raw) ? raw : null);
+        var owned = JourneyService.OwnedPlanetsOf(u);
+        JourneyRules.AddPrize(JourneyRules.Roll(rng, j?.Streak ?? 0, centerId, weekday, season), owned, r.Star);
+        foreach (var p in r.Star.Prizes)
+        {
+            var coupon = JourneyService.CouponOf(p);
+            if (coupon != null) Add(r.Delta, coupon.Field, 1);
+        }
+        if (r.Star.Unlocked.Count > 0)
+            updates["planets"] = FieldValue.ArrayUnion(r.Star.Unlocked.Cast<object>().ToArray());
     }
 
     /// <summary>書き込んだ内容を手元の UserData・置き場・履歴にも反映する</summary>
@@ -480,6 +595,7 @@ public static class SpaceWorld
             d.WorldArea = r.Area.Index;
             d.WorldColor = ColorKey(r.Color);
             if (r.Area.Effect == WorldEffect.Coupon) d.FiveFragment = r.Fragments;
+            if (r.Area.Effect == WorldEffect.StarFragment) d.StarFragment = r.StarFragments;
             if (r.Journey != null) d.Journey = r.Journey;
             foreach (var id in r.Star.Unlocked)
                 if (!d.Planets.Contains(id)) d.Planets.Add(id);
@@ -489,8 +605,20 @@ public static class SpaceWorld
         // 置き場はすぐ手元でも1つ増やす（同期の知らせが届くまでの間も数が合うように）
         if (Board != null && Board.Day == day)
         {
-            Board.Colors[r.Area.Index] = r.Color;
-            Board.Counts[r.Area.Index] = Math.Max(Board.Counts[r.Area.Index], r.Count);
+            int a = r.Area.Index;
+            if (r.Area.AnyColor)
+            {
+                int k = Array.IndexOf(PlanetColorOrder.All, r.Color);
+                if (k >= 0) Board.ByColor[a, k] = Math.Max(Board.ByColor[a, k], r.ColorCount);
+                int sum = 0;
+                for (int i = 0; i < PlanetColorOrder.All.Length; i++) sum += Board.ByColor[a, i];
+                Board.Counts[a] = Math.Max(sum, r.Count);
+            }
+            else
+            {
+                Board.Colors[a] = r.Color;
+                Board.Counts[a] = Math.Max(Board.Counts[a], r.Count);
+            }
             BoardChanged?.Invoke();
         }
 
@@ -499,15 +627,14 @@ public static class SpaceWorld
         switch (r.Area.Effect)
         {
             case WorldEffect.Star:
-                foreach (var p in r.Star.Prizes)
+                LogStar(r);
+                break;
+            case WorldEffect.StarFragment:
+                LocalHistoryLog.Add("fragment", $"{r.Area.Name}で {STAR_FRAGMENT_NAME} を1個 入手");
+                if (r.StarCompleted)
                 {
-                    var c = JourneyService.CouponOf(p);
-                    if (c != null) LocalHistoryLog.Add("coupon", $"流れ星で {c.Name} を1枚 入手");
-                }
-                foreach (var id in r.Star.Unlocked)
-                {
-                    var def = SpacePlanets.Find(id);
-                    if (def != null) LocalHistoryLog.Add("planet", $"惑星「{def.Name}」を解放");
+                    LocalHistoryLog.Add("fragment", $"{STAR_FRAGMENT_NAME}が{STAR_FRAGMENTS_PER_STAR}個そろって 流れ星を見た");
+                    LogStar(r);
                 }
                 break;
             case WorldEffect.Planets:
@@ -529,6 +656,21 @@ public static class SpaceWorld
         JourneyService.NotifyChanged(); // ホームの惑星（力を戻した惑星の色）・所持品の数を更新
     }
 
+    /// <summary>流れ星の当たり（クーポン・ノワール）を履歴に残す</summary>
+    private static void LogStar(PlaceResult r)
+    {
+        foreach (var p in r.Star.Prizes)
+        {
+            var c = JourneyService.CouponOf(p);
+            if (c != null) LocalHistoryLog.Add("coupon", $"流れ星で {c.Name} を1枚 入手");
+        }
+        foreach (var id in r.Star.Unlocked)
+        {
+            var def = SpacePlanets.Find(id);
+            if (def != null) LocalHistoryLog.Add("planet", $"惑星「{def.Name}」を解放");
+        }
+    }
+
     // ================================================================
     // 文字
     // ================================================================
@@ -539,8 +681,8 @@ public static class SpaceWorld
         {
             var sb = new StringBuilder(T_TITLE).Append(T_ERR_USER).Append(T_ERR_NOT_IN_STORE).Append(T_ERR_PLACED)
                 .Append(T_ERR_NO_MEEPLE).Append(T_ERR_COLOR).Append(T_ERR_NO_EXHAUSTED).Append(T_ERR_PICK)
-                .Append(T_ERR_NETWORK).Append("赤青黄").Append(FRAGMENT_NAME);
-            foreach (var a in Areas) sb.Append(a.Name).Append(a.En).Append(a.Text);
+                .Append(T_ERR_NETWORK).Append("赤青黄").Append(FRAGMENT_NAME).Append(STAR_FRAGMENT_NAME);
+            foreach (var a in Areas) sb.Append(a.Name).Append(a.En).Append(a.Text).Append(a.Note).Append(a.Detail);
             return sb.ToString();
         }
     }

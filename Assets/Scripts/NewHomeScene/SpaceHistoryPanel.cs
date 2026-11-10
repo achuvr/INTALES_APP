@@ -58,6 +58,7 @@ public class SpaceHistoryPanel : MonoBehaviour
         new Kind { Key = "visit",  Label = "来店",     Color = SpaceTheme.MINT },
         new Kind { Key = "planet", Label = "惑星",     Color = SpaceTheme.CYAN },
         new Kind { Key = "meeple", Label = "コマ",     Color = SpaceTheme.Hex(0xFF9C6B) }, // 入店でもらったコマ（2026-11-10）
+        new Kind { Key = "fragment", Label = "カケラ", Color = SpaceTheme.Hex(0xFFD36E) }, // INTALES WORLD の星のカケラ（2026-11-11）
         new Kind { Key = "pass",   Label = "パス",     Color = SpaceTheme.Hex(0xF5D58A) }, // 1か月遊び放題パス
         new Kind { Key = "friend", Label = "紹介", Color = SpaceTheme.PINK }, // フレンド機能をやめたので友だち紹介の記録に使う
         new Kind { Key = "gacha",  Label = "ガチャ",   Color = SpaceTheme.VIOLET },

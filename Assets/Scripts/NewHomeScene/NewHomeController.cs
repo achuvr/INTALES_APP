@@ -710,7 +710,9 @@ public class NewHomeController : MonoBehaviour
     }
 
     /// <summary>
-    /// 入店中の中央: 惑星を消して、カメラのアイコンだけを置く（ここを押すとカメラが開くのは同じ）
+    /// 入店中の中央: 惑星を消して、カメラのアイコンだけを置く（ここを押すとカメラが開くのは同じ）。
+    /// 緑の衛星の円・紫の衛星の傾いた楕円軌道は、入店中もそのまま回し続ける
+    /// （以前はここで楕円軌道と紫の衛星を消していた。2026-11-11 ユーザーの指摘でバグとして直した）
     /// </summary>
     private void ShowAwayCenter()
     {
@@ -718,12 +720,11 @@ public class NewHomeController : MonoBehaviour
         _cameraIcon.gameObject.SetActive(true);
         _cameraIconGroup.alpha = 1f;
         _cameraBadge.gameObject.SetActive(false);
-        SetTiltOrbit(false, false);
     }
 
     /// <summary>
     /// 傾いた楕円軌道の線と紫の衛星の表示。環のある惑星でも線と衛星を出す（2026-11-09 ユーザー指定）。
-    /// dot=false で衛星も消す（入店中の空いた中央）
+    /// 入店中（中央が空いているとき）も出したまま（2026-11-11）
     /// </summary>
     private void SetTiltOrbit(bool lines, bool dot = true)
     {

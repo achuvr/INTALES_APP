@@ -56,6 +56,8 @@ public static partial class SpaceNotice
         .Append(T_PICK_SUB_B).Append(T_PICK_SUB).Append(T_PICK_GOT).Append(T_PICK_FAILED).Append(T_PICK_NEXT)
         .Append(T_FRAGMENT_GOT).Append(T_FRAGMENT_LEFT_A).Append(T_FRAGMENT_LEFT_B).Append(T_FRAGMENT_DONE)
         .Append(T_FRAGMENT_DONE_NOTE).Append(SpaceWorld.FRAGMENT_NAME)
+        .Append(T_STAR_FRAGMENT_GOT).Append(T_STAR_FRAGMENT_LEFT_A).Append(T_STAR_FRAGMENT_LEFT_B)
+        .Append(T_STAR_FRAGMENT_DONE).Append(T_STAR_FRAGMENT_DONE_NOTE).Append(SpaceWorld.STAR_FRAGMENT_NAME)
         .Append(StoreCalendar.GlyphText).Append(SpaceGachaMeteor.GlyphText).ToString();
 
     /// <summary>
@@ -450,6 +452,79 @@ public static partial class SpaceNotice
         return root;
     }
 
+    private const string T_STAR_FRAGMENT_GOT = " を1個もらいました";
+    private const string T_STAR_FRAGMENT_LEFT_A = "あと ";
+    private const string T_STAR_FRAGMENT_LEFT_B = "個で 流れ星 を見られます";
+    private const string T_STAR_FRAGMENT_DONE = "星のカケラが5個そろいました！";
+    private const string T_STAR_FRAGMENT_DONE_NOTE = "とじると、流れ星が流れます";
+
+    /// <summary>
+    /// 星くずの島: 星のカケラを1個もらった（2026-11-11）。五芒星を5つに割った枠を星の形に並べ、集まった数だけ金色で埋める
+    /// （いまもらった1片は、少し遅れて外側から星の中へ収まる）。5個そろったとき（completed）は星全体が光り、
+    /// とじると流れ星が流れることを知らせる（流れ星の演出は SpaceWorldMap がこのあとに出す）
+    /// </summary>
+    public static GameObject StarFragmentGot(string place, int have, bool completed)
+    {
+        var accent = SpaceTheme.Hex(0xFFD36E);
+        var card = Overlay("__StarFragmentGotModal", out var root, SpaceTheme.A(accent, 0.55f));
+        if (card == null) return null;
+        SpaceTheme.SubCanvas(root, true); // 1片が動いて収まる・光がまたたくので、メインのキャンバスと分ける
+        float y = 48f;
+        var caption = SpaceTheme.Text(card, "Caption", T_WORLD_CAPTION, 24, SpaceTheme.A(SpaceTheme.CYAN, 0.9f),
+            FontStyles.Bold);
+        SpaceTheme.Tracking(caption, 18f);
+        Stack(caption.rectTransform, ref y, 36f, 0f);
+        var title = SpaceTheme.Text(card, "Title", place, 40, SpaceTheme.TEXT, FontStyles.Bold);
+        Stack(title.rectTransform, ref y, 56f, 8f);
+
+        int need = SpaceWorld.STAR_FRAGMENTS_PER_STAR;
+        int filled = completed ? need : Mathf.Clamp(have, 0, need);
+        const float STAR = 300f;
+        var stage = SpaceTheme.Rect("Star", card);
+        Stack(stage, ref y, STAR, 18f);
+        var halo = SpaceTheme.Rect("Glow", stage, SpaceTheme.CENTER, Vector2.zero, new Vector2(STAR * 1.5f, STAR * 1.5f));
+        var haloImg = SpaceTheme.Img(halo, SpaceSprites.Glow, SpaceTheme.A(accent, completed ? 0.55f : 0.22f));
+        if (completed) halo.gameObject.AddComponent<SpaceTwinkle>().Init(haloImg, 0.55f);
+        var piece = SpaceWorld.StarFragmentPiece;
+        for (int i = 0; i < need; i++)
+        {
+            // 上の1片から時計回りに。空いている枠は薄い影、集まった分は金色
+            var slot = SpaceTheme.Rect("Slot" + i, stage, SpaceTheme.CENTER, Vector2.zero, new Vector2(STAR, STAR));
+            slot.localEulerAngles = new Vector3(0f, 0f, -360f / need * i);
+            var empty = SpaceTheme.Img(slot, piece, new Color(1f, 1f, 1f, 0.13f));
+            empty.preserveAspect = true;
+            empty.enabled = piece != null;
+            if (i >= filled || piece == null) continue;
+            var fill = SpaceTheme.Rect("Piece", slot, SpaceTheme.CENTER, Vector2.zero, new Vector2(STAR, STAR));
+            var img = SpaceTheme.Img(fill, piece, Color.white);
+            img.preserveAspect = true;
+            if (i == filled - 1)
+            {
+                // いまもらった1片: 星の外側（その片の先の向き）から収まる
+                var pop = fill.gameObject.AddComponent<SpacePiecePop>();
+                pop.From = new Vector2(0f, 70f); // 枠ごと回してあるので、上＝その片の先の向き
+            }
+        }
+
+        var got = SpaceTheme.Text(card, "Got",
+            $"<color=#{ColorUtility.ToHtmlStringRGB(SpaceTheme.GOLD)}>{SpaceWorld.STAR_FRAGMENT_NAME}</color>{T_STAR_FRAGMENT_GOT}",
+            32, SpaceTheme.TEXT, FontStyles.Bold);
+        Wrap(got);
+        Stack(got.rectTransform, ref y, Measure(got, 48f), 22f);
+        string noteText = completed ? T_STAR_FRAGMENT_DONE : T_STAR_FRAGMENT_LEFT_A + (need - filled) + T_STAR_FRAGMENT_LEFT_B;
+        var note = SpaceTheme.Text(card, "Note", noteText, 28, completed ? SpaceTheme.GOLD : SpaceTheme.TEXT_SUB,
+            FontStyles.Bold);
+        Wrap(note);
+        Stack(note.rectTransform, ref y, Measure(note, 40f), 6f);
+        if (completed)
+        {
+            var sub = SpaceTheme.Text(card, "DoneNote", T_STAR_FRAGMENT_DONE_NOTE, 24, SpaceTheme.TEXT_MUTED, FontStyles.Bold);
+            Stack(sub.rectTransform, ref y, 34f, 8f);
+        }
+        Finish(card, root, ref y);
+        return root;
+    }
+
     /// <summary>コマの工房: 各色のコマを1個ずつもらった（place は置き場の名前）</summary>
     public static GameObject MeeplesGot(string place)
     {
@@ -714,6 +789,47 @@ public class SpaceCrossFade : MonoBehaviour
         if (To != null) To.alpha = k;
         if (From != null) From.alpha = k >= 1f ? 0f : 1f;
         if (k >= 1f) enabled = false;
+    }
+}
+
+/// <summary>
+/// いまもらった星のカケラの1片が、少し遅れて外側（From のずれ）から星の中の自分の場所へ収まる（2026-11-11）。
+/// 同じ GameObject の Image の透明度も 0 から上げる
+/// </summary>
+public class SpacePiecePop : MonoBehaviour
+{
+    public Vector2 From = new Vector2(0f, 70f);
+    public float Delay = 0.35f, Duration = 0.5f;
+    private RectTransform _rt;
+    private Image _img;
+    private Color _color = Color.white;
+    private float _t;
+
+    // 付けたその場で（最初の描画より前に）消しておく。Start だと1コマだけ収まった姿が見えてしまう
+    private void Awake()
+    {
+        _rt = (RectTransform)transform;
+        _img = GetComponent<Image>();
+        if (_img != null) _color = _img.color;
+        Apply(0f);
+    }
+
+    private void Update()
+    {
+        _t += Time.unscaledDeltaTime;
+        float k = Mathf.Clamp01((_t - Delay) / Duration);
+        Apply(k);
+        if (k >= 1f) enabled = false;
+    }
+
+    private void Apply(float k)
+    {
+        if (_rt == null) return;
+        float e = 1f - Mathf.Pow(1f - k, 3f); // 速く動き出して、ゆっくり収まる
+        _rt.anchoredPosition = From * (1f - e);
+        float s = Mathf.Lerp(1.3f, 1f, e);
+        _rt.localScale = new Vector3(s, s, 1f);
+        if (_img != null) _img.color = new Color(_color.r, _color.g, _color.b, _color.a * Mathf.Clamp01(k * 1.8f));
     }
 }
 

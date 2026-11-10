@@ -329,11 +329,14 @@ service cloud.firestore {
 
     // ================================================================
     // INTALES WORLD の置き場（2026-11-10）world/{営業日 yyyy-MM-dd}
-    //   = { c0..c3: 置かれたコマの色（'' | 'red' | 'blue' | 'yellow'）, n0..n3: 置かれた数 }
+    //   = { c0..c3: 置かれたコマの色（'' | 'red' | 'blue' | 'yellow'）, n0..n3: 置かれた数,
+    //       red4・blue4・yellow4: 保険の置き場（4 星くずの島。何色でも置ける。2026-11-11）の色ごとの数（無ければ0） }
     //   読み取り: ログインユーザー
     //   作成・更新: ログインユーザーの「1か所に1体置く」書き込みだけ
-    //     ・1回に変えてよいのは1か所（nX と cX）だけ。数はちょうど1つ増やす
+    //     ・1回に変えてよいのは1か所（nX と cX、または保険の置き場の色1つ）だけ。数はちょうど1つ増やす
     //     ・色はまだ誰も置いていない（''）ときだけ決められ、あとから変えられない（マストフォロー）
+    //     ・保険の置き場は色を決めない（どの色の数を増やしてもよい）
+    //   red4 などは無くてもよい（前の版のアプリが作る文書には無い。前の版の書き込みもそのまま通る）
     //   1日1体まで・入店中だけ・その色のコマを持っているか は、アプリのトランザクション（SpaceWorld.PlaceAsync）で確かめる
     // ================================================================
     function worldColor(c) {
@@ -341,10 +344,11 @@ service cloud.firestore {
     }
 
     function worldShape(d) {
-      return d.keys().hasOnly(['c0', 'c1', 'c2', 'c3', 'n0', 'n1', 'n2', 'n3'])
+      return d.keys().hasOnly(['c0', 'c1', 'c2', 'c3', 'n0', 'n1', 'n2', 'n3', 'red4', 'blue4', 'yellow4'])
         && d.keys().hasAll(['c0', 'c1', 'c2', 'c3', 'n0', 'n1', 'n2', 'n3'])
         && d.n0 is int && d.n1 is int && d.n2 is int && d.n3 is int
-        && d.c0 is string && d.c1 is string && d.c2 is string && d.c3 is string;
+        && d.c0 is string && d.c1 is string && d.c2 is string && d.c3 is string
+        && d.get('red4', 0) is int && d.get('blue4', 0) is int && d.get('yellow4', 0) is int;
     }
 
     function worldEmpty(d, n, c) {
@@ -355,13 +359,28 @@ service cloud.firestore {
       return d[n] == 1 && worldColor(d[c]);
     }
 
+    // 保険の置き場がまだ空（色ごとの数がどれも0か、無い）
+    function worldFreeEmpty(d) {
+      return d.get('red4', 0) == 0 && d.get('blue4', 0) == 0 && d.get('yellow4', 0) == 0;
+    }
+
+    // 保険の置き場に最初の1体（どれか1色だけ1、ほかは0か無い）
+    function worldFreeFirst(d) {
+      return d.get('red4', 0) >= 0 && d.get('blue4', 0) >= 0 && d.get('yellow4', 0) >= 0
+        && d.get('red4', 0) + d.get('blue4', 0) + d.get('yellow4', 0) == 1;
+    }
+
     // 作成（その日の最初の1体）: どこか1か所だけ1体（色つき）、ほかは空
     function worldCreate(d) {
       return worldShape(d) && (
-        (worldFirst(d, 'n0', 'c0') && worldEmpty(d, 'n1', 'c1') && worldEmpty(d, 'n2', 'c2') && worldEmpty(d, 'n3', 'c3'))
-        || (worldEmpty(d, 'n0', 'c0') && worldFirst(d, 'n1', 'c1') && worldEmpty(d, 'n2', 'c2') && worldEmpty(d, 'n3', 'c3'))
-        || (worldEmpty(d, 'n0', 'c0') && worldEmpty(d, 'n1', 'c1') && worldFirst(d, 'n2', 'c2') && worldEmpty(d, 'n3', 'c3'))
-        || (worldEmpty(d, 'n0', 'c0') && worldEmpty(d, 'n1', 'c1') && worldEmpty(d, 'n2', 'c2') && worldFirst(d, 'n3', 'c3'))
+        (worldFreeEmpty(d) && (
+          (worldFirst(d, 'n0', 'c0') && worldEmpty(d, 'n1', 'c1') && worldEmpty(d, 'n2', 'c2') && worldEmpty(d, 'n3', 'c3'))
+          || (worldEmpty(d, 'n0', 'c0') && worldFirst(d, 'n1', 'c1') && worldEmpty(d, 'n2', 'c2') && worldEmpty(d, 'n3', 'c3'))
+          || (worldEmpty(d, 'n0', 'c0') && worldEmpty(d, 'n1', 'c1') && worldFirst(d, 'n2', 'c2') && worldEmpty(d, 'n3', 'c3'))
+          || (worldEmpty(d, 'n0', 'c0') && worldEmpty(d, 'n1', 'c1') && worldEmpty(d, 'n2', 'c2') && worldFirst(d, 'n3', 'c3'))
+        ))
+        || (worldEmpty(d, 'n0', 'c0') && worldEmpty(d, 'n1', 'c1') && worldEmpty(d, 'n2', 'c2') && worldEmpty(d, 'n3', 'c3')
+            && worldFreeFirst(d))
       );
     }
 
@@ -372,6 +391,12 @@ service cloud.firestore {
         && (after[c] == before[c] || (before[c] == '' && worldColor(after[c])));
     }
 
+    // 更新（保険の置き場）: どれか1色の数だけを1つ増やす
+    function worldFreeStep(before, after, k) {
+      return after.diff(before).affectedKeys().hasOnly([k])
+        && after[k] == before.get(k, 0) + 1;
+    }
+
     match /world/{day} {
       allow read: if signedIn();
       allow create: if signedIn() && worldCreate(request.resource.data);
@@ -380,6 +405,9 @@ service cloud.firestore {
         || worldStep(resource.data, request.resource.data, 'n1', 'c1')
         || worldStep(resource.data, request.resource.data, 'n2', 'c2')
         || worldStep(resource.data, request.resource.data, 'n3', 'c3')
+        || worldFreeStep(resource.data, request.resource.data, 'red4')
+        || worldFreeStep(resource.data, request.resource.data, 'blue4')
+        || worldFreeStep(resource.data, request.resource.data, 'yellow4')
       );
       allow delete: if isAdmin();
     }
