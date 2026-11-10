@@ -191,6 +191,20 @@ public class UserData
     [FirestoreProperty("yellow_meeple")]
     public int YellowMeeple { get; set; }
 
+    // INTALES WORLD で今日コマを置いた記録（2026-11-10。1日1体まで。SpaceWorld）
+    /// <summary>コマを置いた営業日 "yyyy-MM-dd"</summary>
+    [FirestoreProperty("world_day")]
+    public string WorldDay { get; set; }
+    /// <summary>置いた置き場（0〜3）</summary>
+    [FirestoreProperty("world_area")]
+    public int WorldArea { get; set; }
+    /// <summary>置いたコマの色（"red" / "blue" / "yellow"）</summary>
+    [FirestoreProperty("world_color")]
+    public string WorldColor { get; set; }
+    /// <summary>5%OFFチケットのカケラの数（INTALES WORLD の商人の港でもらう。2枚そろうと5%OFFチケットになって0に戻る）</summary>
+    [FirestoreProperty("five_fragment")]
+    public int FiveFragment { get; set; }
+
     /// <summary>誕生月（1〜12。0＝未登録。アカウント作成時に聞く。登録したあとは本人は変えられない画面にしている）</summary>
     [FirestoreProperty("birth_month")]
     public int BirthMonth { get; set; }

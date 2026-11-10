@@ -26,7 +26,8 @@ public static class SpaceSprites
 
     private static Sprite _roundedFill, _roundedStroke, _circle, _glow, _ring, _ringThin, _ringSmall, _sparkle, _streak,
         _fadeLine, _camera, _ticket, _gear, _inverseCorner, _planet, _moon, _goldMoon, _planetRim, _planetRimEven,
-        _planetIcon, _lock, _qrIcon, _bubbleTail, _friendsIcon, _greenMoon, _cyanMoon, _ringBold, _bellIcon;
+        _planetIcon, _lock, _qrIcon, _bubbleTail, _friendsIcon, _greenMoon, _cyanMoon, _ringBold, _bellIcon,
+        _batteryEmpty;
     private static Texture2D _nebula, _stars;
 
     public static Sprite RoundedFill   => _roundedFill   != null ? _roundedFill   : (_roundedFill   = MakeRounded(false));
@@ -74,6 +75,8 @@ public static class SpaceSprites
     public static Sprite QrIcon        => _qrIcon        != null ? _qrIcon        : (_qrIcon        = MakeQrIcon());
     /// <summary>鈴のアイコン（白。管理者用の「お知らせ通知を送る」ボタン）</summary>
     public static Sprite BellIcon      => _bellIcon      != null ? _bellIcon      : (_bellIcon      = MakeBellIcon());
+    /// <summary>空っぽの電池のアイコン（白。力を失った＝使用済みで非アクティブな惑星の印。2026-11-10）</summary>
+    public static Sprite BatteryEmptyIcon => _batteryEmpty != null ? _batteryEmpty : (_batteryEmpty = MakeBatteryEmptyIcon());
     /// <summary>
     /// 吹き出しのしっぽ（白い三角形・縦横比 40:25）。左下の角が先端、上辺が吹き出しの中に入る（新ホームの「New」）。
     /// 表示（40x25）に近い大きさで作る（大きく作って縮めると、ミップマップがないのでふちがギザギザになる）
@@ -552,6 +555,31 @@ public static class SpaceSprites
             px[y * s + x] = White(Mathf.Max(Mathf.Max(body, rim), Mathf.Max(knob, clapper)));
         }
         return ToSprite(Tex(s, s, px, "space_bell_icon"));
+    }
+
+    /// <summary>
+    /// 空っぽの電池のアイコン（横向き）: 角の丸いふち・右の出っ張り・左にほんの少し残った量。
+    /// 小さく出しても「電池切れ＝力を失った」と分かる形にした（稲妻に斜線は 36 の大きさだと読めなかった）
+    /// </summary>
+    private static Sprite MakeBatteryEmptyIcon()
+    {
+        const int s = 128;
+        float half = s / 2f, aa = 1f / half;
+        var px = new Color32[s * s];
+        for (int y = 0; y < s; y++)
+        for (int x = 0; x < s; x++)
+        {
+            float u = (x + 0.5f - half) / half, v = (y + 0.5f - half) / half;
+            float outer = SdRoundBox(u + 0.08f, v, 0.78f, 0.46f, 0.14f);
+            float inner = SdRoundBox(u + 0.08f, v, 0.62f, 0.30f, 0.06f);
+            float shell = Mathf.Max(outer, -inner);
+            float nub = SdRoundBox(u - 0.80f, v, 0.08f, 0.18f, 0.05f);
+            float level = SdRoundBox(u + 0.58f, v, 0.08f, 0.20f, 0.03f);
+            float a = Mathf.Max(Mathf.Clamp01(0.5f - shell / aa),
+                Mathf.Max(Mathf.Clamp01(0.5f - nub / aa), Mathf.Clamp01(0.5f - level / aa)));
+            px[y * s + x] = White(a);
+        }
+        return ToSprite(Tex(s, s, px, "space_battery_empty_icon"));
     }
 
     // ================================================================

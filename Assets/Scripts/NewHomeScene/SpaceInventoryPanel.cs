@@ -162,6 +162,10 @@ public class SpaceInventoryPanel : MonoBehaviour
     // コマ（2026-11-10。入店した日に、ホームの中央の惑星の色のコマをもらえる。SpaceMeeples）
     private const string T_MEEPLE_SECTION = "コマ";
     private const string T_MEEPLE_HINT = "入店した日に、ホームの惑星の色のコマがもらえます";
+    // 5%OFFチケットのカケラ（2026-11-10。INTALES WORLD の商人の港でもらう。2枚で5%OFFチケット）
+    private const string T_FRAGMENT_DESC = "2枚集めると5%OFFチケットになります";
+    private const string T_FRAGMENT_INFO =
+        "INTALES WORLD の商人の港にコマを置くと1枚もらえます。2枚そろうと5%OFFチケットになります";
     // コマの欄を押したときの説明（2026-11-10 ユーザー指定の文言。画面の表記は「コマ」にそろえる）
     private const string T_MEEPLE_INFO =
         "入店時、選択中の惑星の色のコマを手に入れることができる。\n一度使用した惑星は一時的に力を失う。";
@@ -225,7 +229,8 @@ public class SpaceInventoryPanel : MonoBehaviour
               .Append(T_PERK_CONFIRM_BODY).Append(T_PERK_DONE)
               .Append(T_DISCOUNT_TITLE).Append(T_DISCOUNT_DESC).Append(T_DISCOUNT_NONE).Append("・")
               .Append("合計OFF枚×0123456789%/: ")
-              .Append(T_MEEPLE_SECTION).Append(T_MEEPLE_HINT).Append(T_MEEPLE_INFO).Append(SpaceMeeples.GlyphText);
+              .Append(T_MEEPLE_SECTION).Append(T_MEEPLE_HINT).Append(T_MEEPLE_INFO).Append(SpaceMeeples.GlyphText)
+              .Append(T_FRAGMENT_DESC).Append(T_FRAGMENT_INFO).Append(SpaceWorld.FRAGMENT_NAME);
             foreach (var c in SpaceCoupons.All) sb.Append(c.Name).Append(c.RowDesc).Append(c.Desc);
             return sb.ToString();
         }
@@ -444,10 +449,18 @@ public class SpaceInventoryPanel : MonoBehaviour
         for (int i = 0; i < n; i++) BuildRow(_content, SpaceCoupons.All[i], -(y + i * (ROW_H + ROW_GAP)));
         y += n * ROW_H + (n - 1) * ROW_GAP;
 
-        // コマ（クーポンの下。3色を1枚のカードに並べる）
-        y = SectionLabel(T_MEEPLE_SECTION, y + ROW_GAP, T_MEEPLE_HINT);
-        BuildMeepleRow(_content, -y);
-        float listH = y + ROW_H;
+        // コマ（INTALES WORLD をダウンロードした人だけ。クーポンの下に、3色を1枚のカードに並べる）
+        if (SpaceWorld.Installed)
+        {
+            y = SectionLabel(T_MEEPLE_SECTION, y + ROW_GAP, T_MEEPLE_HINT);
+            BuildMeepleRow(_content, -y);
+            y += ROW_H;
+            // 5%OFFチケットのカケラ（INTALES WORLD の商人の港でもらう。2枚で5%OFFチケット。2026-11-10）
+            y += ROW_GAP;
+            BuildFragmentRow(_content, -y);
+            y += ROW_H;
+        }
+        float listH = y;
 
         float sheetH = Mathf.Min(HEADER_H + listH + FOOTER_H, _safeH - TOP_MARGIN - BOTTOM_MARGIN);
         _sheet.sizeDelta = new Vector2(-64f, sheetH);
@@ -531,6 +544,41 @@ public class SpaceInventoryPanel : MonoBehaviour
             num.fontSizeMin = 30f;
             num.fontSizeMax = 52f;
         }
+    }
+
+    /// <summary>5%OFFチケットのカケラの行（いくつ集まったか / 2）。押すと、もらい方を知らせる</summary>
+    private void BuildFragmentRow(RectTransform content, float y)
+    {
+        var row = SpaceTheme.Rect("Fragment", content);
+        row.anchorMin = new Vector2(0f, 1f);
+        row.anchorMax = new Vector2(1f, 1f);
+        row.pivot = new Vector2(0.5f, 1f);
+        row.sizeDelta = new Vector2(0f, ROW_H);
+        row.anchoredPosition = new Vector2(0f, y);
+        var face = SpaceTheme.Glass(row, 36f, SpaceTheme.GLASS, null, true);
+        SpaceTheme.Clickable(row.gameObject, face, () =>
+        {
+            if (_busy || _useSheet != null || _result != null || _closing) return;
+            SpaceTheme.Toast(T_FRAGMENT_INFO, _canvas);
+        });
+
+        var d = Data;
+        int n = d != null ? Mathf.Clamp(d.FiveFragment, 0, SpaceWorld.FRAGMENTS_PER_COUPON) : 0;
+        row.gameObject.AddComponent<CanvasGroup>().alpha = n > 0 ? 1f : 0.55f;
+        RoundedIcon(row, SpaceWorld.FragmentIcon, new Vector2(0f, 0.5f), new Vector2(24f + 64f, 0f), 128f, 28f);
+        var name = SpaceTheme.Text(row, "Name", SpaceWorld.FRAGMENT_NAME, 40, SpaceTheme.TEXT,
+            new Vector2(0f, 0.5f), new Vector2(176f, 26f), new Vector2(500f, 56f), FontStyles.Bold,
+            TextAlignmentOptions.Left, new Vector2(0f, 0.5f));
+        name.enableAutoSizing = true;
+        name.fontSizeMin = 26f;
+        name.fontSizeMax = 40f;
+        SpaceTheme.Text(row, "Desc", T_FRAGMENT_DESC, 26, SpaceTheme.TEXT_SUB,
+            new Vector2(0f, 0.5f), new Vector2(176f, -28f), new Vector2(560f, 40f), FontStyles.Bold,
+            TextAlignmentOptions.Left, new Vector2(0f, 0.5f));
+        SpaceTheme.Text(row, "Count",
+            $"{n}<size=43%><color={SpaceTheme.SUB_HEX}> / {SpaceWorld.FRAGMENTS_PER_COUPON}</color></size>", 60,
+            n > 0 ? SpaceTheme.GOLD : SpaceTheme.TEXT_MUTED, new Vector2(1f, 0.5f), new Vector2(-40f, 0f),
+            new Vector2(220f, 80f), FontStyles.Bold, TextAlignmentOptions.Right, new Vector2(1f, 0.5f));
     }
 
     /// <summary>コマの欄の1色分の中で、絵の右から右端までの幅に文字を置く（y は縦の中心からのずれ）</summary>

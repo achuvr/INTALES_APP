@@ -156,6 +156,16 @@ public class NewHomeController : MonoBehaviour
     private SpaceNoticeComposer _composer;  // 管理者用: お知らせ通知を送る画面
     private SpaceStarterPicker _starter;    // 新しく登録した人: 最初の惑星を選ぶ画面（選ぶまで閉じない。2026-11-10）
     private bool _planetFaded;              // 中央の惑星を「力を失った」淡い色で描いているか（2026-11-10）
+    // INTALES WORLD（2026-11-10。ダウンロードした人だけ、所持品の下にボタン）
+    private SpaceWorldMap _world;
+    private RectTransform _worldRt, _cameraArea;
+    private CanvasGroup _worldGroup;
+    private TextMeshProUGUI _worldSub;
+    // ボタンの高さは所持品ボタン（176）と同じ（2026-11-10 ユーザー指定「大きさを一緒に」）
+    private const float WORLD_H = 176f, WORLD_GAP = 20f, BAG_Y = 64f, CAMERA_BOTTOM = 260f;
+    private const string T_WORLD_PLACED = "今日はコマを置きました";
+    private const string T_WORLD_READY = "今日のコマを1体置けます";
+    private const string T_WORLD_NOT_IN = "入店中にコマを置けます";
     private SpaceBoardGameZukan _zukan;      // ボードゲーム図鑑（開いている間）
     private RectTransform _zukanBtn, _zukanMoon;
     private CanvasGroup _zukanGroup;
@@ -200,6 +210,8 @@ public class NewHomeController : MonoBehaviour
         SpaceRecruitDigest.StopListening();
         SpaceRenameDialog.NameChanged -= RefreshUser;
         SpaceZukan.Changed -= OnZukanChanged;
+        SpaceWorld.Changed -= OnWorldChanged;
+        SpaceWorld.StopListening();
         StoreVisitors.Changed -= RefreshVisitors;
         StoreVisitors.StopListening();
         StorePasses.Changed -= RefreshBagSub;
@@ -255,6 +267,8 @@ public class NewHomeController : MonoBehaviour
         BuildUserCard();
         BuildCameraOrb(planet);
         BuildBagButton();
+        BuildWorldButton();
+        LayoutWorld();
         BuildPlanetButton();
         BuildPriceMoon(); // 中央の惑星の輪より手前に描く（輪の上でも押せるように）
         _accountMenu = SpaceAccountMenu.Create(_canvas); // ホームの上に重ねる（右上の歯車）
@@ -270,6 +284,7 @@ public class NewHomeController : MonoBehaviour
         StartNewsWatch();             // お知らせ（店の画像・相席募集）に見ていない内容があれば「New」
         SpaceRenameDialog.NameChanged += RefreshUser; // 歯車メニューでユーザー名を変えたら、自分のカードの名前も新しく
         SpaceZukan.Changed += OnZukanChanged;        // 図鑑をダウンロード・削除したら、図鑑の惑星を出し入れ
+        SpaceWorld.Changed += OnWorldChanged;        // INTALES WORLD をダウンロード・削除したら、ボタンを出し入れ
         StoreVisitors.Changed += RefreshVisitors;    // 入店中の人数ぶんの球（いちばん外の円）
         StoreVisitors.StartListening();
         // 営業カレンダー（臨時休業など）。読めたらパスの期限と「明日は臨時休業です」の予約に反映される（2026-11-10）
@@ -299,6 +314,7 @@ public class NewHomeController : MonoBehaviour
           .Append(SpaceRenameDialog.GlyphText).Append(StorePasses.GlyphText).Append(SpacePassCard.GlyphText)
           .Append(SpacePassViewer.GlyphText).Append(SpaceAdminPassList.GlyphText).Append(SpaceAdminNewsImages.GlyphText).Append(SpacePricePage.GlyphText).Append(T_BAG_PASS)
           .Append(SpaceNoticeComposer.GlyphText).Append(SpaceStarterPicker.GlyphText)
+          .Append(SpaceWorldMap.GlyphText).Append(T_WORLD_PLACED).Append(T_WORLD_READY).Append(T_WORLD_NOT_IN)
           .Append(SpaceBoardGameZukan.GlyphText).Append(SpaceConstellationPage.GlyphText)
           .Append(SpaceMemberView.GlyphText).Append(Referral.GlyphText).Append(SpaceNotice.GiftGlyphText)
           .Append(SpaceMonthPicker.GlyphText).Append(SpaceQrSheet.T_CLOSE).Append(SpacePlayLog.GlyphText).Append(SpacePlayCalendar.GlyphText)
@@ -431,9 +447,10 @@ public class NewHomeController : MonoBehaviour
     /// </summary>
     private void BuildCameraOrb(SpacePlanetDef planet)
     {
-        // カードの下〜所持品ボタンの上の空き領域の中央に置く
+        // カードの下〜所持品ボタンの上の空き領域の中央に置く（INTALES WORLD のボタンがあるときは LayoutWorld が上へ縮める）
         var area = SpaceTheme.Rect("CameraArea", _content);
-        SpaceTheme.Stretch(area, 0f, 260f, 0f, 524f);
+        SpaceTheme.Stretch(area, 0f, CAMERA_BOTTOM, 0f, 524f);
+        _cameraArea = area;
 
         _orbRt = SpaceTheme.Rect("CameraOrb", area, SpaceTheme.CENTER, new Vector2(0f, 48f), new Vector2(760f, 760f));
         _orbGroup = _orbRt.gameObject.AddComponent<CanvasGroup>();
@@ -868,10 +885,87 @@ public class NewHomeController : MonoBehaviour
         SpaceTheme.Bar(chev, new Vector2(-1f, -11f), 34f, 6f, 45f, SpaceTheme.TEXT_SUB);
     }
 
+    // ================================================================
+    // INTALES WORLD のボタン（所持品の下。ダウンロードした人だけ。2026-11-10）
+    // ================================================================
+    private void BuildWorldButton()
+    {
+        _worldRt = SpaceTheme.Rect("WorldButton", _content);
+        _worldRt.anchorMin = new Vector2(0f, 0f);
+        _worldRt.anchorMax = new Vector2(1f, 0f);
+        _worldRt.pivot = new Vector2(0.5f, 0f);
+        _worldRt.sizeDelta = new Vector2(-112f, WORLD_H);
+        _worldRt.anchoredPosition = new Vector2(0f, BAG_Y);
+        _worldGroup = _worldRt.gameObject.AddComponent<CanvasGroup>();
+        // 並び（四角いアイコン・見出し・一言・＞）も所持品ボタンと同じ位置にそろえる
+        var face = SpaceTheme.Glass(_worldRt, 48f, null, SpaceTheme.A(SpaceTheme.CYAN, 0.45f), true);
+        SpaceTheme.Clickable(_worldRt.gameObject, face, OpenWorld);
+
+        var tile = SpaceTheme.Rect("IconTile", _worldRt, new Vector2(0f, 0.5f), new Vector2(32f, 0f),
+            new Vector2(112f, 112f), new Vector2(0f, 0.5f));
+        SpaceTheme.Gradient(SpaceTheme.Rounded(tile, Color.white, 30f), SpaceTheme.CYAN, SpaceTheme.Hex(0x3B6BFF));
+        var icon = SpaceTheme.Rect("Planet", tile, SpaceTheme.CENTER, Vector2.zero, new Vector2(74f, 74f));
+        SpaceTheme.Img(icon, SpaceSprites.PlanetIcon, Color.white).preserveAspect = true;
+
+        var title = SpaceTheme.Text(_worldRt, "Title", SpaceWorld.T_TITLE, 42, SpaceTheme.TEXT, new Vector2(0f, 0.5f),
+            new Vector2(176f, 26f), new Vector2(560f, 60f), FontStyles.Bold, TextAlignmentOptions.Left, new Vector2(0f, 0.5f));
+        SpaceTheme.Tracking(title, 4f);
+        _worldSub = SpaceTheme.Text(_worldRt, "Sub", "", 28, SpaceTheme.TEXT_SUB, new Vector2(0f, 0.5f),
+            new Vector2(176f, -28f), new Vector2(560f, 40f), FontStyles.Bold, TextAlignmentOptions.Left,
+            new Vector2(0f, 0.5f));
+
+        var chev = SpaceTheme.Rect("Chevron", _worldRt, new Vector2(1f, 0.5f), new Vector2(-64f, 0f), new Vector2(40f, 60f));
+        SpaceTheme.Bar(chev, new Vector2(-1f, 11f), 34f, 6f, -45f, SpaceTheme.TEXT_SUB);
+        SpaceTheme.Bar(chev, new Vector2(-1f, -11f), 34f, 6f, 45f, SpaceTheme.TEXT_SUB);
+        RefreshWorldButton();
+    }
+
+    /// <summary>ダウンロード済みならボタンを出して、所持品ボタンと中央の惑星の領域をその分だけ上へ</summary>
+    private void LayoutWorld()
+    {
+        if (_worldRt == null) return;
+        bool on = SpaceWorld.Installed;
+        _worldRt.gameObject.SetActive(on);
+        float lift = on ? WORLD_H + WORLD_GAP : 0f;
+        _bagRt.anchoredPosition = new Vector2(0f, BAG_Y + lift);
+        if (_cameraArea != null) _cameraArea.offsetMin = new Vector2(_cameraArea.offsetMin.x, CAMERA_BOTTOM + lift);
+    }
+
+    /// <summary>ボタンの下の一言（今日もう置いたか・入店中か）</summary>
+    private void RefreshWorldButton()
+    {
+        if (_worldSub == null || !SpaceWorld.Installed) return;
+        bool can = SpaceWorld.CanPlaceToday; // 管理者は何回でも置ける（デバッグ用）
+        string text = !can ? T_WORLD_PLACED : SpaceWorld.InStore ? T_WORLD_READY : T_WORLD_NOT_IN;
+        if (_worldSub.text != text) _worldSub.text = text;
+        _worldSub.color = can && SpaceWorld.InStore ? SpaceTheme.GOLD : SpaceTheme.TEXT_SUB;
+    }
+
+    /// <summary>歯車メニューでダウンロード・削除した: ボタンの出し入れと並びの調整</summary>
+    private void OnWorldChanged()
+    {
+        if (this == null || !_built) return;
+        if (!SpaceWorld.Installed && _world != null) _world.Close();
+        LayoutWorld();
+        RefreshWorldButton();
+        if (SpaceWorld.Installed)
+        {
+            _worldGroup.alpha = 0f;
+            StartCoroutine(SpaceTheme.Tween(0.4f, 0.1f, k => { if (_worldGroup != null) _worldGroup.alpha = k; }));
+        }
+    }
+
+    private void OpenWorld()
+    {
+        if (PanelOpen || !SpaceWorld.Installed) return;
+        _world = SpaceWorldMap.Open(_canvas, () => _world = null);
+    }
+
     private void PlayEntrance()
     {
         var menuGroup = _accountMenu.TriggerGroup;
         _headerGroup.alpha = _cardGroup.alpha = _orbGroup.alpha = _bagGroup.alpha = menuGroup.alpha = 0f;
+        _worldGroup.alpha = 0f;
         _planetBtnGroup.alpha = 0f;
         var cardBase = _cardRt.anchoredPosition;
         var bagBase = _bagRt.anchoredPosition;
@@ -887,10 +981,16 @@ public class NewHomeController : MonoBehaviour
             _orbGroup.alpha = k;
             _orbRt.localScale = Vector3.one * Mathf.Lerp(0.88f, 1f, k);
         }));
+        var worldBase = _worldRt.anchoredPosition;
         StartCoroutine(SpaceTheme.Tween(0.55f, 0.25f, k =>
         {
             _bagGroup.alpha = k;
             _bagRt.anchoredPosition = bagBase + new Vector2(0f, -36f * (1f - k));
+        }));
+        StartCoroutine(SpaceTheme.Tween(0.55f, 0.32f, k =>
+        {
+            _worldGroup.alpha = k;
+            _worldRt.anchoredPosition = worldBase + new Vector2(0f, -36f * (1f - k));
         }));
         // 履歴・図鑑の小さな惑星は中央の惑星より少し遅れて、ふくらむように現れる
         _historyGroup.alpha = 0f;
@@ -996,8 +1096,22 @@ public class NewHomeController : MonoBehaviour
         _couponSnapshot = now;
         RefreshBagSub();
         if (announce) CheckStarter(); // 贈りものの知らせより先に（選ぶ画面が開いている間は贈りものを待たせる）
+        if (announce) CheckMeeplePick();
         if (announce) CheckLegacyGift();
         if (announce && !_giftBusy) UpdateGifts();
+    }
+
+    /// <summary>
+    /// 複数の色の惑星で入店して、まだもらうコマを選んでいない（選ぶ画面を閉じる前にアプリを閉じたなど）:
+    /// 選ぶ画面をもう一度出す（選ぶまで閉じない。2026-11-10）
+    /// </summary>
+    private void CheckMeeplePick()
+    {
+        if (!_built || _starter != null) return;
+        var pick = JourneyService.PendingPick;
+        if (pick == PlanetColor.None) return;
+        if (PanelOpen || _landing || SpaceNoticeQueue.Running || SpaceNotice.AnyOpen) return;
+        SpaceNotice.MeeplePick(pick);
     }
 
     /// <summary>
@@ -1150,7 +1264,7 @@ public class NewHomeController : MonoBehaviour
     /// <summary>ホームの上に何か開いているか（重ねて開かない・カメラも起動しない）</summary>
     private bool PanelOpen => _inventory != null || _history != null || _news != null
                               || _picker != null || _qrList != null || _passList != null || _composer != null
-                              || _starter != null || _zukan != null
+                              || _starter != null || _world != null || _zukan != null
                               || _prices != null || _orbitPanel != null || _accountMenu.IsOpen
                               || SpaceConstellationPage.Instance != null;
 
@@ -1886,6 +2000,7 @@ public class NewHomeController : MonoBehaviour
             _nextPoll = Time.unscaledTime + 1f;
             PollUserData(true);
             RefreshPlanetFaded();
+            RefreshWorldButton();
             TickStayTime();
             RefreshVisitors(); // 営業終了時刻を過ぎた入店（退店し忘れ）は、新しい知らせがなくても外す
         }
@@ -1903,6 +2018,7 @@ public class NewHomeController : MonoBehaviour
             else if (_passList != null) _passList.HandleBack();
             else if (_composer != null) _composer.HandleBack();
             else if (_picker != null) _picker.HandleBack();
+            else if (_world != null) _world.HandleBack();
             else if (_orbitPanel != null) _orbitPanel.HandleBack();
             else if (_inventory != null) _inventory.HandleBack();
             else if (_history != null) _history.HandleBack();

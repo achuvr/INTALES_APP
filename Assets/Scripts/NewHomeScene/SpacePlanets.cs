@@ -725,7 +725,8 @@ public static class SpacePlanets
     /// 色も少し白く淡くなる」）。コマをもらったまま退店せずに営業日が変わった惑星も含める。回復のしくみはまだない
     /// </summary>
     public static bool IsExhausted(SpacePlanetDef def) =>
-        def != null && JourneyRules.IsExhausted(JourneyService.Journey, def.Id, StoreCalendar.TodayKey);
+        def != null && SpaceWorld.Installed // INTALES WORLD をダウンロードしていない人には、力の考え方そのものを見せない
+        && JourneyRules.IsExhausted(JourneyService.Journey, def.Id, StoreCalendar.TodayKey);
 
     private static byte[][] Levels(byte[] px, int w, int h, bool mips) =>
         mips ? SpacePlanetSurfaces.BuildMips(px, w, h) : new[] { px };

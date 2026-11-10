@@ -26,6 +26,10 @@ public sealed class JourneyResult
     public readonly List<PlanetColor> Meeples = new List<PlanetColor>();
     /// <summary>入店した日の最初の入店で、中央の惑星が力を失っていたのでコマをもらえなかった</summary>
     public bool CenterExhausted;
+    /// <summary>
+    /// 複数の色の惑星で入店した: この色の中から1個だけ選んでもらう（選ぶ画面を出す。2026-11-10）。なければ None
+    /// </summary>
+    public PlanetColor MeeplePick;
     /// <summary>今回力を失った惑星のID（退店したとき。退店しないまま次の営業日に入店したときも）。なければ null</summary>
     public string Exhausted;
     /// <summary>退店の結果（力を失ったお知らせを出すのは退店のときだけ）</summary>
@@ -97,6 +101,13 @@ public static class JourneyRules
         public bool Recruit;
         public string Center;
         public PlanetColor CenterColors; // 中央の惑星の色（コマを配る）
+        /// <summary>コマを配るか（INTALES WORLD をダウンロードした人だけ。2026-11-10）</summary>
+        public bool Meeples;
+        /// <summary>
+        /// 管理者のデバッグ（2026-11-10 ユーザー指定「管理者は何度もミープルを惑星から貰える」）:
+        /// その日の2回目以降の入店でも、力を失った惑星でもコマをもらえる（惑星はふつうどおり使ったことになる）
+        /// </summary>
+        public bool Debug;
         public long InAt;
         public int SeedDays;
     }
@@ -123,18 +134,43 @@ public static class JourneyRules
         //      「1回使って退店すると、その惑星は力を失い、コマがもらえなくなる」（同日のユーザー指定）ので、
         //      もらった惑星を Used に覚えておき、退店で Exhausted に移す（ApplyCheckOut）。
         //      退店しないまま次の営業日に来たときは、ここで移してからコマを判定する ----
+        //      INTALES WORLD をダウンロードしていない人（c.Meeples が false）には配らない（同日のユーザー指定）。
+        //      複数の色の惑星は「その色の中から選んだ1個だけ」（同日のユーザー指定で「1色1個ずつ」から変更）。
+        //      ここでは選べる色を Pick に入れるだけで、選んだときに渡す（JourneyService.ClaimMeepleAsync）
         if (!string.IsNullOrEmpty(j.Used) && j.UsedDay != c.DayKey) Exhaust(j, r);
-        if (r.NewDay)
+        bool give = (r.NewDay || c.Debug) && c.Meeples;
+        if (j.Pick != 0 && (j.PickDay != c.DayKey || (give && c.Debug)))
         {
-            if (!string.IsNullOrEmpty(c.Center) && j.Exhausted.Contains(c.Center))
+            // 前の入店で選ばないまま次の入店になった分は、赤・青・黄の順で最初の色にして渡す（なくさないように）。
+            // 管理者は同じ日に何度ももらうので、選ばないまま入店し直したときも渡す
+            var firstColor = FirstColor((PlanetColor)j.Pick);
+            if (firstColor != PlanetColor.None) r.Meeples.Add(firstColor);
+            j.Pick = 0;
+            j.PickDay = null;
+        }
+        if (give)
+        {
+            if (!c.Debug && !string.IsNullOrEmpty(c.Center) && j.Exhausted.Contains(c.Center))
             {
                 r.CenterExhausted = true;
             }
             else
             {
+                var colors = c.CenterColors & PlanetColor.All;
+                int n = 0;
                 foreach (var color in PlanetColorOrder.All)
-                    if ((c.CenterColors & color) != 0) r.Meeples.Add(color);
-                if (r.Meeples.Count > 0 && !string.IsNullOrEmpty(c.Center))
+                    if ((colors & color) != 0) n++;
+                if (n == 1)
+                {
+                    r.Meeples.Add(colors);
+                }
+                else if (n > 1)
+                {
+                    r.MeeplePick = colors;
+                    j.Pick = (int)colors;
+                    j.PickDay = c.DayKey;
+                }
+                if (n > 0 && !string.IsNullOrEmpty(c.Center))
                 {
                     j.Used = c.Center;
                     j.UsedDay = c.DayKey;
@@ -211,6 +247,27 @@ public static class JourneyRules
         return j;
     }
 
+    /// <summary>
+    /// まだ選んでいないコマ（Pick）から1色選ぶ。選べる色なら Pick を空にして true（呼んだ側でその色のコマを1個足す）
+    /// </summary>
+    public static bool ClaimPick(JourneyData j, PlanetColor color)
+    {
+        if (j == null || j.Pick == 0) return false;
+        bool single = color == PlanetColor.Red || color == PlanetColor.Blue || color == PlanetColor.Yellow;
+        if (!single || (j.Pick & (int)color) == 0) return false;
+        j.Pick = 0;
+        j.PickDay = null;
+        return true;
+    }
+
+    /// <summary>色の組み合わせのうち、赤・青・黄の順で最初の色（なければ None）</summary>
+    public static PlanetColor FirstColor(PlanetColor colors)
+    {
+        foreach (var c in PlanetColorOrder.All)
+            if ((colors & c) != 0) return c;
+        return PlanetColor.None;
+    }
+
     /// <summary>退店した: コマをもらった惑星（Used）が力を失う（2026-11-10）</summary>
     public static void ApplyCheckOut(JourneyData j, JourneyResult r)
     {
@@ -226,6 +283,30 @@ public static class JourneyRules
         if (string.IsNullOrEmpty(id) || j.Exhausted.Contains(id)) return;
         j.Exhausted.Add(id);
         r.Exhausted = id;
+    }
+
+    /// <summary>力を失った惑星の一覧（退店し忘れのまま営業日が変わった Used も含める。並びは力を失った順）</summary>
+    public static List<string> ExhaustedList(JourneyData j, string todayKey)
+    {
+        var list = new List<string>();
+        if (j == null) return list;
+        list.AddRange(j.Exhausted);
+        if (!string.IsNullOrEmpty(j.Used) && j.UsedDay != todayKey && !list.Contains(j.Used)) list.Add(j.Used);
+        return list;
+    }
+
+    /// <summary>
+    /// 力を失った惑星に力を戻す（INTALES WORLD の「惑星を3つアクティブにする」。2026-11-10）。
+    /// 退店し忘れの Used は先に力を失った惑星へ移してから戻す。実際に戻した惑星を返す
+    /// </summary>
+    public static List<string> Reactivate(JourneyData j, IEnumerable<string> ids, string todayKey)
+    {
+        var done = new List<string>();
+        if (j == null || ids == null) return done;
+        if (!string.IsNullOrEmpty(j.Used) && j.UsedDay != todayKey) Exhaust(j, new JourneyResult());
+        foreach (var id in ids)
+            if (!string.IsNullOrEmpty(id) && j.Exhausted.Remove(id)) done.Add(id);
+        return done;
     }
 
     /// <summary>

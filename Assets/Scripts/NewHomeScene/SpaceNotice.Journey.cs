@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Text;
+using Cysharp.Threading.Tasks;
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
@@ -50,7 +51,11 @@ public static partial class SpaceNotice
         .Append(T_ORBIT_FIRST).Append(T_VISITS_A).Append(T_VISITS_B).Append(T_STAR_CAPTION).Append(T_STAR_TITLE)
         .Append(T_STAR_GOT).Append(T_STAR_HINT).Append(T_STAR_NOIR).Append(T_STAR_NOIR_HINT).Append(T_TOGETHER)
         .Append(T_MEEPLE_GOT).Append(SpaceMeeples.GlyphText).Append(T_MEEPLE_NONE).Append(T_FADED_CAPTION)
-        .Append(T_FADED_TITLE).Append(T_FADED_BODY_B).Append(T_FADED_NOTE)
+        .Append(T_FADED_TITLE).Append(T_FADED_BODY_B).Append(T_FADED_NOTE).Append(T_WORLD_CAPTION)
+        .Append(T_REVIVED_TITLE).Append(T_REVIVED_NOTE).Append(T_PICK_CAPTION).Append(T_PICK_TITLE)
+        .Append(T_PICK_SUB_B).Append(T_PICK_SUB).Append(T_PICK_GOT).Append(T_PICK_FAILED).Append(T_PICK_NEXT)
+        .Append(T_FRAGMENT_GOT).Append(T_FRAGMENT_LEFT_A).Append(T_FRAGMENT_LEFT_B).Append(T_FRAGMENT_DONE)
+        .Append(T_FRAGMENT_DONE_NOTE).Append(SpaceWorld.FRAGMENT_NAME)
         .Append(StoreCalendar.GlyphText).Append(SpaceGachaMeteor.GlyphText).ToString();
 
     /// <summary>
@@ -63,6 +68,12 @@ public static partial class SpaceNotice
         if (r != null)
         {
             if (visitCard) steps.Add(() => OrbitVisit(r));
+            // 複数の色の惑星で入店した: 入店のカードのあとに、もらうコマを1個選ぶ（選ぶまで閉じない）
+            if (r.MeeplePick != PlanetColor.None)
+            {
+                var pick = r.MeeplePick;
+                steps.Add(() => JourneyService.PendingPick != PlanetColor.None ? MeeplePick(pick) : null);
+            }
             var faded = FadedAtCheckOut(r);
             if (faded != null) steps.Add(() => PlanetFaded(faded));
             foreach (var p in r.Prizes)
@@ -117,6 +128,8 @@ public static partial class SpaceNotice
         if (r.FirstEver && r.Visits > 1) lines.Add((T_ORBIT_FIRST, SpaceTheme.TEXT_SUB));
         // 中央の惑星が力を失っていて、コマをもらえなかった（2026-11-10）
         if (r.CenterExhausted) lines.Add((center.Name + T_MEEPLE_NONE, SpaceTheme.TEXT_SUB));
+        // 複数の色の惑星: このあとの画面で、もらうコマを1個選ぶ
+        if (r.MeeplePick != PlanetColor.None) lines.Add((T_PICK_NEXT, SpaceTheme.GOLD));
         if (!r.NewOrbit) lines.Add((T_ORBIT_SAME, SpaceTheme.TEXT_MUTED));
         if (r.Rescued > 0) lines.Add((T_ORBIT_RESCUED, SpaceTheme.MINT));
         if (r.InsuranceUsed > 0) lines.Add((T_ORBIT_INSURED, SpaceTheme.MINT));
@@ -190,6 +203,266 @@ public static partial class SpaceNotice
         Wrap(note);
         Stack(note.rectTransform, ref y, Measure(note, 40f), 10f);
 
+        Finish(card, root, ref y);
+        return root;
+    }
+
+    // ================================================================
+    // もらうコマを選ぶ（複数の色の惑星で入店したとき。2026-11-10）
+    // ================================================================
+    private const string T_PICK_CAPTION = "CHOOSE A PIECE";
+    private const string T_PICK_TITLE = "もらうコマを1個選んでください";
+    private const string T_PICK_SUB_B = " の色から、1個だけ選べます";
+    private const string T_PICK_SUB = "惑星の色から、1個だけ選べます";
+    private const string T_PICK_GOT = " をもらいました";
+    private const string T_PICK_FAILED = "受け取れませんでした。通信の状態を確かめて、もう一度押してください";
+    private const string T_PICK_NEXT = "このあと、もらうコマの色を1つ選べます";
+
+    /// <summary>
+    /// 複数の色の惑星で入店したとき: その色の中から、もらうコマを1個だけ選ぶ（選ぶまで閉じない）。
+    /// 押した色を JourneyService.ClaimMeepleAsync で受け取ってから閉じる
+    /// </summary>
+    public static GameObject MeeplePick(PlanetColor colors)
+    {
+        colors &= PlanetColor.All;
+        if (colors == PlanetColor.None) return null;
+        var card = Overlay("__MeeplePickModal", out var root, SpaceTheme.A(SpaceTheme.GOLD, 0.5f), null, false);
+        if (card == null) return null;
+
+        float y = 48f;
+        var caption = SpaceTheme.Text(card, "Caption", T_PICK_CAPTION, 24, SpaceTheme.A(SpaceTheme.CYAN, 0.9f),
+            FontStyles.Bold);
+        SpaceTheme.Tracking(caption, 18f);
+        Stack(caption.rectTransform, ref y, 36f, 0f);
+        var title = SpaceTheme.Text(card, "Title", T_PICK_TITLE, 40, SpaceTheme.TEXT, FontStyles.Bold);
+        title.enableAutoSizing = true;
+        title.fontSizeMin = 28f;
+        title.fontSizeMax = 40f;
+        Stack(title.rectTransform, ref y, 56f, 8f);
+        var planet = JourneyService.PendingPickPlanet;
+        var sub = SpaceTheme.Text(card, "Sub", planet != null ? planet.Name + T_PICK_SUB_B : T_PICK_SUB, 28,
+            SpaceTheme.TEXT_SUB, FontStyles.Bold);
+        Wrap(sub);
+        Stack(sub.rectTransform, ref y, Measure(sub, 40f), 6f);
+
+        var list = new List<PlanetColor>();
+        foreach (var c in PlanetColorOrder.All)
+            if ((colors & c) != 0) list.Add(c);
+        const float CW = 230f, CH = 250f, GAP = 22f;
+        var row = SpaceTheme.Rect("Choices", card);
+        Stack(row, ref y, CH, 28f);
+        float total = list.Count * CW + (list.Count - 1) * GAP;
+        var top = new Vector2(0.5f, 1f);
+        var groups = new List<CanvasGroup>();
+        bool busy = false;
+
+        async UniTaskVoid Claim(PlanetColor color)
+        {
+            if (busy) return;
+            busy = true;
+            foreach (var g in groups) g.alpha = 0.5f;
+            bool ok = await JourneyService.ClaimMeepleAsync(color);
+            if (root == null) return;
+            if (ok)
+            {
+                UnityEngine.Object.Destroy(root);
+                SpaceTheme.Toast(SpaceMeeples.Of(color)?.Name + T_PICK_GOT);
+                AssetsDatabase.instance?.PlayLevelUpSE();
+                return;
+            }
+            busy = false;
+            foreach (var g in groups) g.alpha = 1f;
+            SpaceTheme.Toast(T_PICK_FAILED);
+        }
+
+        for (int i = 0; i < list.Count; i++)
+        {
+            var color = list[i];
+            var m = SpaceMeeples.Of(color);
+            if (m == null) continue;
+            float x = -total * 0.5f + CW * 0.5f + i * (CW + GAP);
+            var rt = SpaceTheme.Rect("Pick_" + m.Field, row, top, new Vector2(x, -CH * 0.5f), new Vector2(CW, CH));
+            groups.Add(rt.gameObject.AddComponent<CanvasGroup>());
+            var glow = SpaceTheme.Rect("Glow", rt, SpaceTheme.CENTER, Vector2.zero, new Vector2(CW + 100f, CH + 100f));
+            SpaceTheme.Img(glow, SpaceSprites.Glow, SpaceTheme.A(m.Tint, 0.3f));
+            var faceRt = SpaceTheme.Rect("Face", rt);
+            SpaceTheme.Stretch(faceRt);
+            var face = SpaceTheme.Rounded(faceRt, new Color(0.07f, 0.09f, 0.24f, 0.9f), 36f, true);
+            SpaceTheme.Clickable(rt.gameObject, face, () => Claim(color).Forget());
+            var stroke = SpaceTheme.Rect("Stroke", rt);
+            SpaceTheme.Stretch(stroke);
+            SpaceTheme.RoundedStroke(stroke, SpaceTheme.A(m.Tint, 0.85f), 36f);
+            var icon = SpaceTheme.Rect("Icon", rt, top, new Vector2(0f, -82f), new Vector2(124f, 124f));
+            var img = SpaceTheme.Img(icon, m.Icon, Color.white);
+            img.preserveAspect = true;
+            img.enabled = m.Icon != null;
+            SpaceTheme.Text(rt, "Name", m.Name, 34, SpaceTheme.TEXT, new Vector2(0.5f, 0f), new Vector2(0f, 46f),
+                new Vector2(CW - 16f, 48f), FontStyles.Bold);
+        }
+
+        y += 56f;
+        card.sizeDelta = new Vector2(WIDTH, y);
+        root.AddComponent<SpacePopIn>().Target = card;
+        return root;
+    }
+
+    // ================================================================
+    // INTALES WORLD の効果（2026-11-10）
+    // ================================================================
+    private const string T_WORLD_CAPTION = "INTALES WORLD";
+    private const string T_REVIVED_TITLE = "惑星が力を取り戻しました";
+    private const string T_REVIVED_NOTE = "また入店のときに、この惑星の色のコマがもらえます";
+
+    /// <summary>惑星の神殿: 力を戻した惑星（最大3つ）が、白く淡い色からいつもの色に戻っていく</summary>
+    public static GameObject PlanetsRevived(List<SpacePlanetDef> planets)
+    {
+        if (planets == null || planets.Count == 0) return null;
+        var card = Overlay("__PlanetsRevivedModal", out var root, SpaceTheme.A(planets[0].Accent, 0.5f));
+        if (card == null) return null;
+        SpaceTheme.SubCanvas(root, true); // 惑星が自転し続けるので、メインのキャンバスと分ける
+
+        float y = 48f;
+        var caption = SpaceTheme.Text(card, "Caption", T_WORLD_CAPTION, 24, SpaceTheme.A(SpaceTheme.CYAN, 0.9f),
+            FontStyles.Bold);
+        SpaceTheme.Tracking(caption, 18f);
+        Stack(caption.rectTransform, ref y, 36f, 0f);
+        var title = SpaceTheme.Text(card, "Title", T_REVIVED_TITLE, 40, SpaceTheme.TEXT, FontStyles.Bold);
+        title.enableAutoSizing = true;
+        title.fontSizeMin = 28f;
+        title.fontSizeMax = 40f;
+        Stack(title.rectTransform, ref y, 56f, 8f);
+
+        const float FRAME = 230f, GAP = 14f;
+        int n = Mathf.Min(planets.Count, 3);
+        var stage = SpaceTheme.Rect("Planets", card);
+        Stack(stage, ref y, FRAME + 52f, 16f);
+        float total = n * FRAME + (n - 1) * GAP;
+        var top = new Vector2(0.5f, 1f);
+        for (int i = 0; i < n; i++)
+        {
+            var def = planets[i];
+            float x = -total * 0.5f + FRAME * 0.5f + i * (FRAME + GAP);
+            var slot = SpaceTheme.Rect("Slot" + i, stage, top, new Vector2(x, -FRAME * 0.5f), new Vector2(FRAME, FRAME));
+            var pale = SpaceTheme.Rect("Pale", slot);
+            SpaceTheme.Stretch(pale);
+            var paleGroup = pale.gameObject.AddComponent<CanvasGroup>();
+            SpacePlanetView.Create(pale, def, FRAME, SpacePlanetView.Quality.Thumb, true, false, true);
+            var vivid = SpaceTheme.Rect("Vivid", slot);
+            SpaceTheme.Stretch(vivid);
+            var vividGroup = vivid.gameObject.AddComponent<CanvasGroup>();
+            vividGroup.alpha = 0f;
+            SpacePlanetView.Create(vivid, def, FRAME, SpacePlanetView.Quality.Thumb, true);
+            var swap = slot.gameObject.AddComponent<SpaceCrossFade>();
+            swap.From = paleGroup;
+            swap.To = vividGroup;
+            swap.Delay = 0.8f + i * 0.3f; // 左から順に色が戻る
+            var name = SpaceTheme.Text(stage, "Name" + i, def.Name, 28, SpaceTheme.TEXT, top,
+                new Vector2(x, -(FRAME + 26f)), new Vector2(FRAME, 40f), FontStyles.Bold);
+            name.enableAutoSizing = true;
+            name.fontSizeMin = 20f;
+            name.fontSizeMax = 28f;
+        }
+
+        var note = SpaceTheme.Text(card, "Note", T_REVIVED_NOTE, 26, SpaceTheme.TEXT_SUB, FontStyles.Bold);
+        Wrap(note);
+        Stack(note.rectTransform, ref y, Measure(note, 40f), 14f);
+        Finish(card, root, ref y);
+        return root;
+    }
+
+    private const string T_FRAGMENT_GOT = " を1枚もらいました";
+    private const string T_FRAGMENT_LEFT_A = "あと ";
+    private const string T_FRAGMENT_LEFT_B = "枚で 5%OFFチケット になります";
+    private const string T_FRAGMENT_DONE = "カケラがそろって、5%OFFチケット になりました！";
+    private const string T_FRAGMENT_DONE_NOTE = "所持品に入りました";
+
+    /// <summary>
+    /// 商人の港: 5%OFFチケットのカケラを1枚もらった（2026-11-10）。カケラの枠を2つ並べて、集まった数だけ埋める。
+    /// そろったとき（completed）は、5%OFFチケットができたことを知らせる
+    /// </summary>
+    public static GameObject FragmentGot(string place, int have, bool completed)
+    {
+        var accent = SpaceTheme.Hex(0x6FA8FF);
+        var card = Overlay("__FragmentGotModal", out var root, SpaceTheme.A(accent, 0.55f));
+        if (card == null) return null;
+        float y = 48f;
+        var caption = SpaceTheme.Text(card, "Caption", T_WORLD_CAPTION, 24, SpaceTheme.A(SpaceTheme.CYAN, 0.9f),
+            FontStyles.Bold);
+        SpaceTheme.Tracking(caption, 18f);
+        Stack(caption.rectTransform, ref y, 36f, 0f);
+        var title = SpaceTheme.Text(card, "Title", place, 40, SpaceTheme.TEXT, FontStyles.Bold);
+        Stack(title.rectTransform, ref y, 56f, 8f);
+
+        int need = SpaceWorld.FRAGMENTS_PER_COUPON;
+        int filled = completed ? need : Mathf.Clamp(have, 0, need);
+        const float SLOT = 200f, GAP = 30f;
+        var stage = SpaceTheme.Rect("Fragments", card);
+        Stack(stage, ref y, SLOT, 20f);
+        float total = need * SLOT + (need - 1) * GAP;
+        var top = new Vector2(0.5f, 1f);
+        for (int i = 0; i < need; i++)
+        {
+            float x = -total * 0.5f + SLOT * 0.5f + i * (SLOT + GAP);
+            var slot = SpaceTheme.Rect("Slot" + i, stage, top, new Vector2(x, -SLOT * 0.5f), new Vector2(SLOT, SLOT));
+            bool on = i < filled;
+            if (on)
+            {
+                var glow = SpaceTheme.Rect("Glow", slot, SpaceTheme.CENTER, Vector2.zero, new Vector2(SLOT * 1.5f, SLOT * 1.5f));
+                SpaceTheme.Img(glow, SpaceSprites.Glow, SpaceTheme.A(accent, 0.35f));
+            }
+            else
+            {
+                var ring = SpaceTheme.Rect("Empty", slot);
+                SpaceTheme.Stretch(ring);
+                SpaceTheme.RoundedStroke(ring, SpaceTheme.A(SpaceTheme.TEXT_SUB, 0.45f), 36f);
+            }
+            // 1枚目は左半分（5）、2枚目は右半分（%）。そろうと元のチケットの形になる
+            var sprite = i == 0 ? SpaceWorld.FragmentIcon : (SpaceWorld.FragmentIconRight ?? SpaceWorld.FragmentIcon);
+            var icon = SpaceTheme.Rect("Icon", slot, SpaceTheme.CENTER, Vector2.zero, new Vector2(SLOT * 0.86f, SLOT * 0.86f));
+            var img = SpaceTheme.Img(icon, sprite, on ? Color.white : new Color(1f, 1f, 1f, 0.16f));
+            img.preserveAspect = true;
+            img.enabled = sprite != null;
+        }
+
+        var got = SpaceTheme.Text(card, "Got",
+            $"<color=#{ColorUtility.ToHtmlStringRGB(SpaceTheme.GOLD)}>{SpaceWorld.FRAGMENT_NAME}</color>{T_FRAGMENT_GOT}", 32,
+            SpaceTheme.TEXT, FontStyles.Bold);
+        Wrap(got);
+        Stack(got.rectTransform, ref y, Measure(got, 48f), 22f);
+        string noteText = completed ? T_FRAGMENT_DONE : T_FRAGMENT_LEFT_A + (need - filled) + T_FRAGMENT_LEFT_B;
+        var note = SpaceTheme.Text(card, "Note", noteText, 28, completed ? SpaceTheme.GOLD : SpaceTheme.TEXT_SUB,
+            FontStyles.Bold);
+        Wrap(note);
+        Stack(note.rectTransform, ref y, Measure(note, 40f), 6f);
+        if (completed)
+        {
+            // できた5%OFFチケット
+            var coupon = SpaceCoupons.ByField("five_coupon");
+            var done = SpaceTheme.Rect("Coupon", card);
+            Stack(done, ref y, 190f, 14f);
+            var halo = SpaceTheme.Rect("Glow", done, SpaceTheme.CENTER, Vector2.zero, new Vector2(300f, 300f));
+            SpaceTheme.Img(halo, SpaceSprites.Glow, SpaceTheme.A(SpaceTheme.GOLD, 0.3f));
+            if (coupon != null) SpaceInventoryPanel.RoundedIcon(done, coupon.Icon(), SpaceTheme.CENTER, Vector2.zero, 180f, 38f);
+            var sub = SpaceTheme.Text(card, "DoneNote", T_FRAGMENT_DONE_NOTE, 24, SpaceTheme.TEXT_MUTED, FontStyles.Bold);
+            Stack(sub.rectTransform, ref y, 34f, 8f);
+        }
+        Finish(card, root, ref y);
+        return root;
+    }
+
+    /// <summary>コマの工房: 各色のコマを1個ずつもらった（place は置き場の名前）</summary>
+    public static GameObject MeeplesGot(string place)
+    {
+        var card = Overlay("__MeeplesGotModal", out var root, SpaceTheme.A(SpaceTheme.GOLD, 0.45f));
+        if (card == null) return null;
+        float y = 48f;
+        var caption = SpaceTheme.Text(card, "Caption", T_WORLD_CAPTION, 24, SpaceTheme.A(SpaceTheme.CYAN, 0.9f),
+            FontStyles.Bold);
+        SpaceTheme.Tracking(caption, 18f);
+        Stack(caption.rectTransform, ref y, 36f, 0f);
+        var title = SpaceTheme.Text(card, "Title", place, 40, SpaceTheme.TEXT, FontStyles.Bold);
+        Stack(title.rectTransform, ref y, 56f, 8f);
+        MeepleStrip(card, new List<PlanetColor>(PlanetColorOrder.All), ref y);
         Finish(card, root, ref y);
         return root;
     }
@@ -415,6 +688,11 @@ public class SpaceMeteorShow : MonoBehaviour
         _streak.anchoredPosition = Vector2.Lerp(FROM * reach, TO * reach, p);
         _streakImg.color = SpaceTheme.A(Color, Mathf.Sin(p * Mathf.PI) * 0.95f);
     }
+}
+
+/// <summary>選ぶまで閉じられないお知らせの印（暗幕を押しても・戻る操作でも閉じない。SpaceNotice.Overlay の tapToClose）</summary>
+public class SpaceNoticeSticky : MonoBehaviour
+{
 }
 
 /// <summary>

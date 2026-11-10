@@ -33,7 +33,10 @@ public class SpacePlanetPicker : MonoBehaviour
     // 選んだ惑星で入店するともらえるコマ／力を失っているとき（2026-11-10）
     private const string T_MEEPLE_A = "入店すると ";
     private const string T_MEEPLE_B = " がもらえます";
+    private const string T_MEEPLE_PICK = " から1個選んでもらえます";
     private const string T_EXHAUSTED = "力を失っています（入店してもコマはもらえません）";
+    /// <summary>力を失った惑星の印の色（くすんだ琥珀色）</summary>
+    private static readonly Color EXHAUSTED_TINT = new Color32(0xFF, 0xC8, 0x7A, 0xFF);
 
     /// <summary>惑星の色を1色ずつ（赤・青・黄の順）</summary>
     private static System.Collections.Generic.IEnumerable<PlanetColor> ColorsOf(SpacePlanetDef def)
@@ -46,7 +49,7 @@ public class SpacePlanetPicker : MonoBehaviour
     /// <summary>この画面で表示しうる文字（惑星の名前・説明は SpacePlanets.GlyphText）</summary>
     public static string GlyphText =>
         T_CAPTION + T_TITLE + T_CHOOSE + T_CURRENT + T_LOCKED + T_LOCKED_SUB + T_UNLOCKED + T_CONDITION + T_ABILITY_SEP
-        + T_MEEPLE_A + T_MEEPLE_B + T_EXHAUSTED + SpaceMeeples.GlyphText + "0123456789/";
+        + T_MEEPLE_A + T_MEEPLE_B + T_MEEPLE_PICK + T_EXHAUSTED + SpaceMeeples.GlyphText + "0123456789/";
 
     // 配置（セーフエリア基準）
     private const int COLS = 4;
@@ -316,6 +319,20 @@ public class SpacePlanetPicker : MonoBehaviour
             new Vector2(0f, -CELL_H * 0.5f + 30f), new Vector2(CELL_W - 12f, 36f), FontStyles.Bold);
         ColorDots(rt, def.Colors);
 
+        if (owned && SpacePlanets.IsExhausted(def))
+        {
+            // 力を失った（使用済みで非アクティブ）惑星: 右上の角に「空っぽの電池」の印（2026-11-10）。
+            // いまの惑星でもあるときは、チェックの印の左に並べる
+            var spent = SpaceTheme.Rect("Exhausted", rt, new Vector2(1f, 1f), new Vector2(inUse ? -64f : -24f, -24f),
+                new Vector2(36f, 36f));
+            SpaceTheme.Img(spent, SpaceSprites.Circle, new Color(0.05f, 0.07f, 0.19f, 0.95f));
+            var spentRim = SpaceTheme.Rect("Rim", spent);
+            SpaceTheme.Stretch(spentRim);
+            SpaceTheme.Img(spentRim, SpaceSprites.RingSmall, SpaceTheme.A(EXHAUSTED_TINT, 0.7f));
+            var spentIcon = SpaceTheme.Rect("Icon", spent, SpaceTheme.CENTER, Vector2.zero, new Vector2(24f, 24f));
+            SpaceTheme.Img(spentIcon, SpaceSprites.BatteryEmptyIcon, EXHAUSTED_TINT);
+        }
+
         if (inUse)
         {
             // いまの惑星: 右上の角にチェックの印（惑星に重ならない位置）＋名前をミント色に（ホームの「入店中」と同じ色）
@@ -441,8 +458,9 @@ public class SpacePlanetPicker : MonoBehaviour
         _lockedSub.text = power != null ? T_CONDITION + power.UnlockText : T_LOCKED_SUB;
         bool owned = SpacePlanets.IsOwned(_selected);
         // 惑星の能力は 2026-11-09、パワーは 2026-11-10 にやめた。もとの能力の行には、持っている惑星で入店したときに
-        // もらえるコマ（2026-11-10）か、力を失っていてもらえないことを出す（未解放の惑星は空）
-        if (!owned) _abilityText.text = "";
+        // もらえるコマ（2026-11-10）か、力を失っていてもらえないことを出す
+        // （未解放の惑星と、INTALES WORLD をダウンロードしていない人は空）
+        if (!owned || !SpaceWorld.Installed) _abilityText.text = "";
         else if (SpacePlanets.IsExhausted(_selected))
         {
             _abilityText.text = T_EXHAUSTED;
@@ -450,7 +468,9 @@ public class SpacePlanetPicker : MonoBehaviour
         }
         else
         {
-            _abilityText.text = T_MEEPLE_A + SpaceMeeples.Names(ColorsOf(_selected)) + T_MEEPLE_B;
+            // 複数の色の惑星は、その色の中から1個だけ選んでもらう（2026-11-10）
+            var colors = new List<PlanetColor>(ColorsOf(_selected));
+            _abilityText.text = T_MEEPLE_A + SpaceMeeples.Names(colors) + (colors.Count > 1 ? T_MEEPLE_PICK : T_MEEPLE_B);
             _abilityText.color = SpaceTheme.GOLD;
         }
         bool isCurrent = _selected == _current;

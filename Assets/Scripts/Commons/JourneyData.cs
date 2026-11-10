@@ -39,8 +39,15 @@ public sealed class JourneyData
     public string Used;
     /// <summary>Used の入店の営業日 "yyyy-MM-dd"</summary>
     public string UsedDay;
-    /// <summary>力を失った惑星（入店してもコマはもらえず、色が白く淡くなる。回復のしくみはまだない）</summary>
+    /// <summary>力を失った惑星（入店してもコマはもらえず、色が白く淡くなる。INTALES WORLD の惑星の神殿で戻せる）</summary>
     public List<string> Exhausted = new List<string>();
+    /// <summary>
+    /// まだ選んでいないコマ（2026-11-10。複数の色の惑星で入店したとき、その色の中から1個だけ選んでもらう）。
+    /// 選べる色の PlanetColor の組み合わせ（0＝なし）。選ぶと 0 に戻る（JourneyService.ClaimMeepleAsync）
+    /// </summary>
+    public int Pick;
+    /// <summary>Pick を作った入店の営業日</summary>
+    public string PickDay;
 
     public static JourneyData From(object raw)
     {
@@ -60,6 +67,8 @@ public sealed class JourneyData
             MetDay = Str(m, "met_day"),
             Used = Str(m, "used"),
             UsedDay = Str(m, "used_day"),
+            Pick = Int(m, "pick"),
+            PickDay = Str(m, "pick_day"),
         };
         if (j.Used == "") j.Used = null;
         IntList(m, "rescues", j.Rescues);
@@ -100,6 +109,8 @@ public sealed class JourneyData
         { "used", Used ?? "" },
         { "used_day", UsedDay ?? "" },
         { "exhausted", new List<object>(Exhausted) },
+        { "pick", Pick },
+        { "pick_day", PickDay ?? "" },
     };
 
     private Dictionary<string, object> PowerMap()

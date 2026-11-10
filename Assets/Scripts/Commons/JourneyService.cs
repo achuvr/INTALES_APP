@@ -146,6 +146,8 @@ public static class JourneyService
             FullMoon = StoreCalendar.IsFullMoonDay(day),
             Center = center.Id,
             CenterColors = center.Colors, // この色のコマを1個ずつ（その営業日の最初の入店のとき。2026-11-10）
+            Meeples = SpaceWorld.Installed, // コマを配るのは INTALES WORLD をダウンロードした人だけ
+            Debug = AdminClaim.IsAdmin,     // 管理者はデバッグ用に、入店するたびにコマをもらえる（2026-11-10）
             InAt = new DateTimeOffset(visitUtc.ToUniversalTime()).ToUnixTimeSeconds(),
             SeedDays = LocalDistinctDays(),
         };
@@ -620,6 +622,66 @@ public static class JourneyService
             if (def != null) LocalHistoryLog.Add("planet", $"惑星「{def.Name}」を解放");
         }
     }
+
+    // ================================================================
+    // コマを選ぶ（複数の色の惑星で入店したとき。2026-11-10）
+    // ================================================================
+    /// <summary>まだ選んでいないコマの選べる色（なければ None。INTALES WORLD をダウンロードした人だけ）</summary>
+    public static PlanetColor PendingPick =>
+        SpaceWorld.Installed && Journey != null ? (PlanetColor)Journey.Pick & PlanetColor.All : PlanetColor.None;
+
+    /// <summary>選べるコマの元になった惑星（入店のときに中央にあった惑星。分からなければ null）</summary>
+    public static SpacePlanetDef PendingPickPlanet => Journey != null ? SpacePlanets.Find(Journey.Used) : null;
+
+    /// <summary>選んだ色のコマを1個もらう。できたら true</summary>
+    public static async UniTask<bool> ClaimMeepleAsync(PlanetColor color)
+    {
+        var mgr = Manager;
+        var meeple = SpaceMeeples.Of(color);
+        if (mgr == null || string.IsNullOrEmpty(mgr.UID) || meeple == null) return false;
+        var db = FirebaseFirestore.DefaultInstance;
+        var doc = db.Collection("users").Document(mgr.UID);
+        JourneyData journey = null;
+        bool ok;
+        try
+        {
+            ok = await db.RunTransactionAsync(tx => tx.GetSnapshotAsync(doc).ContinueWith(t =>
+            {
+                var map = t.Result.ToDictionary();
+                var j = JourneyData.From(map.TryGetValue("journey", out var raw) ? raw : null);
+                if (!JourneyRules.ClaimPick(j, color)) return false;
+                tx.Update(doc, new Dictionary<string, object>
+                {
+                    { "journey", j.ToMap() },
+                    { meeple.Field, FieldValue.Increment(1) },
+                });
+                journey = j;
+                return true;
+            })).AsUniTask();
+        }
+        catch (Exception ex)
+        {
+            Debug.LogWarning($"[Journey] コマを受け取れませんでした: {ex.Message}");
+            return false;
+        }
+        if (!ok) return false;
+
+        var d = Data;
+        if (d != null)
+        {
+            if (journey != null) d.Journey = journey;
+            meeple.Add(d, 1);
+        }
+        LocalHistoryLog.Add("meeple", $"入店で {meeple.Name} を1個 入手");
+        Changed?.Invoke();
+        return true;
+    }
+
+    /// <summary>users の文書の中身から、持っている惑星の一覧（INTALES WORLD の流れ星でも使う）</summary>
+    public static HashSet<string> OwnedPlanetsOf(Dictionary<string, object> map) => OwnedPlanets(map);
+
+    /// <summary>来店の記録・持ち物が変わったことを知らせる（INTALES WORLD でコマを置いたときなど）</summary>
+    public static void NotifyChanged() => Changed?.Invoke();
 
     private static HashSet<string> OwnedPlanets(Dictionary<string, object> map)
     {

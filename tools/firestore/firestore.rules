@@ -328,6 +328,63 @@ service cloud.firestore {
     }
 
     // ================================================================
+    // INTALES WORLD の置き場（2026-11-10）world/{営業日 yyyy-MM-dd}
+    //   = { c0..c3: 置かれたコマの色（'' | 'red' | 'blue' | 'yellow'）, n0..n3: 置かれた数 }
+    //   読み取り: ログインユーザー
+    //   作成・更新: ログインユーザーの「1か所に1体置く」書き込みだけ
+    //     ・1回に変えてよいのは1か所（nX と cX）だけ。数はちょうど1つ増やす
+    //     ・色はまだ誰も置いていない（''）ときだけ決められ、あとから変えられない（マストフォロー）
+    //   1日1体まで・入店中だけ・その色のコマを持っているか は、アプリのトランザクション（SpaceWorld.PlaceAsync）で確かめる
+    // ================================================================
+    function worldColor(c) {
+      return c in ['red', 'blue', 'yellow'];
+    }
+
+    function worldShape(d) {
+      return d.keys().hasOnly(['c0', 'c1', 'c2', 'c3', 'n0', 'n1', 'n2', 'n3'])
+        && d.keys().hasAll(['c0', 'c1', 'c2', 'c3', 'n0', 'n1', 'n2', 'n3'])
+        && d.n0 is int && d.n1 is int && d.n2 is int && d.n3 is int
+        && d.c0 is string && d.c1 is string && d.c2 is string && d.c3 is string;
+    }
+
+    function worldEmpty(d, n, c) {
+      return d[n] == 0 && d[c] == '';
+    }
+
+    function worldFirst(d, n, c) {
+      return d[n] == 1 && worldColor(d[c]);
+    }
+
+    // 作成（その日の最初の1体）: どこか1か所だけ1体（色つき）、ほかは空
+    function worldCreate(d) {
+      return worldShape(d) && (
+        (worldFirst(d, 'n0', 'c0') && worldEmpty(d, 'n1', 'c1') && worldEmpty(d, 'n2', 'c2') && worldEmpty(d, 'n3', 'c3'))
+        || (worldEmpty(d, 'n0', 'c0') && worldFirst(d, 'n1', 'c1') && worldEmpty(d, 'n2', 'c2') && worldEmpty(d, 'n3', 'c3'))
+        || (worldEmpty(d, 'n0', 'c0') && worldEmpty(d, 'n1', 'c1') && worldFirst(d, 'n2', 'c2') && worldEmpty(d, 'n3', 'c3'))
+        || (worldEmpty(d, 'n0', 'c0') && worldEmpty(d, 'n1', 'c1') && worldEmpty(d, 'n2', 'c2') && worldFirst(d, 'n3', 'c3'))
+      );
+    }
+
+    // 更新: 1か所だけ、数を1つ増やす。色は同じまま、または空から決める
+    function worldStep(before, after, n, c) {
+      return after.diff(before).affectedKeys().hasOnly([n, c])
+        && after[n] == before[n] + 1
+        && (after[c] == before[c] || (before[c] == '' && worldColor(after[c])));
+    }
+
+    match /world/{day} {
+      allow read: if signedIn();
+      allow create: if signedIn() && worldCreate(request.resource.data);
+      allow update: if signedIn() && worldShape(request.resource.data) && (
+        worldStep(resource.data, request.resource.data, 'n0', 'c0')
+        || worldStep(resource.data, request.resource.data, 'n1', 'c1')
+        || worldStep(resource.data, request.resource.data, 'n2', 'c2')
+        || worldStep(resource.data, request.resource.data, 'n3', 'c3')
+      );
+      allow delete: if isAdmin();
+    }
+
+    // ================================================================
     // 旧構造（バックアップ残置分）: 読み取りのみ許可、書き込みは禁止
     // ================================================================
     match /events/{docId} {

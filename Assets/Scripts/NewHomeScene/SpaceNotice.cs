@@ -83,6 +83,8 @@ public static partial class SpaceNotice
                 _open.RemoveAt(i); // ボタンなどで既に閉じられている
                 continue;
             }
+            // 選ぶまで閉じられないお知らせ（もらうコマの色を選ぶなど）は、戻る操作では閉じない
+            if (go.GetComponent<SpaceNoticeSticky>() != null) return true;
             // 流れ星ガチャの演出は消さずに結果まで飛ばす（結果のカードが出たら演出は自分で消える）
             var gacha = go.GetComponent<SpaceGachaMeteor>();
             if (gacha != null)
@@ -375,7 +377,11 @@ public static partial class SpaceNotice
     // 共通の組み立て
     // ================================================================
     /// <summary>暗幕（タップで閉じる）＋カード。カードの中身は上から Stack で積む。fill を省くと紺のガラス</summary>
-    private static RectTransform Overlay(string name, out GameObject rootGo, Color stroke, Color? fill = null)
+    /// <param name="tapToClose">
+    /// false なら暗幕を押しても閉じず、戻る操作（CloseTop）でも閉じない（選ぶまで閉じられないお知らせ。2026-11-10）
+    /// </param>
+    private static RectTransform Overlay(string name, out GameObject rootGo, Color stroke, Color? fill = null,
+        bool tapToClose = true)
     {
         rootGo = null;
         var canvas = SpaceTheme.MainCanvas();
@@ -394,7 +400,8 @@ public static partial class SpaceNotice
         var dim = SpaceTheme.Rect("Dim", root);
         SpaceTheme.Stretch(dim);
         var dimImg = SpaceTheme.Img(dim, null, SpaceTheme.DIM, true);
-        SpaceTheme.Clickable(dim.gameObject, dimImg, () => Object.Destroy(go), false);
+        if (tapToClose) SpaceTheme.Clickable(dim.gameObject, dimImg, () => Object.Destroy(go), false);
+        else go.AddComponent<SpaceNoticeSticky>();
 
         var card = SpaceTheme.Rect("Card", root, SpaceTheme.CENTER, Vector2.zero, new Vector2(WIDTH, 600f));
         SpaceTheme.Glass(card, 56f, fill ?? SpaceTheme.GLASS_DEEP, stroke, true); // カード上のタップは暗幕へ抜けない
