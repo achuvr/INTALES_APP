@@ -52,6 +52,43 @@ public static class SpacePlanetSurfaces
         return maps;
     }
 
+    // ================================================================
+    // 力を失った惑星の色（2026-11-10 ユーザー指定「1回使って退店すると力を失い、色も少し白く淡くなる」）
+    // ================================================================
+    /// <summary>残す鮮やかさ（1＝そのまま）</summary>
+    public const float FADE_SATURATION = 0.62f;
+    /// <summary>白に寄せる割合（0＝そのまま）</summary>
+    public const float FADE_WHITEN = 0.32f;
+
+    /// <summary>
+    /// 地図（RGBA。ストレートアルファ）の色を、鮮やかさを落として白に寄せる（明るさの順は保つ。アルファはそのまま）。
+    /// 地表・雲・環に使う。光る層（Glow）は力を失った惑星では作らない（夜の灯りが消える）
+    /// </summary>
+    public static void Fade(byte[] px)
+    {
+        if (px == null) return;
+        for (int i = 0; i + 3 < px.Length; i += 4)
+        {
+            float r = px[i], g = px[i + 1], b = px[i + 2];
+            FadeColor(ref r, ref g, ref b, 255f);
+            px[i] = (byte)(r + 0.5f);
+            px[i + 1] = (byte)(g + 0.5f);
+            px[i + 2] = (byte)(b + 0.5f);
+        }
+    }
+
+    /// <summary>1色分（max は白の値: byte なら 255、0〜1 の色なら 1）</summary>
+    public static void FadeColor(ref float r, ref float g, ref float b, float max)
+    {
+        float l = 0.299f * r + 0.587f * g + 0.114f * b;
+        r = l + (r - l) * FADE_SATURATION;
+        g = l + (g - l) * FADE_SATURATION;
+        b = l + (b - l) * FADE_SATURATION;
+        r = Math.Clamp(r + (max - r) * FADE_WHITEN, 0f, max);
+        g = Math.Clamp(g + (max - g) * FADE_WHITEN, 0f, max);
+        b = Math.Clamp(b + (max - b) * FADE_WHITEN, 0f, max);
+    }
+
     /// <summary>
     /// 環の画像（見る角度でつぶした楕円のまま作る。width×height の楕円の外周＝半径1、inner〜1 に帯を描く）。
     /// あらかじめつぶしておくと、表示時に縦だけ縮めたときの縞のちらつき（モアレ）が出ない。2×2 の超標本化で滑らかにする。
@@ -145,6 +182,8 @@ public static class SpacePlanetSurfaces
         public bool RimEven;
         /// <summary>球の直径 ÷ 画像の一辺</summary>
         public float SphereFrac;
+        /// <summary>力を失った惑星（環の色も淡くする。地表・雲は渡す地図の側で淡くしておく）</summary>
+        public bool Faded;
         public bool Ring;
         public float RingOuter, RingInner;
     }
@@ -183,6 +222,7 @@ public static class SpacePlanetSurfaces
                 qy = -fx * st + fy * ct;
                 float rr = MathF.Sqrt(qx * qx + (qy / flat) * (qy / flat)) / s.RingOuter;
                 RingSample(s.Kind, rr, s.RingInner, ringNoise, out ringC, out ringA);
+                if (s.Faded) FadeColor(ref ringC.R, ref ringC.G, ref ringC.B, 1f);
                 if (qy > 0f) Over(ref acc, ref accA, ringC, ringA);
             }
 

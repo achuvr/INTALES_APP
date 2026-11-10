@@ -30,12 +30,23 @@ public class SpacePlanetPicker : MonoBehaviour
     private const string T_UNLOCKED = "解放";
     private const string T_CONDITION = "解放の条件：";
     private const string T_ABILITY_SEP = "：";
+    // 選んだ惑星で入店するともらえるコマ／力を失っているとき（2026-11-10）
+    private const string T_MEEPLE_A = "入店すると ";
+    private const string T_MEEPLE_B = " がもらえます";
+    private const string T_EXHAUSTED = "力を失っています（入店してもコマはもらえません）";
+
+    /// <summary>惑星の色を1色ずつ（赤・青・黄の順）</summary>
+    private static System.Collections.Generic.IEnumerable<PlanetColor> ColorsOf(SpacePlanetDef def)
+    {
+        foreach (var c in PlanetColorOrder.All)
+            if ((def.Colors & c) != 0) yield return c;
+    }
     // 惑星のパワー（プレビューの右の「パワー 3/6」）は 2026-11-10 にやめた
 
     /// <summary>この画面で表示しうる文字（惑星の名前・説明は SpacePlanets.GlyphText）</summary>
     public static string GlyphText =>
         T_CAPTION + T_TITLE + T_CHOOSE + T_CURRENT + T_LOCKED + T_LOCKED_SUB + T_UNLOCKED + T_CONDITION + T_ABILITY_SEP
-        + "0123456789/";
+        + T_MEEPLE_A + T_MEEPLE_B + T_EXHAUSTED + SpaceMeeples.GlyphText + "0123456789/";
 
     // 配置（セーフエリア基準）
     private const int COLS = 4;
@@ -359,23 +370,26 @@ public class SpacePlanetPicker : MonoBehaviour
     /// </summary>
     private void BuildThumb(RectTransform cell, SpacePlanetDef def, Vector2 pos, bool owned)
     {
+        // 力を失った惑星（2026-11-10）は白く淡い色の版で出す
+        bool faded = owned && SpacePlanets.IsExhausted(def);
         if (def.IsOrb)
         {
             // ルミナも、最初にほかの色を選んだ人には未解放の影で出す（2026-11-10）
-            var view = SpacePlanetView.Create(cell, def, THUMB, SpacePlanetView.Quality.Thumb, false, !owned);
+            var view = SpacePlanetView.Create(cell, def, THUMB, SpacePlanetView.Quality.Thumb, false, !owned, faded);
             ((RectTransform)view.transform).anchoredPosition = pos;
             return;
         }
         float d = THUMB * SpacePlanetView.SPHERE_RATIO * def.Scale;
         var halo = SpaceTheme.Rect("Halo", cell, SpaceTheme.CENTER, pos, new Vector2(d * def.HaloScale, d * def.HaloScale));
-        SpaceTheme.Img(halo, SpaceSprites.Glow, SpaceTheme.A(def.Accent, def.HaloAlpha * (owned ? 1f : 0.2f)));
+        SpaceTheme.Img(halo, SpaceSprites.Glow, SpaceTheme.A(faded ? SpacePlanets.FadedColor(def.Accent) : def.Accent,
+            def.HaloAlpha * (!owned ? 0.2f : faded ? 0.6f : 1f)));
 
         float side = THUMB * SpacePlanetView.SPHERE_RATIO / SpacePlanets.THUMB_SPHERE_FRAC;
         var rt = SpaceTheme.Rect("Thumb", cell, SpaceTheme.CENTER, pos, new Vector2(side, side));
         var raw = rt.gameObject.AddComponent<RawImage>();
         raw.raycastTarget = false;
         var tint = owned ? Color.white : SpacePlanetView.LOCKED_TINT;
-        var tex = SpacePlanets.Thumb(def);
+        var tex = SpacePlanets.Thumb(def, faded);
         if (tex != null)
         {
             raw.texture = tex;
@@ -384,14 +398,14 @@ public class SpacePlanetPicker : MonoBehaviour
         else
         {
             raw.enabled = false;
-            LoadThumb(raw, def, tint).Forget();
+            LoadThumb(raw, def, tint, faded).Forget();
         }
     }
 
-    private async UniTaskVoid LoadThumb(RawImage raw, SpacePlanetDef def, Color tint)
+    private async UniTaskVoid LoadThumb(RawImage raw, SpacePlanetDef def, Color tint, bool faded)
     {
-        await SpacePlanets.Load(def, false);
-        var tex = SpacePlanets.Thumb(def);
+        await SpacePlanets.Load(def, false, faded);
+        var tex = SpacePlanets.Thumb(def, faded);
         if (raw == null || tex == null) return;
         raw.texture = tex;
         raw.color = new Color(tint.r, tint.g, tint.b, 0f);
@@ -424,10 +438,21 @@ public class SpacePlanetPicker : MonoBehaviour
         _nameText.text = _selected.Name;
         _descText.text = _selected.Desc;
         var power = PlanetPowers.Of(_selected);
-        // 惑星の能力は 2026-11-09、パワーは 2026-11-10 にやめた（惑星は見た目と解放の条件だけ）ので、能力の行は空にする
-        _abilityText.text = "";
         _lockedSub.text = power != null ? T_CONDITION + power.UnlockText : T_LOCKED_SUB;
         bool owned = SpacePlanets.IsOwned(_selected);
+        // 惑星の能力は 2026-11-09、パワーは 2026-11-10 にやめた。もとの能力の行には、持っている惑星で入店したときに
+        // もらえるコマ（2026-11-10）か、力を失っていてもらえないことを出す（未解放の惑星は空）
+        if (!owned) _abilityText.text = "";
+        else if (SpacePlanets.IsExhausted(_selected))
+        {
+            _abilityText.text = T_EXHAUSTED;
+            _abilityText.color = SpaceTheme.TEXT_MUTED;
+        }
+        else
+        {
+            _abilityText.text = T_MEEPLE_A + SpaceMeeples.Names(ColorsOf(_selected)) + T_MEEPLE_B;
+            _abilityText.color = SpaceTheme.GOLD;
+        }
         bool isCurrent = _selected == _current;
         _nameText.color = owned ? SpaceTheme.TEXT : SpaceTheme.TEXT_SUB;
         _chooseWrap.SetActive(owned && !isCurrent);
@@ -442,8 +467,9 @@ public class SpacePlanetPicker : MonoBehaviour
         var slot = SpaceTheme.Rect("Slot", _previewHolder);
         SpaceTheme.Stretch(slot);
         var group = slot.gameObject.AddComponent<CanvasGroup>();
+        bool owned = SpacePlanets.IsOwned(def);
         _preview = SpacePlanetView.Create(slot, def, PREVIEW, SpacePlanetView.Quality.Large, true,
-            !SpacePlanets.IsOwned(def));
+            !owned, owned && SpacePlanets.IsExhausted(def));
         _previewSlot = slot;
         if (animate) StartCoroutine(Appear(slot, group));
     }

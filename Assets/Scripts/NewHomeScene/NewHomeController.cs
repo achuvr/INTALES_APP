@@ -155,6 +155,7 @@ public class NewHomeController : MonoBehaviour
     private SpaceAdminPassList _passList;   // 管理者用: 1か月パスの購入者の一覧
     private SpaceNoticeComposer _composer;  // 管理者用: お知らせ通知を送る画面
     private SpaceStarterPicker _starter;    // 新しく登録した人: 最初の惑星を選ぶ画面（選ぶまで閉じない。2026-11-10）
+    private bool _planetFaded;              // 中央の惑星を「力を失った」淡い色で描いているか（2026-11-10）
     private SpaceBoardGameZukan _zukan;      // ボードゲーム図鑑（開いている間）
     private RectTransform _zukanBtn, _zukanMoon;
     private CanvasGroup _zukanGroup;
@@ -671,12 +672,24 @@ public class NewHomeController : MonoBehaviour
     {
         _planet = def;
         if (_planetView != null) Destroy(_planetView.gameObject);
-        _planetView = SpacePlanetView.Create(_planetHolder, def, PLANET_VIEW, SpacePlanetView.Quality.Large, true);
+        _planetFaded = SpacePlanets.IsExhausted(def); // 力を失った惑星は白く淡い色で（2026-11-10）
+        _planetView = SpacePlanetView.Create(_planetHolder, def, PLANET_VIEW, SpacePlanetView.Quality.Large, true,
+            false, _planetFaded);
         _cameraIcon.gameObject.SetActive(def.IsOrb);
         _cameraBadge.gameObject.SetActive(!def.IsOrb);
         SetTiltOrbit(true); // 環のある惑星でも、紫の衛星の軌道を出す（2026-11-09 ユーザー指定）
         _glowColor = def.Accent;
         if (_planetAway) ShowAwayCenter();
+    }
+
+    /// <summary>
+    /// 中央の惑星が力を失ったか（退店した・コマをもらったまま営業日が変わった）を1秒ごとに見て、
+    /// 変わっていたら白く淡い色で描き直す（惑星が飛んでいる間・選ぶ画面を開いている間は待つ）
+    /// </summary>
+    private void RefreshPlanetFaded()
+    {
+        if (_planet == null || _landing || _returning || _arrivalFlying || _picker != null) return;
+        if (SpacePlanets.IsExhausted(_planet) != _planetFaded) ApplyPlanet(_planet);
     }
 
     /// <summary>
@@ -1480,7 +1493,8 @@ public class NewHomeController : MonoBehaviour
         var glowRt = SpaceTheme.Rect("Glow", holder, SpaceTheme.CENTER, Vector2.zero, Vector2.one);
         var glowImg = SpaceTheme.Img(glowRt, SpaceSprites.Glow, Color.clear);
         float frame0 = ARRIVAL_SPHERE0 / SpacePlanetView.SPHERE_RATIO;
-        var view = SpacePlanetView.Create(holder, def, frame0, SpacePlanetView.Quality.Thumb, false);
+        var view = SpacePlanetView.Create(holder, def, frame0, SpacePlanetView.Quality.Thumb, false,
+            false, SpacePlanets.IsExhausted(def)); // 力を失った惑星は淡い色のまま飛ぶ
         var viewRt = (RectTransform)view.transform;
         var viewGroup = view.GetComponent<CanvasGroup>();
         viewRt.localScale = Vector3.zero;
@@ -1639,7 +1653,8 @@ public class NewHomeController : MonoBehaviour
         var glowRt = SpaceTheme.Rect("Glow", holder, SpaceTheme.CENTER, Vector2.zero, Vector2.one);
         var glowImg = SpaceTheme.Img(glowRt, SpaceSprites.Glow, Color.clear);
         float frame0 = ARRIVAL_SPHERE0 / SpacePlanetView.SPHERE_RATIO;
-        var view = SpacePlanetView.Create(holder, def, frame0, SpacePlanetView.Quality.Thumb, false);
+        var view = SpacePlanetView.Create(holder, def, frame0, SpacePlanetView.Quality.Thumb, false,
+            false, SpacePlanets.IsExhausted(def)); // 力を失った惑星は淡い色のまま飛ぶ
         var viewRt = (RectTransform)view.transform;
         var viewGroup = view.GetComponent<CanvasGroup>();
         viewRt.localScale = Vector3.zero;
@@ -1870,6 +1885,7 @@ public class NewHomeController : MonoBehaviour
         {
             _nextPoll = Time.unscaledTime + 1f;
             PollUserData(true);
+            RefreshPlanetFaded();
             TickStayTime();
             RefreshVisitors(); // 営業終了時刻を過ぎた入店（退店し忘れ）は、新しい知らせがなくても外す
         }

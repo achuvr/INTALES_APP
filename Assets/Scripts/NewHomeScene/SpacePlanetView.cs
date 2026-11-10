@@ -26,6 +26,7 @@ public class SpacePlanetView : MonoBehaviour
 
     private Quality _quality;
     private bool _locked;
+    private bool _faded;
     private CanvasGroup _group;
     private SpaceSphere _surface, _night, _clouds;
     private Image _ringBack, _ringFront, _halo;
@@ -36,8 +37,12 @@ public class SpacePlanetView : MonoBehaviour
     private const float SPIN_INTERVAL = 1f / 30f;
 
     /// <param name="locked">未解放の惑星（色を落とした影の姿で見せる。雲・夜の光・明滅は出さない）</param>
+    /// <param name="faded">
+    /// 力を失った惑星（2026-11-10。色を白く淡くした版のテクスチャで描き、夜の光・光の脈動・明滅は出さない。
+    /// SpacePlanets.IsExhausted を渡す）
+    /// </param>
     public static SpacePlanetView Create(Transform parent, SpacePlanetDef def, float size, Quality quality, bool animate,
-        bool locked = false)
+        bool locked = false, bool faded = false)
     {
         var rt = SpaceTheme.Rect("Planet_" + def.Id, parent, SpaceTheme.CENTER, Vector2.zero, new Vector2(size, size));
         var view = rt.gameObject.AddComponent<SpacePlanetView>();
@@ -46,6 +51,7 @@ public class SpacePlanetView : MonoBehaviour
         view._quality = quality;
         view.Animate = animate;
         view._locked = locked; // ルミナ（オーブ）も、最初にほかの色を選んだ人には未解放の影で出す（2026-11-10）
+        view._faded = faded && !locked;
         view._phase = view._cloudPhase = def.StartSpin;
         view.Build();
         return view;
@@ -53,6 +59,9 @@ public class SpacePlanetView : MonoBehaviour
 
     /// <summary>未解放の惑星の地表の色（ほぼ黒の影。縁の光だけで形がわかる）</summary>
     public static readonly Color LOCKED_TINT = new Color(0.13f, 0.14f, 0.22f, 1f);
+
+    /// <summary>まわりの光の色（力を失った惑星は淡くする）</summary>
+    private Color HaloColor => _faded ? SpacePlanets.FadedColor(Def.Accent) : Def.Accent;
 
     /// <summary>自転の位相をそろえる（選択画面から飛んできた惑星とホームの惑星を入れ替えるとき）</summary>
     public void CopyPhase(SpacePlanetView other)
@@ -75,7 +84,7 @@ public class SpacePlanetView : MonoBehaviour
 
         if (Def.IsOrb)
         {
-            BuildOrb(rt, Size * SPHERE_RATIO, _locked);
+            BuildOrb(rt, Size * SPHERE_RATIO, _locked, _faded);
             return;
         }
 
@@ -83,7 +92,7 @@ public class SpacePlanetView : MonoBehaviour
         var halo = SpaceTheme.Rect("Halo", rt, SpaceTheme.CENTER, Vector2.zero,
             new Vector2(d * Def.HaloScale, d * Def.HaloScale));
         _halo = SpaceTheme.Img(halo, SpaceSprites.Glow,
-            SpaceTheme.A(Def.Accent, Def.HaloAlpha * (_locked ? 0.25f : 1f)));
+            SpaceTheme.A(HaloColor, Def.HaloAlpha * (_locked ? 0.25f : _faded ? 0.6f : 1f)));
 
         if (Def.Ring) _ringBack = RingImage("RingBack", rt, d, false);
 
@@ -97,12 +106,12 @@ public class SpacePlanetView : MonoBehaviour
 
         var rim = SpaceTheme.Rect("Rim", body, SpaceTheme.CENTER, Vector2.zero, new Vector2(d / 0.8f, d / 0.8f));
         SpaceTheme.Img(rim, Def.RimEven ? SpaceSprites.PlanetRimEven : SpaceSprites.PlanetRim,
-            SpaceTheme.A(Def.Rim, Def.RimAlpha * (_locked ? 0.55f : 1f)));
+            SpaceTheme.A(_faded ? SpacePlanets.FadedColor(Def.Rim) : Def.Rim, Def.RimAlpha * (_locked ? 0.55f : 1f)));
 
         if (Def.Ring) _ringFront = RingImage("RingFront", rt, d, true);
 
         ApplySpin();
-        var cached = SpacePlanets.Peek(Def, large) ?? SpacePlanets.Peek(Def, false);
+        var cached = SpacePlanets.Peek(Def, large, _faded) ?? SpacePlanets.Peek(Def, false, _faded);
         if (cached != null) Use(cached, false);
         else _group.alpha = 0f; // テクスチャが届くまで隠す
         if (cached == null || (large && !cached.Large)) LoadTextures().Forget();
@@ -143,17 +152,19 @@ public class SpacePlanetView : MonoBehaviour
     /// ルミナ: 元の新ホームのオーブ（d=380 のとき元と同じ寸法）。locked なら、ほかの未解放の惑星と同じ
     /// ほぼ黒の影にして、光をほとんど消す（最初にほかの色を選んだ人の、惑星を選ぶ画面）
     /// </summary>
-    private static void BuildOrb(RectTransform rt, float d, bool locked)
+    private static void BuildOrb(RectTransform rt, float d, bool locked, bool faded)
     {
         float k = d / 380f;
         bool small = d < 250f;
+        // 力を失ったとき（faded）は、ほかの惑星と同じ割合で色を白く淡くする
+        Color Tone(Color c) => faded ? SpacePlanets.FadedColor(c) : c;
         var halo = SpaceTheme.Rect("Halo", rt, SpaceTheme.CENTER, Vector2.zero, new Vector2(520f * k, 520f * k));
-        SpaceTheme.Img(halo, SpaceSprites.Glow, new Color(0.51f, 0.43f, 1f, locked ? 0.12f : 0.47f));
+        SpaceTheme.Img(halo, SpaceSprites.Glow, Tone(new Color(0.51f, 0.43f, 1f, locked ? 0.12f : faded ? 0.3f : 0.47f)));
         var face = SpaceTheme.Rect("Face", rt, SpaceTheme.CENTER, Vector2.zero, new Vector2(d, d));
         if (locked) SpaceTheme.Img(face, SpaceSprites.Circle, LOCKED_TINT);
         else
             SpaceTheme.Gradient(SpaceTheme.Img(face, SpaceSprites.Circle, Color.white),
-                new Color(0.34f, 0.86f, 1f, 1f), new Color(0.59f, 0.38f, 1f, 1f));
+                Tone(new Color(0.34f, 0.86f, 1f, 1f)), Tone(new Color(0.59f, 0.38f, 1f, 1f)));
         var sheen = SpaceTheme.Rect("Sheen", rt, SpaceTheme.CENTER, new Vector2(-70f * k, 80f * k),
             new Vector2(300f * k, 300f * k));
         SpaceTheme.Img(sheen, SpaceSprites.Glow, SpaceTheme.A(Color.white, locked ? 0.05f : 0.31f));
@@ -173,12 +184,12 @@ public class SpacePlanetView : MonoBehaviour
         bool large = _quality == Quality.Large;
         if (_set == null)
         {
-            var small = await SpacePlanets.Load(Def, false);
+            var small = await SpacePlanets.Load(Def, false, _faded);
             if (this == null) return;
             if (small != null) Use(small, true);
         }
         if (!large) return;
-        var big = await SpacePlanets.Load(Def, true);
+        var big = await SpacePlanets.Load(Def, true, _faded);
         if (this == null) return;
         if (big != null) Use(big, true);
     }
@@ -197,7 +208,7 @@ public class SpacePlanetView : MonoBehaviour
         _clouds.Texture = set.Clouds;
         _clouds.enabled = set.Clouds != null && !_locked;
 
-        var ring = SpacePlanets.RingSprite(Def);
+        var ring = SpacePlanets.RingSprite(Def, _faded);
         if (ring != null && _ringBack != null)
         {
             _ringBack.sprite = ring;
@@ -225,12 +236,13 @@ public class SpacePlanetView : MonoBehaviour
     private void Update()
     {
         if (!Animate || Def.IsOrb || _set == null) return;
-        if (Def.HaloPulse && !_locked)
+        // 力を失った惑星は、光の脈動も稲妻の明滅もしない
+        if (Def.HaloPulse && !_locked && !_faded)
         {
             float k = 0.86f + 0.14f * Mathf.Sin(Time.unscaledTime * 1.3f);
             _halo.color = SpaceTheme.A(Def.Accent, Def.HaloAlpha * k);
         }
-        if (Def.Flicker && _night.enabled && !_locked) UpdateFlicker();
+        if (Def.Flicker && _night.enabled && !_locked && !_faded) UpdateFlicker();
 
         // 自転はゆっくりなので、球の頂点の作り直しは 30 回/秒で十分（毎フレームより負荷を減らす）
         _pendingDt += Time.unscaledDeltaTime;

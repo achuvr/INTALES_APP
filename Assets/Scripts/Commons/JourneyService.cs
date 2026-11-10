@@ -191,7 +191,8 @@ public static class JourneyService
         var season = StoreCalendar.CurrentSeason;
         bool ignis = stayMinutes >= 5 * 60 && !SpacePlanets.IsOwned(SpacePlanets.Find("ignis"));
         bool rubra = false; // 惑星の能力（ルブラの流れ星もう1回）は 2026-11-09 にやめた
-        if (!ignis && !rubra) return null;
+        bool exhaust = !string.IsNullOrEmpty(j0.Used); // コマをもらった惑星が力を失う（2026-11-10）
+        if (!ignis && !rubra && !exhaust) return null;
 
         string uid = mgr.UID;
         var weekday = StoreCalendar.TodayBusiness.DayOfWeek;
@@ -204,7 +205,8 @@ public static class JourneyService
             var map = t.Result.ToDictionary();
             var owned = OwnedPlanets(map);
             var j = JourneyData.From(map.TryGetValue("journey", out var raw) ? raw : null) ?? j0.Clone();
-            var r = new JourneyResult { Streak = j.Streak, Visits = j.Visits, Period = j.Period };
+            var r = new JourneyResult { Streak = j.Streak, Visits = j.Visits, Period = j.Period, CheckOut = true };
+            JourneyRules.ApplyCheckOut(j, r);
             if (ignis) JourneyRules.Grant("ignis", owned, r);
             if (rubra && !j.Extra.Contains(JourneyRules.EXTRA_RUBRA))
             {
@@ -601,6 +603,11 @@ public static class JourneyService
             LocalHistoryLog.Add("meeple", r.Meeples.Count == 1
                 ? $"入店で {SpaceMeeples.Names(r.Meeples)} を1個 入手"
                 : $"入店で {SpaceMeeples.Names(r.Meeples)} を1個ずつ 入手");
+        if (!string.IsNullOrEmpty(r.Exhausted))
+        {
+            var used = SpacePlanets.Find(r.Exhausted);
+            if (used != null) LocalHistoryLog.Add("planet", $"惑星「{used.Name}」が力を失った");
+        }
         foreach (var p in r.Prizes)
         {
             if (p == StarPrize.Noir) continue;

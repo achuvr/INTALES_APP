@@ -162,8 +162,9 @@ public class SpaceInventoryPanel : MonoBehaviour
     // コマ（2026-11-10。入店した日に、ホームの中央の惑星の色のコマをもらえる。SpaceMeeples）
     private const string T_MEEPLE_SECTION = "コマ";
     private const string T_MEEPLE_HINT = "入店した日に、ホームの惑星の色のコマがもらえます";
+    // コマの欄を押したときの説明（2026-11-10 ユーザー指定の文言。画面の表記は「コマ」にそろえる）
     private const string T_MEEPLE_INFO =
-        "ホームの真ん中に置いた惑星の色のコマを、入店した日に1個もらえます（色が2つ以上の惑星は、それぞれ1個ずつ）";
+        "入店時、選択中の惑星の色のコマを手に入れることができる。\n一度使用した惑星は一時的に力を失う。";
     private const string T_MEMBER = "会員証";
     private const string T_MEMBER_CAPTION = "MEMBER CARD";
     private const string T_MEMBER_TITLE = "会員証";

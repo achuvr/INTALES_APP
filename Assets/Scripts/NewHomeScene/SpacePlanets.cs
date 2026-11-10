@@ -522,42 +522,47 @@ public static class SpacePlanets
         new Dictionary<string, UniTaskCompletionSource<TexSet>>();
     private static readonly Dictionary<string, Sprite> Rings = new Dictionary<string, Sprite>();
 
-    private static string Key(SpacePlanetDef def, bool large) => def.Id + (large ? "@L" : "@S");
+    // faded＝力を失った惑星の淡い色の版（2026-11-10。地表・雲・環を白く淡くし、光る層は作らない）。普通の版とは別に持つ
+    private static string Key(SpacePlanetDef def, bool large, bool faded) =>
+        def.Id + (large ? "@L" : "@S") + (faded ? "~f" : "");
+
+    private static string RingKey(string id, bool faded) => faded ? id + "~f" : id;
 
     /// <summary>作成済みならすぐ返す（無ければ null）</summary>
-    public static TexSet Peek(SpacePlanetDef def, bool large)
+    public static TexSet Peek(SpacePlanetDef def, bool large, bool faded = false)
     {
         if (def == null || def.IsOrb) return null;
-        return Sets.TryGetValue(Key(def, large), out var s) && s.Alive ? s : null;
+        return Sets.TryGetValue(Key(def, large, faded), out var s) && s.Alive ? s : null;
     }
 
     /// <summary>一覧のサムネイル（小のテクスチャを作った後なら返る）</summary>
-    public static Texture2D Thumb(SpacePlanetDef def) => Peek(def, false)?.Thumb;
+    public static Texture2D Thumb(SpacePlanetDef def, bool faded = false) => Peek(def, false, faded)?.Thumb;
 
     /// <summary>環の画像（環のある惑星で、テクスチャを1度でも作った後なら返る）</summary>
-    public static Sprite RingSprite(SpacePlanetDef def) =>
-        def != null && Rings.TryGetValue(def.Id, out var s) && s != null ? s : null;
+    public static Sprite RingSprite(SpacePlanetDef def, bool faded = false) =>
+        def != null && Rings.TryGetValue(RingKey(def.Id, faded), out var s) && s != null ? s : null;
 
     /// <summary>表面テクスチャを用意する（作成中なら同じ処理の完了を待つ）。失敗したら null</summary>
-    public static UniTask<TexSet> Load(SpacePlanetDef def, bool large)
+    public static UniTask<TexSet> Load(SpacePlanetDef def, bool large, bool faded = false)
     {
         if (def == null || def.IsOrb) return UniTask.FromResult<TexSet>(null);
-        var hit = Peek(def, large);
+        var hit = Peek(def, large, faded);
         if (hit != null) return UniTask.FromResult(hit);
-        string key = Key(def, large);
+        string key = Key(def, large, faded);
         if (Pending.TryGetValue(key, out var pending)) return pending.Task;
         var promise = new UniTaskCompletionSource<TexSet>();
         Pending[key] = promise;
-        Run(def, large, key, promise).Forget();
+        Run(def, large, faded, key, promise).Forget();
         return promise.Task;
     }
 
-    private static async UniTaskVoid Run(SpacePlanetDef def, bool large, string key, UniTaskCompletionSource<TexSet> promise)
+    private static async UniTaskVoid Run(SpacePlanetDef def, bool large, bool faded, string key,
+        UniTaskCompletionSource<TexSet> promise)
     {
         TexSet set = null;
         try
         {
-            set = await LoadCore(def, large, key);
+            set = await LoadCore(def, large, faded, key);
         }
         catch (Exception e)
         {
@@ -574,6 +579,12 @@ public static class SpacePlanets
         {
             if (def.IsOrb || Peek(def, false) != null) continue;
             await Load(def, false);
+        }
+        // 力を失った惑星は淡い色の版も（一覧ではそちらを出す）
+        foreach (var def in All)
+        {
+            if (def.IsOrb || !IsExhausted(def) || Peek(def, false, true) != null) continue;
+            await Load(def, false, true);
         }
     }
 
@@ -593,19 +604,19 @@ public static class SpacePlanets
     }
 
     /// <summary>生成（裏のスレッド）→ テクスチャ化（メインスレッド）。Load からだけ呼ぶ（同じ惑星は1回だけ走る）</summary>
-    private static async UniTask<TexSet> LoadCore(SpacePlanetDef def, bool large, string key)
+    private static async UniTask<TexSet> LoadCore(SpacePlanetDef def, bool large, bool faded, string key)
     {
         string id = def.Id;
         int width = large ? LARGE : SMALL;
-        bool needRing = def.Ring && RingSprite(def) == null;
+        bool needRing = def.Ring && RingSprite(def, faded) == null;
         int ringH = Mathf.Max(8, Mathf.RoundToInt(RING_W * Mathf.Sin(def.Incline * Mathf.Deg2Rad)));
         float ringInner = def.RingInner;
-        var thumb = large ? null : ThumbSpecOf(def); // サムネイルは小と一緒に作る
+        var thumb = large ? null : ThumbSpecOf(def, faded); // サムネイルは小と一緒に作る
 
         Generated g = null;
         try
         {
-            g = await UniTask.RunOnThreadPool(() => Generate(id, width, large, needRing, ringH, ringInner, thumb));
+            g = await UniTask.RunOnThreadPool(() => Generate(id, width, large, needRing, ringH, ringInner, thumb, faded));
         }
         catch (Exception e)
         {
@@ -613,7 +624,7 @@ public static class SpacePlanets
         }
         if (g == null) return null;
 
-        string suffix = large ? "_l" : "_s";
+        string suffix = (large ? "_l" : "_s") + (faded ? "_f" : "");
         var set = new TexSet
         {
             Key = key,
@@ -625,20 +636,21 @@ public static class SpacePlanets
         };
         if (g.Thumb != null)
         {
-            set.Thumb = MakeTexture(new[] { g.Thumb }, THUMB_PX, THUMB_PX, "planet_" + id + "_thumb");
+            set.Thumb = MakeTexture(new[] { g.Thumb }, THUMB_PX, THUMB_PX,
+                "planet_" + id + "_thumb" + (faded ? "_f" : ""));
             set.Thumb.wrapMode = TextureWrapMode.Clamp;
         }
         Sets[key] = set;
 
-        if (g.Ring != null && RingSprite(def) == null)
+        if (g.Ring != null && RingSprite(def, faded) == null)
         {
-            var tex = MakeTexture(g.Ring, RING_W, g.RingH, "planet_" + id + "_ring");
+            var tex = MakeTexture(g.Ring, RING_W, g.RingH, "planet_" + id + "_ring" + (faded ? "_f" : ""));
             tex.wrapMode = TextureWrapMode.Clamp;
             tex.anisoLevel = 4;
             var sp = Sprite.Create(tex, new Rect(0, 0, RING_W, g.RingH), new Vector2(0.5f, 0.5f), 100f, 0,
                 SpriteMeshType.FullRect);
             sp.name = tex.name;
-            Rings[id] = sp;
+            Rings[RingKey(id, faded)] = sp;
         }
 
         if (large) EvictLarge();
@@ -647,9 +659,16 @@ public static class SpacePlanets
 
     /// <summary>ワーカースレッドで実行する部分（UnityEngine の API は使わない）</summary>
     private static Generated Generate(string id, int width, bool mips, bool ring, int ringH, float ringInner,
-        SpacePlanetSurfaces.ThumbSpec thumb)
+        SpacePlanetSurfaces.ThumbSpec thumb, bool faded)
     {
         var maps = SpacePlanetSurfaces.Generate(id, width);
+        if (faded)
+        {
+            // 力を失った惑星: 地表と雲を白く淡く、光る層（夜の灯り・溶岩など）は消す
+            SpacePlanetSurfaces.Fade(maps.Surface);
+            SpacePlanetSurfaces.Fade(maps.Clouds);
+            maps.Glow = null;
+        }
         var g = new Generated
         {
             W = maps.Width, H = maps.Height, CloudW = maps.CloudWidth, CloudH = maps.CloudHeight,
@@ -661,30 +680,52 @@ public static class SpacePlanets
         if (ring)
         {
             g.RingH = ringH;
-            g.Ring = SpacePlanetSurfaces.BuildMips(SpacePlanetSurfaces.RingMap(id, RING_W, ringH, ringInner), RING_W, ringH);
+            var ringMap = SpacePlanetSurfaces.RingMap(id, RING_W, ringH, ringInner);
+            if (faded) SpacePlanetSurfaces.Fade(ringMap);
+            g.Ring = SpacePlanetSurfaces.BuildMips(ringMap, RING_W, ringH);
         }
         return g;
     }
 
     /// <summary>サムネイルの描き方（SpacePlanetView の一覧表示と同じ見た目になる値）</summary>
-    private static SpacePlanetSurfaces.ThumbSpec ThumbSpecOf(SpacePlanetDef d) => new SpacePlanetSurfaces.ThumbSpec
+    private static SpacePlanetSurfaces.ThumbSpec ThumbSpecOf(SpacePlanetDef d, bool faded)
     {
-        Kind = d.Id,
-        Tilt = d.Tilt,
-        Incline = d.Incline,
-        Ambient = d.Ambient,
-        GlowBase = d.GlowBase,
-        Spin = d.StartSpin,
-        RimR = d.Rim.r,
-        RimG = d.Rim.g,
-        RimB = d.Rim.b,
-        RimAlpha = d.RimAlpha,
-        RimEven = d.RimEven,
-        SphereFrac = THUMB_SPHERE_FRAC * d.Scale,
-        Ring = d.Ring,
-        RingOuter = d.RingOuter,
-        RingInner = d.RingInner,
-    };
+        var rim = faded ? FadedColor(d.Rim) : d.Rim;
+        return new SpacePlanetSurfaces.ThumbSpec
+        {
+            Kind = d.Id,
+            Tilt = d.Tilt,
+            Incline = d.Incline,
+            Ambient = d.Ambient,
+            GlowBase = d.GlowBase,
+            Spin = d.StartSpin,
+            RimR = rim.r,
+            RimG = rim.g,
+            RimB = rim.b,
+            RimAlpha = d.RimAlpha,
+            RimEven = d.RimEven,
+            SphereFrac = THUMB_SPHERE_FRAC * d.Scale,
+            Faded = faded,
+            Ring = d.Ring,
+            RingOuter = d.RingOuter,
+            RingInner = d.RingInner,
+        };
+    }
+
+    /// <summary>力を失った惑星の色（地図の色と同じ割合で白く淡くする。光・大気の縁・環の色などに使う）</summary>
+    public static Color FadedColor(Color c)
+    {
+        float r = c.r, g = c.g, b = c.b;
+        SpacePlanetSurfaces.FadeColor(ref r, ref g, ref b, 1f);
+        return new Color(r, g, b, c.a);
+    }
+
+    /// <summary>
+    /// 力を失った惑星か（2026-11-10 ユーザー指定「1回使って退店すると、その惑星は力を失い、コマがもらえなくなる。
+    /// 色も少し白く淡くなる」）。コマをもらったまま退店せずに営業日が変わった惑星も含める。回復のしくみはまだない
+    /// </summary>
+    public static bool IsExhausted(SpacePlanetDef def) =>
+        def != null && JourneyRules.IsExhausted(JourneyService.Journey, def.Id, StoreCalendar.TodayKey);
 
     private static byte[][] Levels(byte[] px, int w, int h, bool mips) =>
         mips ? SpacePlanetSurfaces.BuildMips(px, w, h) : new[] { px };

@@ -24,6 +24,12 @@ public sealed class JourneyResult
     public readonly List<string> Unlocked = new List<string>(); // 解放した惑星のID
     /// <summary>もらったコマの色（1色1個。赤・青・黄の順。入店した日の最初の入店のときだけ）</summary>
     public readonly List<PlanetColor> Meeples = new List<PlanetColor>();
+    /// <summary>入店した日の最初の入店で、中央の惑星が力を失っていたのでコマをもらえなかった</summary>
+    public bool CenterExhausted;
+    /// <summary>今回力を失った惑星のID（退店したとき。退店しないまま次の営業日に入店したときも）。なければ null</summary>
+    public string Exhausted;
+    /// <summary>退店の結果（力を失ったお知らせを出すのは退店のときだけ）</summary>
+    public bool CheckOut;
 
     public bool HasRewards => Prizes.Count > 0 || Unlocked.Count > 0;
 }
@@ -113,10 +119,28 @@ public static class JourneyRules
         r.Visits = j.Visits;
 
         // ---- コマ（2026-11-10 ユーザー指定「その色の惑星で入店したときに、その色のミープルを1個。
-        //      複数の色を持つ惑星は、それぞれ1個ずつ」）。来店回数と同じく1営業日に1回（入店しなおしても増えない） ----
+        //      複数の色を持つ惑星は、それぞれ1個ずつ」）。来店回数と同じく1営業日に1回（入店しなおしても増えない）。
+        //      「1回使って退店すると、その惑星は力を失い、コマがもらえなくなる」（同日のユーザー指定）ので、
+        //      もらった惑星を Used に覚えておき、退店で Exhausted に移す（ApplyCheckOut）。
+        //      退店しないまま次の営業日に来たときは、ここで移してからコマを判定する ----
+        if (!string.IsNullOrEmpty(j.Used) && j.UsedDay != c.DayKey) Exhaust(j, r);
         if (r.NewDay)
-            foreach (var color in PlanetColorOrder.All)
-                if ((c.CenterColors & color) != 0) r.Meeples.Add(color);
+        {
+            if (!string.IsNullOrEmpty(c.Center) && j.Exhausted.Contains(c.Center))
+            {
+                r.CenterExhausted = true;
+            }
+            else
+            {
+                foreach (var color in PlanetColorOrder.All)
+                    if ((c.CenterColors & color) != 0) r.Meeples.Add(color);
+                if (r.Meeples.Count > 0 && !string.IsNullOrEmpty(c.Center))
+                {
+                    j.Used = c.Center;
+                    j.UsedDay = c.DayKey;
+                }
+            }
+        }
 
         // ---- 公転 ----
         r.PrevStreak = j.Streak;
@@ -185,6 +209,34 @@ public static class JourneyRules
                 AddPrize(Roll(rng, j.Streak, c.Center, c.Weekday, c.Season), owned, r);
         }
         return j;
+    }
+
+    /// <summary>退店した: コマをもらった惑星（Used）が力を失う（2026-11-10）</summary>
+    public static void ApplyCheckOut(JourneyData j, JourneyResult r)
+    {
+        if (j != null && !string.IsNullOrEmpty(j.Used)) Exhaust(j, r);
+    }
+
+    /// <summary>Used の惑星を力を失った惑星に移す</summary>
+    private static void Exhaust(JourneyData j, JourneyResult r)
+    {
+        string id = j.Used;
+        j.Used = null;
+        j.UsedDay = null;
+        if (string.IsNullOrEmpty(id) || j.Exhausted.Contains(id)) return;
+        j.Exhausted.Add(id);
+        r.Exhausted = id;
+    }
+
+    /// <summary>
+    /// 力を失った惑星か（表示用。退店した惑星に加え、コマをもらったまま退店せずに営業日が変わった惑星も含める。
+    /// todayKey は今の営業日 "yyyy-MM-dd"）
+    /// </summary>
+    public static bool IsExhausted(JourneyData j, string id, string todayKey)
+    {
+        if (j == null || string.IsNullOrEmpty(id)) return false;
+        if (j.Exhausted.Contains(id)) return true;
+        return j.Used == id && j.UsedDay != todayKey;
     }
 
     public static void Grant(string id, HashSet<string> owned, JourneyResult r)

@@ -34,6 +34,12 @@ public static partial class SpaceNotice
     private const string T_STAR_NOIR_HINT = "めったに出会えない惑星です";
     private const string T_TOGETHER = "さんと一緒に来店しました！";
     private const string T_MEEPLE_GOT = "コマをもらいました"; // 入店した日に、中央の惑星の色のコマ（2026-11-10）
+    private const string T_MEEPLE_NONE = " は力を失っているので、コマはもらえませんでした";
+    // 退店して、コマをもらった惑星が力を失ったとき（2026-11-10）
+    private const string T_FADED_CAPTION = "PLANET";
+    private const string T_FADED_TITLE = "惑星が力を使いました";
+    private const string T_FADED_BODY_B = " の色が淡くなりました";
+    private const string T_FADED_NOTE = "この惑星で入店しても、コマはもらえなくなりました\nほかの惑星をホームに置くと、また入店のときにもらえます";
     // 惑星のパワー（チャージ・MAX の知らせ）は 2026-11-10 にやめた
 
     /// <summary>このお知らせの定型文（NewHome の起動時にまとめてフォントへ登録する）</summary>
@@ -43,12 +49,13 @@ public static partial class SpaceNotice
         .Append(T_ORBIT_BROKEN).Append(T_ORBIT_INSURANCE).Append(T_ORBIT_NEXT_A).Append(T_ORBIT_NEXT_B)
         .Append(T_ORBIT_FIRST).Append(T_VISITS_A).Append(T_VISITS_B).Append(T_STAR_CAPTION).Append(T_STAR_TITLE)
         .Append(T_STAR_GOT).Append(T_STAR_HINT).Append(T_STAR_NOIR).Append(T_STAR_NOIR_HINT).Append(T_TOGETHER)
-        .Append(T_MEEPLE_GOT).Append(SpaceMeeples.GlyphText)
+        .Append(T_MEEPLE_GOT).Append(SpaceMeeples.GlyphText).Append(T_MEEPLE_NONE).Append(T_FADED_CAPTION)
+        .Append(T_FADED_TITLE).Append(T_FADED_BODY_B).Append(T_FADED_NOTE)
         .Append(StoreCalendar.GlyphText).Append(SpaceGachaMeteor.GlyphText).ToString();
 
     /// <summary>
-    /// 入店などの結果を順に出す: 公転（visitCard のとき）→ 流れ星（当たりごと）→ 新しい惑星（解放ごと）。
-    /// 全部閉じたら onDone
+    /// 入店などの結果を順に出す: 公転（visitCard のとき）／惑星が力を使った（退店のとき）→ 流れ星（当たりごと）
+    /// → 新しい惑星（解放ごと）。全部閉じたら onDone
     /// </summary>
     public static void ShowJourney(JourneyResult r, bool visitCard, Action onDone)
     {
@@ -56,6 +63,8 @@ public static partial class SpaceNotice
         if (r != null)
         {
             if (visitCard) steps.Add(() => OrbitVisit(r));
+            var faded = FadedAtCheckOut(r);
+            if (faded != null) steps.Add(() => PlanetFaded(faded));
             foreach (var p in r.Prizes)
             {
                 var prize = p;
@@ -106,6 +115,8 @@ public static partial class SpaceNotice
 
         var lines = new List<(string text, Color color)>();
         if (r.FirstEver && r.Visits > 1) lines.Add((T_ORBIT_FIRST, SpaceTheme.TEXT_SUB));
+        // 中央の惑星が力を失っていて、コマをもらえなかった（2026-11-10）
+        if (r.CenterExhausted) lines.Add((center.Name + T_MEEPLE_NONE, SpaceTheme.TEXT_SUB));
         if (!r.NewOrbit) lines.Add((T_ORBIT_SAME, SpaceTheme.TEXT_MUTED));
         if (r.Rescued > 0) lines.Add((T_ORBIT_RESCUED, SpaceTheme.MINT));
         if (r.InsuranceUsed > 0) lines.Add((T_ORBIT_INSURED, SpaceTheme.MINT));
@@ -128,6 +139,56 @@ public static partial class SpaceNotice
         var visits = SpaceTheme.Text(card, "Visits", T_VISITS_A + r.Visits + T_VISITS_B, 26, SpaceTheme.TEXT_MUTED,
             FontStyles.Bold);
         Stack(visits.rectTransform, ref y, 38f, 8f);
+
+        Finish(card, root, ref y);
+        return root;
+    }
+
+    // ================================================================
+    // 惑星が力を使った（退店したとき。2026-11-10）
+    // ================================================================
+    /// <summary>
+    /// 退店して、コマをもらった惑星が力を失ったお知らせ。いつもの色の惑星が、少しして白く淡い色に移り変わる
+    /// （同じ惑星を2つ重ね、淡い方を上に重ねてゆっくり出す。自転の向き・速さは同じなので形はずれない）
+    /// </summary>
+    public static GameObject PlanetFaded(SpacePlanetDef def)
+    {
+        var card = Overlay("__PlanetFadedModal", out var root, SpaceTheme.A(SpacePlanets.FadedColor(def.Accent), 0.5f));
+        if (card == null) return null;
+        SpaceTheme.SubCanvas(root, true); // 惑星が自転し続けるので、メインのキャンバスと分ける
+
+        float y = 48f;
+        var caption = SpaceTheme.Text(card, "Caption", T_FADED_CAPTION, 24, SpaceTheme.A(SpaceTheme.TEXT_SUB, 0.9f),
+            FontStyles.Bold);
+        SpaceTheme.Tracking(caption, 18f);
+        Stack(caption.rectTransform, ref y, 36f, 0f);
+        var title = SpaceTheme.Text(card, "Title", T_FADED_TITLE, 40, SpaceTheme.TEXT, FontStyles.Bold);
+        Stack(title.rectTransform, ref y, 56f, 8f);
+
+        const float FRAME = 360f;
+        var stage = SpaceTheme.Rect("Planet", card);
+        Stack(stage, ref y, FRAME, 16f, FRAME);
+        var vivid = SpaceTheme.Rect("Vivid", stage);
+        SpaceTheme.Stretch(vivid);
+        var vividGroup = vivid.gameObject.AddComponent<CanvasGroup>();
+        SpacePlanetView.Create(vivid, def, FRAME, SpacePlanetView.Quality.Large, true);
+        var pale = SpaceTheme.Rect("Pale", stage);
+        SpaceTheme.Stretch(pale);
+        var paleGroup = pale.gameObject.AddComponent<CanvasGroup>();
+        paleGroup.alpha = 0f;
+        SpacePlanetView.Create(pale, def, FRAME, SpacePlanetView.Quality.Large, true, false, true);
+        var swap = root.AddComponent<SpaceCrossFade>();
+        swap.From = vividGroup;
+        swap.To = paleGroup;
+
+        var name = SpaceTheme.Text(card, "Name", def.Name + T_FADED_BODY_B, 36, SpaceTheme.TEXT, FontStyles.Bold);
+        name.enableAutoSizing = true;
+        name.fontSizeMin = 26f;
+        name.fontSizeMax = 36f;
+        Stack(name.rectTransform, ref y, 52f, 14f);
+        var note = SpaceTheme.Text(card, "Note", T_FADED_NOTE, 26, SpaceTheme.TEXT_SUB, FontStyles.Bold);
+        Wrap(note);
+        Stack(note.rectTransform, ref y, Measure(note, 40f), 10f);
 
         Finish(card, root, ref y);
         return root;
@@ -194,7 +255,8 @@ public static partial class SpaceNotice
             img.fillAmount = 1f / segments - gap;
         }
         float planet = size * 0.62f;
-        SpacePlanetView.Create(rt, center, planet, SpacePlanetView.Quality.Thumb, animatePlanet);
+        SpacePlanetView.Create(rt, center, planet, SpacePlanetView.Quality.Thumb, animatePlanet,
+            false, SpacePlanets.IsExhausted(center)); // 力を失った惑星は白く淡い色で（2026-11-10）
         return rt;
     }
 
@@ -276,12 +338,19 @@ public static partial class SpaceNotice
     {
         if (r == null) return;
         if (toastTogether) TogetherToast(r.Together);
-        if (r.HasRewards)
+        if (r.HasRewards || FadedAtCheckOut(r) != null)
         {
-            AssetsDatabase.instance?.PlayLevelUpSE();
+            if (r.HasRewards) AssetsDatabase.instance?.PlayLevelUpSE();
             ShowJourney(r, false, null);
         }
     }
+
+    /// <summary>
+    /// 退店で力を失った惑星（お知らせを出す）。退店しないまま次の営業日に入店して移したときは出さない
+    /// （その惑星は営業日が変わった時点で、もう淡い色で表示している）
+    /// </summary>
+    private static SpacePlanetDef FadedAtCheckOut(JourneyResult r) =>
+        r != null && r.CheckOut && !string.IsNullOrEmpty(r.Exhausted) ? SpacePlanets.Find(r.Exhausted) : null;
 }
 
 /// <summary>
@@ -345,6 +414,28 @@ public class SpaceMeteorShow : MonoBehaviour
         float reach = firstOne ? 1f : 0.9f;
         _streak.anchoredPosition = Vector2.Lerp(FROM * reach, TO * reach, p);
         _streakImg.color = SpaceTheme.A(Color, Mathf.Sin(p * Mathf.PI) * 0.95f);
+    }
+}
+
+/// <summary>
+/// 2つの表示を入れ替える（From を消しながら To を出す）。少し待ってから、ゆっくり。
+/// 惑星が力を使ったお知らせで、いつもの色 → 白く淡い色に移り変わるのに使う（2026-11-10）
+/// </summary>
+public class SpaceCrossFade : MonoBehaviour
+{
+    public CanvasGroup From, To;
+    public float Delay = 0.9f, Duration = 1.6f;
+    private float _t;
+
+    private void Update()
+    {
+        _t += Time.unscaledDeltaTime;
+        float k = Mathf.Clamp01((_t - Delay) / Duration);
+        k = k * k * (3f - 2f * k); // なめらかに始まり、なめらかに終わる
+        // 下（From）は出しきるまで不透明のまま（両方を半透明にすると途中で透けて見える）
+        if (To != null) To.alpha = k;
+        if (From != null) From.alpha = k >= 1f ? 0f : 1f;
+        if (k >= 1f) enabled = false;
     }
 }
 

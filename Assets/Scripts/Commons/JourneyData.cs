@@ -32,6 +32,15 @@ public sealed class JourneyData
     /// 記録は消さずに残す（読み込んだ値をそのまま書き戻すだけで、増やさない・使わない）
     /// </summary>
     public Dictionary<string, int> Power = new Dictionary<string, int>();
+    /// <summary>
+    /// コマをもらった入店の惑星（まだ退店していない。2026-11-10）。退店すると Exhausted に移る。
+    /// 退店しないまま次の営業日になったら、次の入店のときに移す（それまでも表示は力を失った扱い。JourneyRules.IsExhausted）
+    /// </summary>
+    public string Used;
+    /// <summary>Used の入店の営業日 "yyyy-MM-dd"</summary>
+    public string UsedDay;
+    /// <summary>力を失った惑星（入店してもコマはもらえず、色が白く淡くなる。回復のしくみはまだない）</summary>
+    public List<string> Exhausted = new List<string>();
 
     public static JourneyData From(object raw)
     {
@@ -49,11 +58,15 @@ public sealed class JourneyData
             PerkPlanet = Str(m, "perk_planet"),
             InAt = Long(m, "in_at"),
             MetDay = Str(m, "met_day"),
+            Used = Str(m, "used"),
+            UsedDay = Str(m, "used_day"),
         };
+        if (j.Used == "") j.Used = null;
         IntList(m, "rescues", j.Rescues);
         IntList(m, "days", j.Days);
         StrList(m, "extra", j.Extra);
         StrList(m, "met_uids", j.MetUids);
+        StrList(m, "exhausted", j.Exhausted);
         if (m.TryGetValue("power", out var pw) && pw is Dictionary<string, object> pm)
         {
             foreach (var kv in pm)
@@ -84,6 +97,9 @@ public sealed class JourneyData
         { "met_day", MetDay ?? "" },
         { "met_uids", new List<object>(MetUids) },
         { "power", PowerMap() },
+        { "used", Used ?? "" },
+        { "used_day", UsedDay ?? "" },
+        { "exhausted", new List<object>(Exhausted) },
     };
 
     private Dictionary<string, object> PowerMap()
@@ -101,6 +117,7 @@ public sealed class JourneyData
         c.Days = new List<int>(Days);
         c.MetUids = new List<string>(MetUids);
         c.Power = new Dictionary<string, int>(Power);
+        c.Exhausted = new List<string>(Exhausted);
         return c;
     }
 
