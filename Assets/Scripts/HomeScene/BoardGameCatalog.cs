@@ -129,32 +129,6 @@ public static class BoardGameCatalog
         }
     }
 
-    /// <summary>
-    /// 新ホームのボードゲーム図鑑のダウンロード: いちばん新しいゲーム一覧をこの端末に用意する。
-    /// サーバーの版が手元より新しければ master/boardgames を1ドキュメント読んで保存し、
-    /// 同じなら読み取りなし（起動時の同期で最新になっていることが多い）。
-    /// サーバーにまだ配信がない・設定を読めないときは、アプリ同梱のデータで用意できたことにする。
-    /// 用意できたら true（ゲームが1件もなければ false）
-    /// </summary>
-    public static async UniTask<bool> DownloadAsync()
-    {
-        try
-        {
-            var config = await MasterData.GetConfigAsync();
-            if (config.BoardgamesVersion > 0 && Load().version < config.BoardgamesVersion)
-            {
-                bool ok = await FetchAndSaveAsync(msg => Debug.Log($"[BoardGame] {msg}"));
-                if (!ok) return false;
-            }
-        }
-        catch (Exception e)
-        {
-            Debug.LogError("[BoardGame] 図鑑のダウンロードでエラー: " + e.Message);
-            return false;
-        }
-        return Load().games.Length > 0;
-    }
-
     /// <summary>master/boardgames を読んでローカルに保存する。保存できたら true</summary>
     private static async UniTask<bool> FetchAndSaveAsync(Action<string> onProgress)
     {

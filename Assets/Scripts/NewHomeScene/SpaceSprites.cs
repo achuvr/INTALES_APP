@@ -57,7 +57,7 @@ public static class SpaceSprites
     /// <summary>金色の小さな惑星（新ホームの履歴ボタン）。背景の Moon と同じ描き方で、色と模様だけ変える</summary>
     public static Sprite GoldMoon      => _goldMoon      != null ? _goldMoon      :
         (_goldMoon = MakeMoon(192, 23, Hex(0xFFC978), Hex(0xFFEBC4), Hex(0xFFC46E), "space_moon_gold"));
-    /// <summary>緑の小さな惑星（新ホームのボードゲーム図鑑ボタン。図鑑をダウンロードした人だけに出る）</summary>
+    /// <summary>緑の小さな惑星（新ホームのボードゲーム図鑑ボタン。初めからだれにでも出る）</summary>
     public static Sprite GreenMoon     => _greenMoon     != null ? _greenMoon     :
         (_greenMoon = MakeMoon(192, 41, Hex(0x58D69A), Hex(0xCFFBE2), Hex(0x63F0A8), "space_moon_green"));
     /// <summary>水色の小さな惑星（新ホームの料金表ボタン）</summary>

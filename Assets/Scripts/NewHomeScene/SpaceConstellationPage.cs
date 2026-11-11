@@ -30,7 +30,6 @@ public class SpaceConstellationPage : MonoBehaviour
     private const string T_EMPTY_STAR = "まだ灯っていない星";
     private const string T_CLOSE = "とじる";
     private const string T_SEE_GAMES = "このジャンルのゲームを見る";
-    private const string T_NEED_ZUKAN = "ボードゲーム図鑑をダウンロードすると見られます（ホームの歯車メニューから）";
     private const string T_REWARD_A = "（";
     private const string T_REWARD_B = "1枚）";
     private const string T_LV = "Lv.";
@@ -42,7 +41,7 @@ public class SpaceConstellationPage : MonoBehaviour
     public static string GlyphText => new StringBuilder()
         .Append(T_CAPTION).Append(T_TITLE).Append(T_HINT).Append(T_CERT).Append(T_WORKS).Append(T_STARS).Append(T_BEST)
         .Append(T_DONE).Append(T_DONE_BIG).Append(T_LEFT_A).Append(T_LEFT_B).Append(T_GENRE_A).Append(T_GENRE_B)
-        .Append(T_EMPTY_STAR).Append(T_CLOSE).Append(T_SEE_GAMES).Append(T_NEED_ZUKAN).Append(T_REWARD_A).Append(T_REWARD_B).Append(T_LV).Append(T_NEXT_A).Append(T_NEXT_B)
+        .Append(T_EMPTY_STAR).Append(T_CLOSE).Append(T_SEE_GAMES).Append(T_REWARD_A).Append(T_REWARD_B).Append(T_LV).Append(T_NEXT_A).Append(T_NEXT_B)
         .Append("ドリンクチケット7%OFFチケット").Append(T_TOTAL_A).Append(T_ROUND).Append("0123456789/ 　・月日")
         .Append(Constellations.GlyphText).ToString();
 
@@ -338,11 +337,6 @@ public class SpaceConstellationPage : MonoBehaviour
     private void SeeGames(ConstellationDef def)
     {
         var zukan = SpaceBoardGameZukan.Instance;
-        if (zukan == null && !SpaceZukan.Installed)
-        {
-            SpaceTheme.Toast(T_NEED_ZUKAN, SpaceTheme.MainCanvas());
-            return;
-        }
         CloseDetail();
         Close();
         if (zukan != null) zukan.ShowGenre(def);

@@ -133,6 +133,8 @@ public static class JourneyService
         var mgr = Manager;
         if (mgr == null || string.IsNullOrEmpty(mgr.UID)) return null;
         string uid = mgr.UID;
+        // 管理者の判定（通貨が初めから使える・コマのデバッグ）が、起動してすぐの入店でも済んでいるように（一度済めばすぐ返る）
+        await AdminClaim.RefreshAsync();
 
         var jst = StoreCalendar.ToJst(visitUtc);
         var day = StoreCalendar.BusinessDate(jst);
@@ -148,6 +150,7 @@ public static class JourneyService
             CenterColors = center.Colors, // この色のコマを1個ずつ（その営業日の最初の入店のとき。2026-11-10）
             Meeples = SpaceWorld.Installed, // コマを配るのは INTALES WORLD をダウンロードした人だけ
             Debug = AdminClaim.IsAdmin,     // 管理者はデバッグ用に、入店するたびにコマをもらえる（2026-11-10）
+            Ig = IgCurrency.Unlocked,       // 金貨座を完成させた人は 1G（その営業日の最初の入店のとき。2026-11-12）
             InAt = new DateTimeOffset(visitUtc.ToUniversalTime()).ToUnixTimeSeconds(),
             SeedDays = LocalDistinctDays(),
         };
@@ -573,6 +576,7 @@ public static class JourneyService
             var meeple = SpaceMeeples.Of(g.Key);
             if (meeple != null) updates[meeple.Field] = FieldValue.Increment(g.Count());
         }
+        if (r.Ig > 0) updates[IgCurrency.FIELD] = FieldValue.Increment(r.Ig);
         if (r.Unlocked.Count > 0) updates["planets"] = FieldValue.ArrayUnion(r.Unlocked.Cast<object>().ToArray());
         return updates;
     }
@@ -589,6 +593,7 @@ public static class JourneyService
                 CouponOf(p)?.Add(d, 1);
             foreach (var m in r.Meeples)
                 SpaceMeeples.Of(m)?.Add(d, 1);
+            if (r.Ig > 0) d.Ig += r.Ig;
             foreach (var id in r.Unlocked)
                 if (!d.Planets.Contains(id)) d.Planets.Add(id);
             if (r.Unlocked.Count > 0) SpacePlanets.MarkNews();
@@ -605,6 +610,7 @@ public static class JourneyService
             LocalHistoryLog.Add("meeple", r.Meeples.Count == 1
                 ? $"入店で {SpaceMeeples.Names(r.Meeples)} を1個 入手"
                 : $"入店で {SpaceMeeples.Names(r.Meeples)} を1個ずつ 入手");
+        if (r.Ig > 0) LocalHistoryLog.Add(IgCurrency.HISTORY, $"入店で {IgCurrency.Format(r.Ig)} を入手");
         if (!string.IsNullOrEmpty(r.Exhausted))
         {
             var used = SpacePlanets.Find(r.Exhausted);

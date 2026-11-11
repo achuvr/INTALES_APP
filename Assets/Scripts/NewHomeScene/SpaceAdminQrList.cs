@@ -1,5 +1,6 @@
 using System;
 using System.Collections;
+using System.Globalization;
 using System.Text;
 using Cysharp.Threading.Tasks;
 using Firebase.Firestore;
@@ -11,7 +12,8 @@ using UnityEngine.UI;
 /// 管理者用: お客様に見せるQRコードの一覧（新ホームで管理者アカウントにだけ出る QR ボタンから開く全画面）。
 /// 上のタブで種類を切り替え、マスを選ぶとそのQRを白地で大きく表示する。お客様のアプリのカメラで読み取ってもらう。
 ///  ・クーポン   … 店頭クーポン4種（所持品と同じ並び）。中身は従来の店頭QRと同じ文字（CallMethodFromQR.QR_*_COUPON）。
-///                 読み取るたびに1枚もらえ、受け取った側の新ホームが「○○を1枚入手しました」と知らせる
+///                 読み取るたびに1枚もらえ、受け取った側の新ホームが「○○を1枚入手しました」と知らせる。
+///                 最後のマス「G を渡す」（2026-11-12）は金額を決めて G のQR（GoldQr。その日だけ・1人1回）を出す
 ///  ・惑星の解放 … SpacePlanets.QrPayload。惑星を選ぶ画面と同じ並び・同じマス（最初から持っているルミナのマスは空き）
 ///  ・1か月パス  … 1か月遊び放題パス（平日のみ・土日のみ・ALL DAY）の受け取りQR。カードを選ぶたびに
 ///                 1回だけ使えるQRをその場で発行する（StorePasses.IssueAsync。発行から60分間有効）。
@@ -29,7 +31,7 @@ public class SpaceAdminQrList : MonoBehaviour
     private static readonly string[] T_NOTES =
     {
         "お店の入口などに出しておきます（毎日変わります）",
-        "お客様に読み取ってもらうと、1枚もらえます",
+        "クーポンは読み取るたびに1枚、G は決めた金額をもらえます",
         "遊んだゲームを選んで見せると、アチーブメント達成になり星座が灯ります",
         "条件を達成したお客様に見せて、読み取ってもらいます",
         "購入されたお客様に、種類を選んで受け取りQRを見せます",
@@ -58,6 +60,19 @@ public class SpaceAdminQrList : MonoBehaviour
     private const string T_GAME_EN = "ACHIEVEMENT";
     private const string T_GAME_SCAN = "このQRコードを読み取ると、このゲームのアチーブメントを達成します";
     private const string T_GAME_SUB = "今日だけ使えます。同じ卓の人は全員読み取れます";
+    // G（アプリ内の通貨）を渡すQR（2026-11-12 ユーザー指定「こちらで指定した額を出せるように」。GoldQr）
+    private const string T_GOLD_CELL = "G を渡す";
+    private const string T_GOLD_CELL_SUB = "金額を決めてQRを出します";
+    private const string T_GOLD_EN = "GOLD";
+    private const string T_GOLD_PICK = "渡す金額を決めてください";
+    private const string T_GOLD_RANGE_A = "1回に ";
+    private const string T_GOLD_RANGE_B = " まで";
+    private const string T_GOLD_SHOW = "QRコードを表示";
+    private const string T_GOLD_SCAN_B = "」がもらえます";
+    private const string T_GOLD_SUB = "今日だけ使えます。同じQRコードは1人1回だけ受け取れます";
+    private static readonly int[] GOLD_PRESETS = { 1, 3, 5, 10, 20, 50, 100 };
+    /// <summary>最後に決めた金額（アプリを起動しているあいだ覚えておく）</summary>
+    private static int s_goldAmount = 5;
 
     /// <summary>この画面で表示しうる文字（惑星の名前は SpacePlanets.GlyphText）</summary>
     public static string GlyphText
@@ -71,7 +86,10 @@ public class SpaceAdminQrList : MonoBehaviour
               .Append(T_PASS_WAITING).Append(T_PASS_DONE).Append(T_PASS_GONE).Append("（）さん")
               .Append(T_CHECKIN_EN).Append(T_CHECKIN_NAME).Append(T_CHECKIN_CELL).Append(T_CHECKIN_CELL_SUB)
               .Append(T_CHECKIN_SCAN).Append(T_CHECKIN_SUB).Append(T_CHECKIN_DAY_B).Append(StoreCalendar.GlyphText)
-              .Append(T_GAME_SEARCH).Append(T_GAME_EN).Append(T_GAME_SCAN).Append(T_GAME_SUB);
+              .Append(T_GAME_SEARCH).Append(T_GAME_EN).Append(T_GAME_SCAN).Append(T_GAME_SUB)
+              .Append(T_GOLD_CELL).Append(T_GOLD_CELL_SUB).Append(T_GOLD_EN).Append(T_GOLD_PICK).Append(T_GOLD_RANGE_A)
+              .Append(T_GOLD_RANGE_B).Append(T_GOLD_SHOW).Append(T_GOLD_SCAN_B).Append(T_GOLD_SUB)
+              .Append(IgCurrency.GlyphText).Append("−＋");
             foreach (var t in T_TABS) sb.Append(t);
             foreach (var t in T_NOTES) sb.Append(t);
             foreach (var c in SpaceCoupons.All) sb.Append(c.Name).Append(c.RowDesc).Append(c.En);
@@ -290,11 +308,37 @@ public class SpaceAdminQrList : MonoBehaviour
     private GameObject BuildCouponPage()
     {
         var all = SpaceCoupons.All;
-        int rows = Mathf.CeilToInt(all.Length / 2f);
+        int cells = all.Length + 1; // クーポン＋「G を渡す」（2026-11-12）
+        int rows = Mathf.CeilToInt(cells / 2f);
         float contentH = PAD_TOP + rows * COUPON_H + (rows - 1) * GAP + PAD_BOTTOM;
         var content = BuildScroll("CouponList", contentH, out var page);
         for (int i = 0; i < all.Length; i++) BuildCouponCell(content, all[i], i);
+        BuildGoldCell(content, all.Length);
         return page;
+    }
+
+    /// <summary>「G を渡す」のマス（クーポンの最後）。押すと金額を決める画面</summary>
+    private void BuildGoldCell(RectTransform content, int index)
+    {
+        var pos = new Vector2(COUPON_W * 0.5f + (index % 2) * (COUPON_W + GAP),
+            -(PAD_TOP + COUPON_H * 0.5f + (index / 2) * (COUPON_H + GAP)));
+        var rt = SpaceTheme.Rect("Gold", content, new Vector2(0f, 1f), pos, new Vector2(COUPON_W, COUPON_H));
+        var face = SpaceTheme.Glass(rt, 40f, new Color(0.07f, 0.09f, 0.24f, 0.78f), SpaceTheme.A(SpaceTheme.GOLD, 0.45f), true);
+
+        // 金貨の絵（まわりの光ときらめきも絵に入っているので、枠なしでそのまま）
+        var icon = SpaceTheme.Rect("Coin", rt, SpaceTheme.CENTER, new Vector2(0f, 50f), new Vector2(COUPON_ICON, COUPON_ICON));
+        var sprite = IgCurrency.Icon;
+        var img = SpaceTheme.Img(icon, sprite, Color.white);
+        img.preserveAspect = true;
+        img.enabled = sprite != null;
+
+        SpaceTheme.Text(rt, "Name", T_GOLD_CELL, 34, SpaceTheme.TEXT, SpaceTheme.CENTER,
+            new Vector2(0f, -COUPON_H * 0.5f + 92f), new Vector2(COUPON_W - 24f, 46f), FontStyles.Bold);
+        SpaceTheme.Text(rt, "Desc", T_GOLD_CELL_SUB, 24, SpaceTheme.TEXT_SUB, SpaceTheme.CENTER,
+            new Vector2(0f, -COUPON_H * 0.5f + 48f), new Vector2(COUPON_W - 24f, 34f), FontStyles.Bold);
+        QrMark(rt, 36f, 30f);
+
+        SpaceTheme.Clickable(rt.gameObject, face, ShowGoldPicker);
     }
 
     private void BuildCouponCell(RectTransform content, SpaceCouponDef def, int index)
@@ -508,6 +552,153 @@ public class SpaceAdminQrList : MonoBehaviour
 
         FillDetail(safe, def.En, def.Accent, def.Name, def.QrText, T_SCAN_A + def.Name + T_SCAN_COUPON_B,
             T_SCAN_COUPON_SUB);
+    }
+
+    // ---------------------------------------------------------------- G を渡す（2026-11-12）
+    /// <summary>
+    /// 渡す金額を決める画面: 数字で入力・−/＋・よく使う金額のボタン →「QRコードを表示」でその金額のQR（GoldQr）を出す
+    /// </summary>
+    private void ShowGoldPicker()
+    {
+        var safe = OpenDetail();
+        if (safe == null) return;
+        var top = new Vector2(0.5f, 1f);
+
+        var glow = SpaceTheme.Rect("IconGlow", safe, top, new Vector2(0f, -150f), new Vector2(300f, 300f));
+        SpaceTheme.Img(glow, SpaceSprites.Glow, SpaceTheme.A(SpaceTheme.GOLD, 0.3f));
+        var coin = SpaceTheme.Rect("Coin", safe, top, new Vector2(0f, -150f), new Vector2(170f, 170f));
+        var sprite = IgCurrency.Icon;
+        var coinImg = SpaceTheme.Img(coin, sprite, Color.white);
+        coinImg.preserveAspect = true;
+        coinImg.enabled = sprite != null;
+        var en = SpaceTheme.Text(safe, "En", T_GOLD_EN, 26, SpaceTheme.A(SpaceTheme.GOLD, 0.95f), top,
+            new Vector2(0f, -258f), new Vector2(900f, 36f), FontStyles.Bold);
+        SpaceTheme.Tracking(en, 24f);
+        SpaceTheme.Text(safe, "Title", T_GOLD_PICK, 48, SpaceTheme.TEXT, top, new Vector2(0f, -314f),
+            new Vector2(900f, 64f), FontStyles.Bold);
+
+        // 金額（−  [ 5 ] G  ＋）。数字の欄を押すと数字のキーボードで打てる
+        const float ROW_Y = -480f;
+        var input = AmountInput(safe, new Vector2(-40f, ROW_Y), new Vector2(300f, 150f));
+        input.text = s_goldAmount.ToString(CultureInfo.InvariantCulture);
+        SpaceTheme.Text(safe, "Unit", IgCurrency.UNIT, 84, SpaceTheme.GOLD, top, new Vector2(150f, ROW_Y),
+            new Vector2(90f, 120f), FontStyles.Bold);
+        void Set(int v)
+        {
+            s_goldAmount = Mathf.Clamp(v, GoldQr.MIN, GoldQr.MAX);
+            input.SetTextWithoutNotify(s_goldAmount.ToString(CultureInfo.InvariantCulture));
+        }
+        int Typed() => int.TryParse(input.text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var v) ? v : s_goldAmount;
+        input.onEndEdit.AddListener(_ => Set(Typed()));
+        StepButton(safe, new Vector2(-300f, ROW_Y), false, () => Set(Typed() - 1));
+        StepButton(safe, new Vector2(300f, ROW_Y), true, () => Set(Typed() + 1));
+        var range = SpaceTheme.Text(safe, "Range", T_GOLD_RANGE_A + IgCurrency.Format(GoldQr.MAX) + T_GOLD_RANGE_B, 24,
+            SpaceTheme.TEXT_MUTED, top, new Vector2(0f, -584f), new Vector2(900f, 36f), FontStyles.Bold);
+        range.enableAutoSizing = true;
+        range.fontSizeMin = 18f;
+        range.fontSizeMax = 24f;
+
+        // よく使う金額（押すとその金額にする）
+        const float CHIP_W = 116f, CHIP_H = 84f, CHIP_GAP = 15f;
+        float total = GOLD_PRESETS.Length * CHIP_W + (GOLD_PRESETS.Length - 1) * CHIP_GAP;
+        for (int i = 0; i < GOLD_PRESETS.Length; i++)
+        {
+            int value = GOLD_PRESETS[i];
+            var chip = SpaceTheme.Rect("Preset_" + value, safe, top,
+                new Vector2(-total * 0.5f + CHIP_W * 0.5f + i * (CHIP_W + CHIP_GAP), -676f), new Vector2(CHIP_W, CHIP_H));
+            var chipFace = SpaceTheme.Glass(chip, 36f, new Color(0.05f, 0.07f, 0.19f, 0.92f), SpaceTheme.A(SpaceTheme.GOLD, 0.45f),
+                true);
+            SpaceTheme.Clickable(chip.gameObject, chipFace, () => Set(value));
+            var chipLabel = SpaceTheme.Text(chip, "Label", IgCurrency.Format(value), 32, SpaceTheme.GOLD, FontStyles.Bold);
+            SpaceTheme.Stretch(chipLabel.rectTransform, 6f, 0f, 6f, 0f);
+            chipLabel.enableAutoSizing = true;
+            chipLabel.fontSizeMin = 22f;
+            chipLabel.fontSizeMax = 32f;
+        }
+        var sub = SpaceTheme.Text(safe, "Sub", T_GOLD_SUB, 24, SpaceTheme.TEXT_SUB, top, new Vector2(0f, -772f),
+            new Vector2(960f, 36f), FontStyles.Bold);
+        sub.enableAutoSizing = true;
+        sub.fontSizeMin = 18f;
+        sub.fontSizeMax = 24f;
+
+        // QRコードを表示（金色のボタン）
+        var show = SpaceTheme.Rect("Show", safe, top, new Vector2(0f, -890f), new Vector2(600f, 124f));
+        var showFace = SpaceTheme.GradientFace(show, SpaceTheme.Hex(0xFFE7A0), SpaceTheme.Hex(0xE0A640), SpaceTheme.GOLD);
+        SpaceTheme.Clickable(show.gameObject, showFace, () =>
+        {
+            Set(Typed());
+            ShowGold(s_goldAmount);
+        });
+        var showLabel = SpaceTheme.Text(show, "Label", T_GOLD_SHOW, 40, SpaceTheme.TEXT_DARK, FontStyles.Bold);
+        SpaceTheme.Stretch(showLabel.rectTransform);
+
+        // 下: 一覧にもどる
+        var back = SpaceTheme.Rect("Back", safe, new Vector2(0.5f, 0f), new Vector2(0f, 56f), new Vector2(560f, 112f),
+            new Vector2(0.5f, 0f));
+        var backFace = SpaceTheme.Glass(back, 46f, new Color(0.05f, 0.07f, 0.19f, 0.92f), null, true);
+        SpaceTheme.Clickable(back.gameObject, backFace, CloseDetail);
+        var backLabel = SpaceTheme.Text(back, "Label", T_BACK, 34, SpaceTheme.TEXT, FontStyles.Bold);
+        SpaceTheme.Stretch(backLabel.rectTransform);
+
+        _detail.AddComponent<SpacePopIn>().Target = (RectTransform)input.transform;
+    }
+
+    /// <summary>amount G を渡すQR（その日だけ・1人1回。出すたびに番号の違う新しいQR）</summary>
+    private void ShowGold(int amount)
+    {
+        var safe = OpenDetail();
+        if (safe == null) return;
+        var pos = new Vector2(0f, -150f);
+        var glow = SpaceTheme.Rect("IconGlow", safe, new Vector2(0.5f, 1f), pos, new Vector2(300f, 300f));
+        SpaceTheme.Img(glow, SpaceSprites.Glow, SpaceTheme.A(SpaceTheme.GOLD, 0.35f));
+        var coin = SpaceTheme.Rect("Coin", safe, new Vector2(0.5f, 1f), pos, new Vector2(170f, 170f));
+        var sprite = IgCurrency.Icon;
+        var img = SpaceTheme.Img(coin, sprite, Color.white);
+        img.preserveAspect = true;
+        img.enabled = sprite != null;
+
+        string label = IgCurrency.Format(amount);
+        FillDetail(safe, T_GOLD_EN, SpaceTheme.GOLD, label, GoldQr.NewPayload(amount), T_SCAN_A + label + T_GOLD_SCAN_B,
+            T_GOLD_SUB);
+    }
+
+    /// <summary>金額を打つ欄（数字だけ・3桁まで。真ん中そろえの大きな金色の数字）</summary>
+    private static TMP_InputField AmountInput(RectTransform parent, Vector2 pos, Vector2 size)
+    {
+        var box = SpaceTheme.Rect("Amount", parent, new Vector2(0.5f, 1f), pos, size);
+        SpaceTheme.Glass(box, 40f, new Color(0.03f, 0.04f, 0.12f, 0.92f), SpaceTheme.A(SpaceTheme.GOLD, 0.6f), true);
+        var area = SpaceTheme.Rect("TextArea", box);
+        SpaceTheme.Stretch(area, 20f, 6f, 20f, 6f);
+        area.gameObject.AddComponent<RectMask2D>();
+        var tx = SpaceTheme.Text(area, "Text", "", 96, SpaceTheme.GOLD, FontStyles.Bold, TextAlignmentOptions.Center);
+        SpaceTheme.Stretch(tx.rectTransform);
+
+        var input = box.gameObject.AddComponent<TMP_InputField>();
+        input.textViewport = area;
+        input.textComponent = tx;
+        input.fontAsset = SpaceTheme.Font;
+        input.pointSize = 96;
+        input.richText = false;
+        input.lineType = TMP_InputField.LineType.SingleLine;
+        input.contentType = TMP_InputField.ContentType.IntegerNumber;
+        input.characterLimit = 3;
+        input.customCaretColor = true;
+        input.caretColor = SpaceTheme.GOLD;
+        input.selectionColor = SpaceTheme.A(SpaceTheme.GOLD, 0.35f);
+        return input;
+    }
+
+    /// <summary>金額の −／＋ の丸いボタン</summary>
+    private static void StepButton(RectTransform parent, Vector2 pos, bool plus, UnityEngine.Events.UnityAction onClick)
+    {
+        var rt = SpaceTheme.Rect(plus ? "Plus" : "Minus", parent, new Vector2(0.5f, 1f), pos, new Vector2(120f, 120f));
+        var face = SpaceTheme.Img(rt, SpaceSprites.Circle, new Color(0.05f, 0.07f, 0.19f, 0.9f), true);
+        var rim = SpaceTheme.Rect("Rim", rt);
+        SpaceTheme.Stretch(rim);
+        SpaceTheme.Img(rim, SpaceSprites.RingSmall, SpaceTheme.A(SpaceTheme.GOLD, 0.5f));
+        SpaceTheme.Bar(rt, Vector2.zero, 40f, 7f, 0f, SpaceTheme.TEXT);
+        if (plus) SpaceTheme.Bar(rt, Vector2.zero, 40f, 7f, 90f, SpaceTheme.TEXT);
+        SpaceTheme.Clickable(rt.gameObject, face, onClick);
     }
 
     private void ShowPlanet(SpacePlanetDef def)

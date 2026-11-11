@@ -126,6 +126,13 @@ public class QRReader : MonoBehaviour
             return;
         }
 
+        // G（アプリ内の通貨）を渡すQR（"gold:{金額}:{営業日}:{番号}:{署名}"。管理者が金額を決めて見せる。その日だけ・1人1回）
+        if (_result.StartsWith(GoldQr.PREFIX))
+        {
+            _callMethodFromQR.ClaimGold(_result).Forget();
+            return;
+        }
+
         switch (_result)
         {
             case "Lv+1":

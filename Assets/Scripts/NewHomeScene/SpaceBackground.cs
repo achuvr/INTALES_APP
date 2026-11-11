@@ -13,8 +13,9 @@ using UnityEngine.UI;
 /// 新ホームでは、完成した星座（Constellations）を空に並べる（EnableConstellations。2026-11-06 ユーザー指定
 /// 「宇宙空間に配置」）。星座ごとに決まった場所に、レベルの明るさで薄く出る。新しく完成・レベルアップすると、
 /// お知らせが閉じてからその場所に光ってふくらんで現れる。
-/// 空の星座をタップするとその星座の詳細が開く。さいころ座だけは、いろいろなダイスを振れる画面（SpaceDiceRoller）が開く
-/// （2026-11-11。押せるものだと分かるよう後ろの光が明滅し、ホームの部品に隠れない場所に置いている）。
+/// 空の星座をタップするとその星座の詳細が開く。さいころ座は、いろいろなダイスを振れる画面（SpaceDiceRoller）、
+/// 金貨座は、アプリ内の通貨（G）で買い物をするショップ（SpaceShop。2026-11-12）が開く
+/// （押せるものだと分かるよう後ろの光が明滅し、ホームの部品に隠れない場所に置いている。管理者には初めから出ている）。
 /// </summary>
 public class SpaceBackground : MonoBehaviour
 {
@@ -62,16 +63,28 @@ public class SpaceBackground : MonoBehaviour
         // さいころ座は押すとダイスの画面が開くので、ホームのどの部品にも隠れない右の中ほど（うたげ座と旗座の間）に置く
         // （2026-11-11 ユーザー指定で移動。以前の 0.17,0.11 は所持品ボタンの裏で押せなかった。
         //   16:9・縦長のiPhone/Android・iPad、INTALES WORLD のボタンのあり・なしのどれでも、押せる部品と重ならない）
-        new Vector2(0.885f, 0.39f), new Vector2(0.50f, 0.05f), new Vector2(0.83f, 0.11f), new Vector2(0.36f, 0.80f),
+        // 金貨座は押すとショップが開くので、さいころ座と左右対称の左の中ほど（仮面座と切り札座の間）に置く
+        // （2026-11-12。以前の 0.83,0.11 は所持品ボタンの裏で押せなかったので、ここにいた盤座と入れ替えた。
+        //   16:9・縦長のiPhone/Android・iPhone SE・iPad、INTALES WORLD のボタンのあり・なしのどれでも、押せる部品と重ならない）
+        new Vector2(0.885f, 0.39f), new Vector2(0.50f, 0.05f), new Vector2(0.12f, 0.42f), new Vector2(0.36f, 0.80f),
         new Vector2(0.30f, 0.21f), new Vector2(0.70f, 0.21f),
-        new Vector2(0.12f, 0.42f), new Vector2(0.50f, 0.15f), // 盤座・積み木座（2026-11-07 追加）
+        new Vector2(0.83f, 0.11f), new Vector2(0.50f, 0.15f), // 盤座・積み木座（2026-11-07 追加。盤座は 2026-11-12 に金貨座と入れ替え）
     };
     private RectTransform _skyLayer;
     private readonly Dictionary<string, int> _skyLevels = new Dictionary<string, int>(); // 星座ID → 空に出しているレベル
     private readonly Dictionary<string, RectTransform> _skyFigures = new Dictionary<string, RectTransform>();
-    // さいころ座の後ろの光（押せるものだと分かるよう、ゆっくり明滅させる）
-    private Image _diceGlow;
-    private Color _diceGlowColor;
+
+    /// <summary>押すと画面が開く星座（さいころ座＝ダイス、金貨座＝ショップ）。完成するまで出ない・管理者には初めから出ている</summary>
+    private static readonly string[] TAPPABLE = { SpaceDiceRoller.CONSTELLATION, IgCurrency.CONSTELLATION };
+
+    /// <summary>押せる星座の後ろの光（押せるものだと分かるよう、ゆっくり明滅させる）</summary>
+    private class TapGlow
+    {
+        public Image Img;
+        public Color Color;
+        public float Phase;
+    }
+    private readonly Dictionary<string, TapGlow> _tapGlows = new Dictionary<string, TapGlow>();
     private float _nextSkyCheck;
     private bool _skyFirst = true;
 
@@ -261,8 +274,9 @@ public class SpaceBackground : MonoBehaviour
         _moon.anchoredPosition = _moonBase + new Vector2(Mathf.Sin(t * 0.21f + 1f) * 5f, Mathf.Sin(t * 0.33f + 1f) * 4f);
         if (_moonGlow != null)
             _moonGlow.color = SpaceTheme.A(_moonGlowColor, 0.18f + 0.14f * (0.5f + 0.5f * Mathf.Sin(t * 1.4f + 1.5f)));
-        if (_diceGlow != null)
-            _diceGlow.color = SpaceTheme.A(_diceGlowColor, 0.10f + 0.14f * (0.5f + 0.5f * Mathf.Sin(t * 1.2f)));
+        foreach (var g in _tapGlows.Values)
+            if (g.Img != null)
+                g.Img.color = SpaceTheme.A(g.Color, 0.10f + 0.14f * (0.5f + 0.5f * Mathf.Sin(t * 1.2f + g.Phase)));
 
         // New の吹き出し: 出たときにぽんと膨らみ、そのあとはふわふわ上下する
         if (_badge != null && _badge.gameObject.activeSelf)
@@ -337,20 +351,21 @@ public class SpaceBackground : MonoBehaviour
         {
             var p = progress[i];
             bool dice = p.Def.Id == SpaceDiceRoller.CONSTELLATION;
-            // 完成した星座だけ空に出す。さいころ座（ダイスの画面の入口）も、お客様は完成するまで出ない。
-            // 管理者だけは初めから出ている（未完成なら完成した姿で。2026-11-11 ユーザー指定）。
+            bool tappable = Array.IndexOf(TAPPABLE, p.Def.Id) >= 0;
+            // 完成した星座だけ空に出す。押すと画面が開く星座（さいころ座・金貨座）も、お客様は完成するまで出ない。
+            // 管理者だけは初めから出ている（未完成なら完成した姿で。さいころ座は 2026-11-11、金貨座は 2026-11-12 ユーザー指定）。
             // 空に出している状態はふつうレベルで覚えるが、管理者のこの表示だけ -1 で覚える（管理者の判定はあとから届くため）
-            bool adminDice = dice && p.Level == 0 && AdminClaim.IsAdmin;
-            int level = adminDice ? -1 : p.Level;
+            bool adminShow = tappable && p.Level == 0 && AdminClaim.IsAdmin;
+            int level = adminShow ? -1 : p.Level;
             _skyLevels.TryGetValue(p.Def.Id, out int shown);
             if (level == shown) continue;
             _skyLevels[p.Def.Id] = level;
             if (_skyFigures.TryGetValue(p.Def.Id, out var old) && old != null) Destroy(old.gameObject);
             _skyFigures.Remove(p.Def.Id);
-            if (dice && _diceGlow != null)
+            if (_tapGlows.TryGetValue(p.Def.Id, out var oldGlow))
             {
-                Destroy(_diceGlow.gameObject);
-                _diceGlow = null;
+                if (oldGlow.Img != null) Destroy(oldGlow.Img.gameObject);
+                _tapGlows.Remove(p.Def.Id);
             }
             if (level == 0) continue;
 
@@ -360,39 +375,45 @@ public class SpaceBackground : MonoBehaviour
             var fig = SpaceTheme.Rect("Sky_" + p.Def.Id, _skyLayer, Vector2.zero, pos, new Vector2(SKY_FIG, SKY_FIG));
             // 星座ごとに少しだけ傾ける（並べたときに単調にならないように）
             fig.localEulerAngles = new Vector3(0f, 0f, ((slot * 37) % 30) - 15f);
-            SpaceConstellationPage.Figure(fig, p.Def, adminDice ? p.Def.Size : p.Count - p.Partial, SKY_FIG); // いまのレベルの姿
+            SpaceConstellationPage.Figure(fig, p.Def, adminShow ? p.Def.Size : p.Count - p.Partial, SKY_FIG); // いまのレベルの姿
             var group = fig.gameObject.AddComponent<CanvasGroup>();
             group.alpha = SKY_ALPHA;
             // タップすると、その星座の詳細を開く（2026-11-09 ユーザー指定）。背景の動く層はふだん当たり判定を持たないので足す。
-            // さいころ座だけは、いろいろなダイスを振れる画面を開く（2026-11-11 ユーザー指定）
+            // さいころ座はいろいろなダイスを振れる画面（2026-11-11）、金貨座はショップ（2026-11-12）を開く
             if (_anim.GetComponent<GraphicRaycaster>() == null) _anim.gameObject.AddComponent<GraphicRaycaster>();
             string id = p.Def.Id;
-            if (dice)
+            if (tappable)
             {
-                var glowRt = SpaceTheme.Rect("Sky_dice_glow", _skyLayer, Vector2.zero, pos,
+                var glowRt = SpaceTheme.Rect("Sky_" + id + "_glow", _skyLayer, Vector2.zero, pos,
                     new Vector2(SKY_FIG * 1.5f, SKY_FIG * 1.5f));
                 glowRt.SetSiblingIndex(fig.GetSiblingIndex()); // 星座の後ろ
-                _diceGlowColor = p.Def.Color;
-                _diceGlow = SpaceTheme.Img(glowRt, SpaceSprites.Glow, SpaceTheme.A(_diceGlowColor, 0.2f));
-                SpaceTheme.Clickable(fig.gameObject, SpaceTheme.HitArea(fig), () => SpaceDiceRoller.Open());
+                _tapGlows[id] = new TapGlow
+                {
+                    Img = SpaceTheme.Img(glowRt, SpaceSprites.Glow, SpaceTheme.A(p.Def.Color, 0.2f)),
+                    Color = p.Def.Color,
+                    Phase = dice ? 0f : Mathf.PI, // ふたつが同時に明滅しないよう、半周ずらす
+                };
+                if (dice) SpaceTheme.Clickable(fig.gameObject, SpaceTheme.HitArea(fig), () => SpaceDiceRoller.Open());
+                else SpaceTheme.Clickable(fig.gameObject, SpaceTheme.HitArea(fig), () => SpaceShop.Open());
             }
             else
             {
                 SpaceTheme.Clickable(fig.gameObject, SpaceTheme.HitArea(fig), () => SpaceConstellationPage.OpenDetail(id));
             }
             _skyFigures[p.Def.Id] = fig;
-            if (adminDice)
+            if (adminShow)
             {
                 // 管理者の判定が届いてから出るので、ぱっと出さずに静かに浮かび上がらせる
                 if (!_skyFirst) StartCoroutine(SpaceTheme.Tween(0.6f, 0f, k => { if (group != null) group.alpha = SKY_ALPHA * k; }));
             }
             else if (!_skyFirst) StartCoroutine(SkyArrive(fig, group, p.Def.Color));
         }
-        // さいころ座は隣の星座（うたげ座・旗座）と枠が少し重なるので、いつもいちばん手前にして押しやすくする
-        if (_skyFigures.TryGetValue(SpaceDiceRoller.CONSTELLATION, out var diceFig) && diceFig != null)
+        // 押せる星座は隣の星座と枠が少し重なることがあるので、いつもいちばん手前にして押しやすくする
+        foreach (var tapId in TAPPABLE)
         {
-            if (_diceGlow != null) _diceGlow.transform.SetAsLastSibling();
-            diceFig.SetAsLastSibling();
+            if (!_skyFigures.TryGetValue(tapId, out var tapFig) || tapFig == null) continue;
+            if (_tapGlows.TryGetValue(tapId, out var g) && g.Img != null) g.Img.transform.SetAsLastSibling();
+            tapFig.SetAsLastSibling();
         }
         _skyFirst = false;
     }

@@ -34,6 +34,8 @@ public sealed class JourneyResult
     public string Exhausted;
     /// <summary>退店の結果（力を失ったお知らせを出すのは退店のときだけ）</summary>
     public bool CheckOut;
+    /// <summary>もらったアプリ内の通貨（単位 G。入店した日の最初の入店のときだけ。金貨座を完成させた人だけ。2026-11-12）</summary>
+    public int Ig;
 
     public bool HasRewards => Prizes.Count > 0 || Unlocked.Count > 0;
 }
@@ -67,6 +69,8 @@ public static class JourneyRules
     public const int RESCUE_ALLOWANCE = 1;
     /// <summary>秋のルブラで流れ星をもう1回引ける滞在時間（分）</summary>
     public const int RUBRA_STAY_MINUTES = 4 * 60;
+    /// <summary>来店1回（1営業日）でもらえるアプリ内の通貨（2026-11-12 ユーザー指定「来店時に1」。単位は G。IgCurrency）</summary>
+    public const int IG_PER_VISIT = 1;
 
     // 惑星のパワー（同じ公転にもう一度来ると中央の惑星にたまり、MAX で流れ星の7%オフが出やすい）は
     // 2026-11-10 にやめた（ユーザー指定「お客様に説明が難しい」）。たまっていた値は JourneyData.Power にそのまま残る
@@ -108,6 +112,8 @@ public static class JourneyRules
         /// その日の2回目以降の入店でも、力を失った惑星でもコマをもらえる（惑星はふつうどおり使ったことになる）
         /// </summary>
         public bool Debug;
+        /// <summary>アプリ内の通貨（G）がもらえるか（金貨座が完成している。管理者は初めから。2026-11-12）</summary>
+        public bool Ig;
         public long InAt;
         public int SeedDays;
     }
@@ -128,6 +134,10 @@ public static class JourneyRules
         j.InAt = c.InAt;
         if (!j.Days.Contains((int)c.Weekday)) j.Days.Add((int)c.Weekday);
         r.Visits = j.Visits;
+
+        // ---- アプリ内の通貨（2026-11-12 ユーザー指定「金貨座を解放したら、来店時に1」。単位は G）。来店回数と同じく1営業日に1回
+        //      （入店・退店を繰り返しても増えない。管理者も同じ）。解放より前の来店の分はさかのぼらない ----
+        if (r.NewDay && c.Ig) r.Ig = IG_PER_VISIT;
 
         // ---- コマ（2026-11-10 ユーザー指定「その色の惑星で入店したときに、その色のミープルを1個。
         //      複数の色を持つ惑星は、それぞれ1個ずつ」）。来店回数と同じく1営業日に1回（入店しなおしても増えない）。

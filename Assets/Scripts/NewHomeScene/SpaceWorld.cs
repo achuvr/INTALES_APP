@@ -15,6 +15,7 @@ public enum WorldEffect
     Meeples, // 各色のコマを1個ずつもらう
     Coupon,  // 5%OFFチケットのカケラをもらう（2枚で5%OFFチケット）
     StarFragment, // 星のカケラをもらう（5個で流れ星を1回。2026-11-11）
+    Gold,    // G（アプリ内の通貨）をもらう（2026-11-12）
 }
 
 /// <summary>INTALES WORLD の置き場1つ分</summary>
@@ -34,6 +35,11 @@ public sealed class SpaceWorldArea
     /// 置き場の文書には色を決めず、色ごとの数（red4・blue4・yellow4 のように「色の名前＋番号」）を数える
     /// </summary>
     public bool AnyColor;
+    /// <summary>
+    /// あとから足した置き場（2026-11-12〜）。置き場の文書の cX・nX は、だれかがそこに置いたときに初めて作る
+    /// （ほかの置き場に置いたときは前の版と同じ形の文書のまま。ルールをデプロイする前でも、ほかの置き場は今までどおり置ける）
+    /// </summary>
+    public bool LazyKeys;
     /// <summary>地図の上の位置（左上が 0,0・右下が 1,1 の割合。tools/world/make_world_map.py の SPOTS と同じ）</summary>
     public Vector2 Pos;
     public Color Accent;
@@ -45,7 +51,8 @@ public sealed class SpaceWorldArea
 /// ダウンロードできるのは、ワーカープレイスメントの星座（職人座）を完成させた人だけ（2026-11-11 ユーザー指定。Unlocked）。
 ///  ・ダウンロードしていない人: 所持品のコマの欄を出さない・入店でコマをもらえない・惑星が力を失うこともない
 ///  ・ダウンロードした人: ホームの所持品の下に「INTALES WORLD」のボタン → オリジナルの世界地図（SpaceWorldMap）
-/// 世界地図には置き場が5か所あり、コマを1体置くと、その置き場の効果をもらえる（ワーカープレイスメント）。
+/// 世界地図には置き場が6か所あり、コマを1体置くと、その置き場の効果をもらえる（ワーカープレイスメント）。
+/// 6か所目の黄金の鉱山（3G をもらう）は 2026-11-12 追加。
 ///  ・その日まだ誰も置いていない置き場には、好きな色を置ける。1体でも置かれたら、その日は同じ色しか置けない（マストフォロー）
 ///  ・ただし左下の「星くずの島」だけは、何色でも置ける保険の置き場（2026-11-11 ユーザー指定。星のカケラ5個で流れ星1回）
 ///  ・1人が置けるのは1日1体だけ（どこか1か所）／置いたコマは使い切り（戻らない）／置けるのは入店中だけ
@@ -67,6 +74,9 @@ public static class SpaceWorld
     public const string T_ERR_NO_EXHAUSTED = "力を失った惑星がありません";
     public const string T_ERR_PICK = "力を戻す惑星を選んでください";
     public const string T_ERR_NETWORK = "通信に失敗しました。もう一度お試しください";
+    // ルールで断られた（新しい置き場のルールをまだデプロイしていないときなど。2026-11-12。
+    // 以前は通信の失敗と同じ文言で、星くずの島のデプロイ前に「なんで？」と聞かれた）
+    public const string T_ERR_DENIED = "この置き場はまだ準備中です。ほかの置き場を選んでください";
 
     public static readonly SpaceWorldArea[] Areas =
     {
@@ -100,10 +110,23 @@ public static class SpaceWorld
             Note = "何色でも置ける ・ 5個で流れ星", Detail = "ここだけは何色のコマでも置けます\n星のカケラを5個集めると、流れ星を1回見られます",
             AnyColor = true, Pos = new Vector2(0.125f, 0.855f), Accent = SpaceTheme.Hex(0xFFD36E),
         },
+        new SpaceWorldArea
+        {
+            // 地図の右上の北東の小島の鉱山（2026-11-12 ユーザー指定「ミープルを置いて3Gもらえるエリア」。名前はこちらで付けた。
+            // 最初は南東の大陸の山並み (0.62, 0.62) に置いたが、同日ユーザー指定「マップの右上に」で移した）。
+            // ふつうの置き場（マストフォロー）。文書の c5・n5 はここに置いたときに作る（LazyKeys）
+            Index = 5, Effect = WorldEffect.Gold, Name = "黄金の鉱山", En = "GOLD MINE",
+            Text = IgCurrency.Format(GOLD_PER_PLACE) + "をもらう",
+            Detail = "アプリ内の通貨を " + IgCurrency.Format(GOLD_PER_PLACE) + " もらえます\nG は金貨座のショップで使えます",
+            LazyKeys = true, Pos = new Vector2(0.80f, 0.145f), Accent = SpaceTheme.Hex(0xFFC24A),
+        },
     };
 
-    /// <summary>置き場の数（置き場の文書の c0..c3・n0..n3 と red4 などの番号）</summary>
-    public const int AREA_COUNT = 5;
+    /// <summary>置き場の数（置き場の文書の c0..c3・n0..n3・c5・n5 と red4 などの番号）</summary>
+    public const int AREA_COUNT = 6;
+
+    /// <summary>黄金の鉱山でもらえる G（2026-11-12 ユーザー指定）</summary>
+    public const int GOLD_PER_PLACE = 3;
 
     /// <summary>「惑星を3つアクティブにする」で力を戻す数</summary>
     public const int REVIVE_COUNT = 3;
@@ -385,6 +408,8 @@ public static class SpaceWorld
         public bool CouponCompleted;                          // 商人の港: カケラがそろって5%OFFチケットになった
         public int StarFragments;                             // 星くずの島: もらったあとの星のカケラの数（そろったら0）
         public bool StarCompleted;                            // 星くずの島: 星のカケラがそろって流れ星を見られる（当たりは Star）
+        public int Gold;                                      // 黄金の鉱山: もらった G
+        public int GoldBalance;                               // 黄金の鉱山: もらったあとの所持金
         internal JourneyData Journey;                         // 力を戻したあとの来店の記録
         internal readonly Dictionary<string, long> Delta = new Dictionary<string, long>(); // 増減した数（フィールドごと）
     }
@@ -430,7 +455,7 @@ public static class SpaceWorld
         catch (Exception ex)
         {
             Debug.LogWarning($"[SpaceWorld] コマを置けませんでした: {ex.Message}");
-            fail.Error = T_ERR_NETWORK;
+            fail.Error = IsPermissionDenied(ex) ? T_ERR_DENIED : T_ERR_NETWORK;
             return fail;
         }
         if (res == null || !res.Ok) return res ?? fail;
@@ -544,6 +569,12 @@ public static class SpaceWorld
                 r.StarFragments = (int)stars;
                 break;
             }
+            case WorldEffect.Gold:
+                // G を3（2026-11-12）。金貨座が完成していない人も、持っておける（所持品に出る）
+                Add(r.Delta, IgCurrency.FIELD, GOLD_PER_PLACE);
+                r.Gold = GOLD_PER_PLACE;
+                r.GoldBalance = (int)(Math.Max(0, Long(u, IgCurrency.FIELD)) + GOLD_PER_PLACE);
+                break;
         }
         foreach (var kv in r.Delta)
             if (kv.Value != 0) updates[kv.Key] = FieldValue.Increment(kv.Value);
@@ -559,6 +590,7 @@ public static class SpaceWorld
             for (int i = 0; i < AREA_COUNT; i++)
             {
                 if (Areas[i].AnyColor) continue;
+                if (Areas[i].LazyKeys && i != a) continue; // あとから足した置き場は、そこに置いたときだけ書く
                 doc["c" + i] = i == a ? ColorKey(color) : "";
                 doc["n" + i] = i == a ? 1L : 0L;
             }
@@ -610,6 +642,11 @@ public static class SpaceWorld
             foreach (var kv in r.Delta)
             {
                 int n = (int)kv.Value;
+                if (kv.Key == IgCurrency.FIELD)
+                {
+                    d.Ig = r.GoldBalance; // 黄金の鉱山（トランザクションで読んだ値＋もらった分）
+                    continue;
+                }
                 var mm = SpaceMeeples.All.FirstOrDefault(x => x.Field == kv.Key);
                 if (mm != null) mm.Add(d, n);
                 else SpaceCoupons.ByField(kv.Key)?.Add(d, n);
@@ -675,6 +712,9 @@ public static class SpaceWorld
                 if (r.CouponCompleted)
                     LocalHistoryLog.Add("coupon", $"カケラが{FRAGMENTS_PER_COUPON}枚そろって {SpaceCoupons.NameOf("five_coupon")} が完成");
                 break;
+            case WorldEffect.Gold:
+                LocalHistoryLog.Add(IgCurrency.HISTORY, $"{r.Area.Name}で {IgCurrency.Format(r.Gold)} を入手");
+                break;
         }
         JourneyService.NotifyChanged(); // ホームの惑星（力を戻した惑星の色）・所持品の数を更新
     }
@@ -704,7 +744,7 @@ public static class SpaceWorld
         {
             var sb = new StringBuilder(T_TITLE).Append(T_ERR_USER).Append(T_ERR_NOT_IN_STORE).Append(T_ERR_PLACED)
                 .Append(T_ERR_NO_MEEPLE).Append(T_ERR_COLOR).Append(T_ERR_NO_EXHAUSTED).Append(T_ERR_PICK)
-                .Append(T_ERR_NETWORK).Append("赤青黄").Append(FRAGMENT_NAME).Append(STAR_FRAGMENT_NAME);
+                .Append(T_ERR_NETWORK).Append(T_ERR_DENIED).Append("赤青黄").Append(FRAGMENT_NAME).Append(STAR_FRAGMENT_NAME);
             foreach (var a in Areas) sb.Append(a.Name).Append(a.En).Append(a.Text).Append(a.Note).Append(a.Detail);
             return sb.ToString();
         }
@@ -712,6 +752,19 @@ public static class SpaceWorld
 
     private static void Add(Dictionary<string, long> d, string key, long n) =>
         d[key] = (d.TryGetValue(key, out var v) ? v : 0) + n;
+
+    /// <summary>Firestore のルールで断られたか（中に包まれた例外も見る）</summary>
+    private static bool IsPermissionDenied(Exception ex)
+    {
+        for (var e = ex; e != null; e = e.InnerException)
+        {
+            if (e is FirestoreException fe && fe.ErrorCode == FirestoreError.PermissionDenied) return true;
+            if (e is AggregateException ae)
+                foreach (var inner in ae.InnerExceptions)
+                    if (IsPermissionDenied(inner)) return true;
+        }
+        return false;
+    }
 
     private static long Long(Dictionary<string, object> m, string k)
     {

@@ -330,7 +330,9 @@ service cloud.firestore {
     // ================================================================
     // INTALES WORLD の置き場（2026-11-10）world/{営業日 yyyy-MM-dd}
     //   = { c0..c3: 置かれたコマの色（'' | 'red' | 'blue' | 'yellow'）, n0..n3: 置かれた数,
-    //       red4・blue4・yellow4: 保険の置き場（4 星くずの島。何色でも置ける。2026-11-11）の色ごとの数（無ければ0） }
+    //       red4・blue4・yellow4: 保険の置き場（4 星くずの島。何色でも置ける。2026-11-11）の色ごとの数（無ければ0）,
+    //       c5・n5: 5 黄金の鉱山（3G をもらう。ふつうのマストフォローの置き場。2026-11-12）の色と数（無ければ '' と 0。
+    //               そこにだれかが置いたときに初めて作る。前の版のアプリが作る文書には無い） }
     //   読み取り: ログインユーザー
     //   作成・更新: ログインユーザーの「1か所に1体置く」書き込みだけ
     //     ・1回に変えてよいのは1か所（nX と cX、または保険の置き場の色1つ）だけ。数はちょうど1つ増やす
@@ -344,11 +346,22 @@ service cloud.firestore {
     }
 
     function worldShape(d) {
-      return d.keys().hasOnly(['c0', 'c1', 'c2', 'c3', 'n0', 'n1', 'n2', 'n3', 'red4', 'blue4', 'yellow4'])
+      return d.keys().hasOnly(['c0', 'c1', 'c2', 'c3', 'n0', 'n1', 'n2', 'n3', 'red4', 'blue4', 'yellow4', 'c5', 'n5'])
         && d.keys().hasAll(['c0', 'c1', 'c2', 'c3', 'n0', 'n1', 'n2', 'n3'])
         && d.n0 is int && d.n1 is int && d.n2 is int && d.n3 is int
         && d.c0 is string && d.c1 is string && d.c2 is string && d.c3 is string
-        && d.get('red4', 0) is int && d.get('blue4', 0) is int && d.get('yellow4', 0) is int;
+        && d.get('red4', 0) is int && d.get('blue4', 0) is int && d.get('yellow4', 0) is int
+        && d.get('n5', 0) is int && d.get('c5', '') is string;
+    }
+
+    // 黄金の鉱山（5）がまだ空（c5・n5 が無いか、'' と 0）
+    function worldEmpty5(d) {
+      return d.get('n5', 0) == 0 && d.get('c5', '') == '';
+    }
+
+    // 黄金の鉱山（5）に最初の1体
+    function worldFirst5(d) {
+      return d.get('n5', 0) == 1 && worldColor(d.get('c5', ''));
     }
 
     function worldEmpty(d, n, c) {
@@ -373,14 +386,16 @@ service cloud.firestore {
     // 作成（その日の最初の1体）: どこか1か所だけ1体（色つき）、ほかは空
     function worldCreate(d) {
       return worldShape(d) && (
-        (worldFreeEmpty(d) && (
+        (worldFreeEmpty(d) && worldEmpty5(d) && (
           (worldFirst(d, 'n0', 'c0') && worldEmpty(d, 'n1', 'c1') && worldEmpty(d, 'n2', 'c2') && worldEmpty(d, 'n3', 'c3'))
           || (worldEmpty(d, 'n0', 'c0') && worldFirst(d, 'n1', 'c1') && worldEmpty(d, 'n2', 'c2') && worldEmpty(d, 'n3', 'c3'))
           || (worldEmpty(d, 'n0', 'c0') && worldEmpty(d, 'n1', 'c1') && worldFirst(d, 'n2', 'c2') && worldEmpty(d, 'n3', 'c3'))
           || (worldEmpty(d, 'n0', 'c0') && worldEmpty(d, 'n1', 'c1') && worldEmpty(d, 'n2', 'c2') && worldFirst(d, 'n3', 'c3'))
         ))
         || (worldEmpty(d, 'n0', 'c0') && worldEmpty(d, 'n1', 'c1') && worldEmpty(d, 'n2', 'c2') && worldEmpty(d, 'n3', 'c3')
-            && worldFreeFirst(d))
+            && worldEmpty5(d) && worldFreeFirst(d))
+        || (worldEmpty(d, 'n0', 'c0') && worldEmpty(d, 'n1', 'c1') && worldEmpty(d, 'n2', 'c2') && worldEmpty(d, 'n3', 'c3')
+            && worldFreeEmpty(d) && worldFirst5(d))
       );
     }
 
@@ -397,6 +412,15 @@ service cloud.firestore {
         && after[k] == before.get(k, 0) + 1;
     }
 
+    // 更新（黄金の鉱山）: n5 を1つ増やす。色（c5）は同じまま、または空（無い・''）から決める。
+    // その日に初めてここに置くときは c5・n5 を新しく作る
+    function worldStep5(before, after) {
+      return after.diff(before).affectedKeys().hasOnly(['n5', 'c5'])
+        && after.get('n5', 0) == before.get('n5', 0) + 1
+        && (after.get('c5', '') == before.get('c5', '')
+            || (before.get('c5', '') == '' && worldColor(after.get('c5', ''))));
+    }
+
     match /world/{day} {
       allow read: if signedIn();
       allow create: if signedIn() && worldCreate(request.resource.data);
@@ -408,6 +432,7 @@ service cloud.firestore {
         || worldFreeStep(resource.data, request.resource.data, 'red4')
         || worldFreeStep(resource.data, request.resource.data, 'blue4')
         || worldFreeStep(resource.data, request.resource.data, 'yellow4')
+        || worldStep5(resource.data, request.resource.data)
       );
       allow delete: if isAdmin();
     }

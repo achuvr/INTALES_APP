@@ -208,6 +208,23 @@ public class UserData
     [FirestoreProperty("star_fragment")]
     public int StarFragment { get; set; }
 
+    /// <summary>
+    /// アプリ内の通貨（単位 G。2026-11-12）の所持金。金貨座を完成させると使えるようになり、来店するたびに 1G（IgCurrency）。
+    /// フィールド名は最初の単位 IG のまま
+    /// </summary>
+    [FirestoreProperty("ig")]
+    public int Ig { get; set; }
+
+    /// <summary>惑星回復薬の数（2026-11-12。金貨座のショップで 3G。使うと力を失った惑星1つに力を戻す。SpacePlanetPotion）</summary>
+    [FirestoreProperty("planet_potion")]
+    public int PlanetPotion { get; set; }
+
+    /// <summary>
+    /// その日に受け取った G のQRの番号 → 営業日 "yyyy-MM-dd"（2026-11-12。同じQRは1人1回まで。GoldQr）
+    /// </summary>
+    [FirestoreProperty("gold_claims")]
+    public Dictionary<string, object> GoldClaims { get; set; }
+
     // ダイスチャレンジ（2026-11-11。さいころ座が完成すると1日1回 1D100 を振ってランキングに載る。DiceChallenge）
     /// <summary>ダイスチャレンジを振った営業日 "yyyy-MM-dd"</summary>
     [FirestoreProperty("dice_day")]

@@ -36,6 +36,8 @@ public static partial class SpaceNotice
     private const string T_TOGETHER = "さんと一緒に来店しました！";
     private const string T_MEEPLE_GOT = "コマをもらいました"; // 入店した日に、中央の惑星の色のコマ（2026-11-10）
     private const string T_MEEPLE_NONE = " は力を失っているので、コマはもらえませんでした";
+    private const string T_IG_GOT = " をもらいました"; // 入店でもらった通貨（G。金貨座を完成させた人。2026-11-12）
+    private const string T_IG_TOTAL = "所持金 ";
     // 退店して、コマをもらった惑星が力を失ったとき（2026-11-10）
     private const string T_FADED_CAPTION = "PLANET";
     private const string T_FADED_TITLE = "惑星が力を使いました";
@@ -51,6 +53,8 @@ public static partial class SpaceNotice
         .Append(T_ORBIT_FIRST).Append(T_VISITS_A).Append(T_VISITS_B).Append(T_STAR_CAPTION).Append(T_STAR_TITLE)
         .Append(T_STAR_GOT).Append(T_STAR_HINT).Append(T_STAR_NOIR).Append(T_STAR_NOIR_HINT).Append(T_TOGETHER)
         .Append(T_MEEPLE_GOT).Append(SpaceMeeples.GlyphText).Append(T_MEEPLE_NONE).Append(T_FADED_CAPTION)
+        .Append(T_IG_GOT).Append(T_IG_TOTAL).Append(IgCurrency.GlyphText).Append(T_GOLD_CAPTION).Append(T_GOLD_GOT)
+        .Append(GoldQr.GlyphText)
         .Append(T_FADED_TITLE).Append(T_FADED_BODY_B).Append(T_FADED_NOTE).Append(T_WORLD_CAPTION)
         .Append(T_REVIVED_TITLE).Append(T_REVIVED_NOTE).Append(T_PICK_CAPTION).Append(T_PICK_TITLE)
         .Append(T_PICK_SUB_B).Append(T_PICK_SUB).Append(T_PICK_GOT).Append(T_PICK_FAILED).Append(T_PICK_NEXT)
@@ -125,6 +129,8 @@ public static partial class SpaceNotice
 
         // 入店でもらったコマ（その営業日の最初の入店のとき。中央の惑星の色ごとに1個。2026-11-10）
         if (r.Meeples.Count > 0) MeepleStrip(card, r.Meeples, ref y);
+        // 入店でもらった通貨（G。金貨座を完成させた人。その営業日の最初の入店のとき。2026-11-12）
+        if (r.Ig > 0) IgStrip(card, r.Ig, ref y, r.Meeples.Count > 0 ? 14f : 24f);
 
         var lines = new List<(string text, Color color)>();
         if (r.FirstEver && r.Visits > 1) lines.Add((T_ORBIT_FIRST, SpaceTheme.TEXT_SUB));
@@ -315,8 +321,11 @@ public static partial class SpaceNotice
     private const string T_REVIVED_TITLE = "惑星が力を取り戻しました";
     private const string T_REVIVED_NOTE = "また入店のときに、この惑星の色のコマがもらえます";
 
-    /// <summary>惑星の神殿: 力を戻した惑星（最大3つ）が、白く淡い色からいつもの色に戻っていく</summary>
-    public static GameObject PlanetsRevived(List<SpacePlanetDef> planets)
+    /// <summary>
+    /// 惑星の神殿: 力を戻した惑星（最大3つ）が、白く淡い色からいつもの色に戻っていく。
+    /// 惑星回復薬で戻したとき（2026-11-12）は captionText に "PLANET POTION"
+    /// </summary>
+    public static GameObject PlanetsRevived(List<SpacePlanetDef> planets, string captionText = null)
     {
         if (planets == null || planets.Count == 0) return null;
         var card = Overlay("__PlanetsRevivedModal", out var root, SpaceTheme.A(planets[0].Accent, 0.5f));
@@ -324,7 +333,7 @@ public static partial class SpaceNotice
         SpaceTheme.SubCanvas(root, true); // 惑星が自転し続けるので、メインのキャンバスと分ける
 
         float y = 48f;
-        var caption = SpaceTheme.Text(card, "Caption", T_WORLD_CAPTION, 24, SpaceTheme.A(SpaceTheme.CYAN, 0.9f),
+        var caption = SpaceTheme.Text(card, "Caption", captionText ?? T_WORLD_CAPTION, 24, SpaceTheme.A(SpaceTheme.CYAN, 0.9f),
             FontStyles.Bold);
         SpaceTheme.Tracking(caption, 18f);
         Stack(caption.rectTransform, ref y, 36f, 0f);
@@ -461,17 +470,19 @@ public static partial class SpaceNotice
     /// <summary>
     /// 星くずの島: 星のカケラを1個もらった（2026-11-11）。五芒星を5つに割った枠を星の形に並べ、集まった数だけ金色で埋める
     /// （いまもらった1片は、少し遅れて外側から星の中へ収まる）。5個そろったとき（completed）は星全体が光り、
-    /// とじると流れ星が流れることを知らせる（流れ星の演出は SpaceWorldMap がこのあとに出す）
+    /// とじると流れ星が流れることを知らせる（流れ星の演出は SpaceWorldMap がこのあとに出す）。
+    /// ショップで買ったとき（2026-11-12）は caption・got（「 を3個 買いました」）・見出しの色を差し替える
     /// </summary>
-    public static GameObject StarFragmentGot(string place, int have, bool completed)
+    public static GameObject StarFragmentGot(string place, int have, bool completed, string captionText = null,
+        string got = null, Color? captionColor = null)
     {
         var accent = SpaceTheme.Hex(0xFFD36E);
         var card = Overlay("__StarFragmentGotModal", out var root, SpaceTheme.A(accent, 0.55f));
         if (card == null) return null;
         SpaceTheme.SubCanvas(root, true); // 1片が動いて収まる・光がまたたくので、メインのキャンバスと分ける
         float y = 48f;
-        var caption = SpaceTheme.Text(card, "Caption", T_WORLD_CAPTION, 24, SpaceTheme.A(SpaceTheme.CYAN, 0.9f),
-            FontStyles.Bold);
+        var caption = SpaceTheme.Text(card, "Caption", captionText ?? T_WORLD_CAPTION, 24,
+            SpaceTheme.A(captionColor ?? SpaceTheme.CYAN, 0.9f), FontStyles.Bold);
         SpaceTheme.Tracking(caption, 18f);
         Stack(caption.rectTransform, ref y, 36f, 0f);
         var title = SpaceTheme.Text(card, "Title", place, 40, SpaceTheme.TEXT, FontStyles.Bold);
@@ -506,11 +517,11 @@ public static partial class SpaceNotice
             }
         }
 
-        var got = SpaceTheme.Text(card, "Got",
-            $"<color=#{ColorUtility.ToHtmlStringRGB(SpaceTheme.GOLD)}>{SpaceWorld.STAR_FRAGMENT_NAME}</color>{T_STAR_FRAGMENT_GOT}",
+        var gotText = SpaceTheme.Text(card, "Got",
+            $"<color=#{ColorUtility.ToHtmlStringRGB(SpaceTheme.GOLD)}>{SpaceWorld.STAR_FRAGMENT_NAME}</color>{got ?? T_STAR_FRAGMENT_GOT}",
             32, SpaceTheme.TEXT, FontStyles.Bold);
-        Wrap(got);
-        Stack(got.rectTransform, ref y, Measure(got, 48f), 22f);
+        Wrap(gotText);
+        Stack(gotText.rectTransform, ref y, Measure(gotText, 48f), 22f);
         string noteText = completed ? T_STAR_FRAGMENT_DONE : T_STAR_FRAGMENT_LEFT_A + (need - filled) + T_STAR_FRAGMENT_LEFT_B;
         var note = SpaceTheme.Text(card, "Note", noteText, 28, completed ? SpaceTheme.GOLD : SpaceTheme.TEXT_SUB,
             FontStyles.Bold);
@@ -538,6 +549,106 @@ public static partial class SpaceNotice
         var title = SpaceTheme.Text(card, "Title", place, 40, SpaceTheme.TEXT, FontStyles.Bold);
         Stack(title.rectTransform, ref y, 56f, 8f);
         MeepleStrip(card, new List<PlanetColor>(PlanetColorOrder.All), ref y);
+        Finish(card, root, ref y);
+        return root;
+    }
+
+    /// <summary>
+    /// 入店でもらった通貨（G。2026-11-12）: 金色の枠の中に、金貨の絵と「1G をもらいました」「所持金 12G」を並べる
+    /// （絵と文字をひとまとまりにして真ん中にそろえる。文字の大きさの設定で大きくなる分も見込んで幅を決める）
+    /// </summary>
+    private static void IgStrip(RectTransform card, int gained, ref float y, float gapBefore)
+    {
+        const float H = 150f, ICON = 104f, GAP = 22f, PAD = 40f;
+        var box = SpaceTheme.Rect("Ig", card);
+        Stack(box, ref y, H, gapBefore);
+        SpaceTheme.Rounded(box, SpaceTheme.A(SpaceTheme.GOLD, 0.07f), 32f);
+        var edge = SpaceTheme.Rect("Edge", box);
+        SpaceTheme.Stretch(edge);
+        SpaceTheme.RoundedStroke(edge, SpaceTheme.A(SpaceTheme.GOLD, 0.35f), 32f);
+
+        string got = IgCurrency.Format(gained) + T_IG_GOT;
+        string total = T_IG_TOTAL + IgCurrency.Format(IgCurrency.Balance);
+        var gotText = SpaceTheme.Text(box, "Got", got, 34, SpaceTheme.GOLD, FontStyles.Bold);
+        var totalText = SpaceTheme.Text(box, "Total", total, 26, SpaceTheme.TEXT_SUB, FontStyles.Bold);
+        float maxW = INNER - PAD * 2f - ICON - GAP;
+        float textW = Mathf.Max(gotText.GetPreferredValues(got).x, totalText.GetPreferredValues(total).x);
+        textW = Mathf.Min(maxW, textW * Mathf.Max(1f, SpaceTheme.TextScale) + 8f);
+        float left = -(ICON + GAP + textW) * 0.5f;
+
+        var icon = SpaceTheme.Rect("Icon", box, SpaceTheme.CENTER, new Vector2(left + ICON * 0.5f, 0f), new Vector2(ICON, ICON));
+        var sprite = IgCurrency.Icon;
+        var img = SpaceTheme.Img(icon, sprite, Color.white);
+        img.preserveAspect = true;
+        img.enabled = sprite != null;
+
+        float textX = left + ICON + GAP;
+        foreach (var (t, cy, h) in new[] { (gotText, 22f, 50f), (totalText, -28f, 38f) })
+        {
+            var rt = t.rectTransform;
+            rt.anchorMin = rt.anchorMax = SpaceTheme.CENTER;
+            rt.pivot = new Vector2(0f, 0.5f);
+            rt.anchoredPosition = new Vector2(textX, cy);
+            rt.sizeDelta = new Vector2(textW, h);
+            t.alignment = TextAlignmentOptions.Left;
+        }
+    }
+
+    private const string T_GOLD_CAPTION = "COIN";
+    private const string T_GOLD_GOT = " をもらいました！";
+
+    /// <summary>
+    /// G をもらった（2026-11-12）: 光る金貨が上から収まり、「5G をもらいました！」「所持金 12G」。
+    /// G を渡すQR（GoldQr）のときは見出し「COIN」。INTALES WORLD の黄金の鉱山のときは captionText と place（置き場の名前）を渡し、
+    /// ほかの置き場のお知らせと同じく見出し＋置き場の名前の題にして、金貨の下に「3G をもらいました」
+    /// </summary>
+    public static GameObject GoldGot(int amount, int balance, string captionText = null, string place = null)
+    {
+        var card = Overlay("__GoldGotModal", out var root, SpaceTheme.A(SpaceTheme.GOLD, 0.55f));
+        if (card == null) return null;
+        SpaceTheme.SubCanvas(root, true); // 金貨が動いて収まる・光がまたたくので、メインのキャンバスと分ける
+        float y = 48f;
+        var caption = SpaceTheme.Text(card, "Caption", captionText ?? T_GOLD_CAPTION, 24,
+            SpaceTheme.A(captionText != null ? SpaceTheme.CYAN : SpaceTheme.GOLD, 0.95f), FontStyles.Bold);
+        SpaceTheme.Tracking(caption, 18f);
+        Stack(caption.rectTransform, ref y, 36f, 0f);
+        var title = SpaceTheme.Text(card, "Title", place ?? IgCurrency.Format(amount) + T_GOLD_GOT, place != null ? 40 : 44,
+            SpaceTheme.TEXT, FontStyles.Bold);
+        title.enableAutoSizing = true;
+        title.fontSizeMin = 30f;
+        title.fontSizeMax = place != null ? 40f : 44f;
+        Stack(title.rectTransform, ref y, 60f, 8f);
+
+        const float COIN = 230f;
+        var stage = SpaceTheme.Rect("Coin", card);
+        Stack(stage, ref y, COIN + 20f, 16f);
+        var halo = SpaceTheme.Rect("Glow", stage, SpaceTheme.CENTER, Vector2.zero, new Vector2(COIN * 1.7f, COIN * 1.7f));
+        var haloImg = SpaceTheme.Img(halo, SpaceSprites.Glow, SpaceTheme.A(SpaceTheme.GOLD, 0.4f));
+        halo.gameObject.AddComponent<SpaceTwinkle>().Init(haloImg, 0.4f);
+        var coin = SpaceTheme.Rect("Icon", stage, SpaceTheme.CENTER, Vector2.zero, new Vector2(COIN, COIN));
+        var sprite = IgCurrency.Icon;
+        var img = SpaceTheme.Img(coin, sprite, Color.white);
+        img.preserveAspect = true;
+        img.enabled = sprite != null;
+        if (sprite != null) coin.gameObject.AddComponent<SpacePiecePop>().From = new Vector2(0f, 90f); // 上から収まる
+
+        if (place != null)
+        {
+            var got = SpaceTheme.Text(card, "Got",
+                $"<color=#{ColorUtility.ToHtmlStringRGB(SpaceTheme.GOLD)}>{IgCurrency.Format(amount)}</color>{T_IG_GOT}", 34,
+                SpaceTheme.TEXT, FontStyles.Bold);
+            Stack(got.rectTransform, ref y, 50f, 16f);
+        }
+        var total = SpaceTheme.Text(card, "Total", T_IG_TOTAL + IgCurrency.Format(balance), 32, SpaceTheme.TEXT_SUB,
+            FontStyles.Bold);
+        Stack(total.rectTransform, ref y, 46f, place != null ? 6f : 18f);
+        if (!IgCurrency.Unlocked)
+        {
+            // 金貨座がまだの人も受け取れる（2026-11-12 ユーザー指定）。使えるようになる条件を添える
+            var note = SpaceTheme.Text(card, "Locked", IgCurrency.T_LOCKED_NOTE, 26, SpaceTheme.GOLD, FontStyles.Bold);
+            Wrap(note);
+            Stack(note.rectTransform, ref y, Measure(note, 38f), 8f);
+        }
         Finish(card, root, ref y);
         return root;
     }

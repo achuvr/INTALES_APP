@@ -32,6 +32,9 @@ public static partial class SpaceNotice
         .Append(T_CHOOSE_CAPTION).Append(T_CHOOSE_TITLE).Append(T_CHOOSE_NOTE).Append(T_CHOOSE_NOTE_AGAIN).Append(T_CHOOSE_DONE).Append(T_CHOOSE_LEVEL)
         .Append(T_CHOOSE_CLOSE).Append(T_REVEAL_COMPLETE).Append(T_REVEAL_LEVEL).Append(T_REVEAL_DONE).Append(T_REVEAL_UP)
         .Append(T_REVEAL_PLACED).Append(T_REVEAL_SHINE).Append(T_REVEAL_NEXT).Append(SpaceNoticeTexts.DiceUnlocked)
+        .Append(SpaceNoticeTexts.IgUnlocked).Append(SpaceNoticeTexts.IgUnlockedSubA).Append(SpaceNoticeTexts.IgUnlockedSubB)
+        .Append(SpaceNoticeTexts.IgUnlockedShop)
+        .Append(IgCurrency.GlyphText)
         .Append("Lv.0123456789/ →（）枚").ToString();
 
     // ================================================================
@@ -313,6 +316,8 @@ public class SpaceConstellationReveal : MonoBehaviour
             dice.fontSizeMax = 30f;
             dice.transform.SetParent(textGroup, true);
         }
+        if (first && def.Id == IgCurrency.CONSTELLATION)
+            IgUnlockedLine(safe, textGroup, textY - 250f); // 金貨座の完成でアプリ内の通貨（G）とショップが使えるようになる（2026-11-12）
         var tg = textGroup.gameObject.AddComponent<CanvasGroup>();
         tg.alpha = 0f;
         yield return SpaceTheme.Tween(0.5f, 0f, k =>
@@ -339,6 +344,43 @@ public class SpaceConstellationReveal : MonoBehaviour
         yield return SpaceTheme.Tween(0.3f, 0f, k => group.alpha = 1f - k);
         Destroy(gameObject);
     }
+
+    /// <summary>
+    /// 金貨座が完成したときだけ添える一言（2026-11-12）: 金貨の絵と「アプリ内の通貨（G）が使えるようになりました」
+    /// 「来店するたびに 1G もらえます。所持金は所持品で見られます」「ホームの空の金貨座をタップすると、ショップが開きます」。
+    /// 絵と文字をひとまとまりにして真ん中にそろえる
+    /// </summary>
+    private static void IgUnlockedLine(RectTransform safe, RectTransform textGroup, float cy)
+    {
+        const float ICON = 96f, GAP = 20f, MAX_W = 1000f;
+        string sub = SpaceNoticeTexts.IgUnlockedSubA + IgCurrency.Format(IgCurrency.PerVisit) + SpaceNoticeTexts.IgUnlockedSubB;
+        var main = SpaceTheme.Text(safe, "Ig", SpaceNoticeTexts.IgUnlocked, 30, SpaceTheme.TEXT, FontStyles.Bold);
+        var note = SpaceTheme.Text(safe, "IgSub", sub, 24, SpaceTheme.TEXT_SUB, FontStyles.Bold);
+        var shop = SpaceTheme.Text(safe, "IgShop", SpaceNoticeTexts.IgUnlockedShop, 24, SpaceTheme.Hex(0x8CF7C8), FontStyles.Bold);
+        float textW = Mathf.Max(main.GetPreferredValues(main.text).x,
+            Mathf.Max(note.GetPreferredValues(sub).x, shop.GetPreferredValues(shop.text).x));
+        textW = Mathf.Min(MAX_W - ICON - GAP, textW * Mathf.Max(1f, SpaceTheme.TextScale) + 8f);
+        float left = -(ICON + GAP + textW) * 0.5f;
+
+        var icon = SpaceTheme.Rect("IgCoin", safe, SpaceTheme.CENTER, new Vector2(left + ICON * 0.5f, cy),
+            new Vector2(ICON, ICON));
+        var sprite = IgCurrency.Icon;
+        var img = SpaceTheme.Img(icon, sprite, Color.white);
+        img.preserveAspect = true;
+        img.enabled = sprite != null;
+        icon.SetParent(textGroup, true);
+
+        foreach (var (t, dy, h) in new[] { (main, 40f, 46f), (note, -2f, 36f), (shop, -42f, 36f) })
+        {
+            var rt = t.rectTransform;
+            rt.anchorMin = rt.anchorMax = SpaceTheme.CENTER;
+            rt.pivot = new Vector2(0f, 0.5f);
+            rt.anchoredPosition = new Vector2(left + ICON + GAP, cy + dy);
+            rt.sizeDelta = new Vector2(textW, h);
+            t.alignment = TextAlignmentOptions.Left;
+            t.transform.SetParent(textGroup, true);
+        }
+    }
 }
 
 /// <summary>演出の文字（SpaceNotice の定数を演出の部品から使うため）</summary>
@@ -353,4 +395,9 @@ internal static class SpaceNoticeTexts
     public const string Next = "つづける";
     /// <summary>さいころ座が完成したときだけ添える一言（2026-11-11）</summary>
     public const string DiceUnlocked = "ホームの空のさいころ座をタップすると、ダイスを振れます";
+    /// <summary>金貨座が完成したときだけ添える一言（2026-11-12。アプリ内の通貨＝単位 G が使えるようになる）</summary>
+    public const string IgUnlocked = "アプリ内の通貨（" + IgCurrency.UNIT + "）が使えるようになりました";
+    public const string IgUnlockedSubA = "来店するたびに ";
+    public const string IgUnlockedSubB = " もらえます。所持金は所持品で見られます";
+    public const string IgUnlockedShop = "ホームの空の金貨座をタップすると、ショップが開きます";
 }

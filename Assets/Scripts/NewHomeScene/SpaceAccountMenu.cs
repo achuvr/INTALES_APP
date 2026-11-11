@@ -9,11 +9,10 @@ using UnityEngine.Events;
 using UnityEngine.UI;
 
 /// <summary>
-/// 新ホーム右上の設定ボタン（歯車）。押すと下に4つのボタンが順に出てくる:
-///   ・ボードゲーム図鑑     … 使いたい人だけのダウンロード（SpaceZukan）。ダウンロードすると、ホームの惑星の左下に
-///                            図鑑の小さな惑星が出る。ダウンロード済みなら削除（ホームから図鑑の惑星を消す）
-///   ・INTALES WORLD        … 同じく使いたい人だけのダウンロード（SpaceWorld）。ワーカープレイスメントの星座（職人座）を
+/// 新ホーム右上の設定ボタン（歯車）。押すと下にボタンが順に出てくる（文字の大きさ・ユーザー名・誕生月・友だち紹介と、以下）:
+///   ・INTALES WORLD        … 使いたい人だけのダウンロード（SpaceWorld）。ワーカープレイスメントの星座（職人座）を
 ///                            完成させるまでは錠前がかかっていて、ダウンロードできない（2026-11-11）
+///   （ボードゲーム図鑑は 2026-11-11 から初めから入っている。ダウンロードのボタンは無くした）
 ///   ・プライバシーポリシー … 公開ページ（Firebase Hosting）をブラウザで開く
 ///   ・ログアウト             … 確認ダイアログ → 自動ログインを解除して Start へ
 ///   ・退会                   … 2段階の確認 → アカウントと全データを削除して Start へ
@@ -37,10 +36,11 @@ public class SpaceAccountMenu : MonoBehaviour
     private const string T_FINAL_OK = "退会する";
     private const string T_DELETING = "退会処理中…";
     private const string T_DELETE_FAILED = "退会に失敗しました\n通信環境を確認して再度お試しください";
-    private const string T_ZUKAN = "ボードゲーム図鑑";
-    private const string T_ZUKAN_BODY =
-        "お店のボードゲームを\n調べられる図鑑です。\n人数・時間で探したり、遊んだ記録や\n写真を残したりできます。\n\nダウンロードすると、ホームに\n図鑑の小さな惑星が出ます。";
-    private const string T_ZUKAN_DOWNLOAD = "ダウンロード";
+    // ダウンロード・削除の共通の文字（INTALES WORLD。ボードゲーム図鑑は 2026-11-11 から初めから入っている）
+    private const string T_DOWNLOAD = "ダウンロード";
+    private const string T_DOWNLOADING = "ダウンロード中…";
+    private const string T_DOWNLOAD_FAILED = "ダウンロードに失敗しました\n通信環境を確認して再度お試しください";
+    private const string T_REMOVE = "削除する";
     // INTALES WORLD（2026-11-10）。ダウンロード前の注意はユーザー指定の文言そのまま
     private const string T_WORLD_BODY = "このコンテンツを遊ぶには、ワーカープレイスメントとマストフォローを知っている必要があります！";
     private const string T_WORLD_DONE = "ダウンロードしました\nホームの所持品の下の「INTALES WORLD」から遊べます";
@@ -53,13 +53,6 @@ public class SpaceAccountMenu : MonoBehaviour
     private const string T_WORLD_LOCKED_STARS = "の星　";
     private const string T_WORLD_LOCKED_ADMIN = "\n\n（管理者は鍵がかかっていても\nダウンロードできます）";
     private const string T_WORLD_SEE = "星座を見る";
-    private const string T_ZUKAN_DOWNLOADING = "ダウンロード中…";
-    private const string T_ZUKAN_DONE = "ダウンロードしました\nホームの惑星の左下の、緑の小さな惑星から開けます";
-    private const string T_ZUKAN_FAILED = "ダウンロードに失敗しました\n通信環境を確認して再度お試しください";
-    private const string T_ZUKAN_INSTALLED_BODY =
-        "ダウンロード済みです。\nホームの惑星の左下の\n緑の小さな惑星から開けます。\n\n削除すると、図鑑の惑星が\nホームからなくなります。\n（遊んだ記録・写真は残ります）";
-    private const string T_ZUKAN_REMOVE = "削除する";
-    private const string T_ZUKAN_REMOVED = "ボードゲーム図鑑を削除しました";
     private const string T_BIRTH = "誕生月";
     private const string T_BIRTH_SET_A = "誕生月は ";
     private const string T_BIRTH_SET_B = "月 で登録しています\n変えたいときはスタッフにお声がけください";
@@ -79,10 +72,9 @@ public class SpaceAccountMenu : MonoBehaviour
     public static string GlyphText => new StringBuilder()
         .Append(T_PRIVACY).Append(T_LOGOUT).Append(T_DELETE).Append(T_CANCEL).Append(T_LOGOUT_BODY)
         .Append(T_DELETE_TITLE).Append(T_DELETE_BODY).Append(T_DELETE_NEXT).Append(T_FINAL_TITLE)
-        .Append(T_FINAL_BODY).Append(T_FINAL_OK).Append(T_DELETING).Append(T_DELETE_FAILED).Append(T_ZUKAN)
-        .Append(T_ZUKAN_BODY).Append(T_ZUKAN_DOWNLOAD).Append(T_ZUKAN_DOWNLOADING)
-        .Append(T_ZUKAN_DONE).Append(T_ZUKAN_FAILED).Append(T_ZUKAN_INSTALLED_BODY).Append(T_ZUKAN_REMOVE)
-        .Append(T_ZUKAN_REMOVED).Append(T_WORLD_BODY).Append(T_WORLD_DONE).Append(T_WORLD_INSTALLED_BODY)
+        .Append(T_FINAL_BODY).Append(T_FINAL_OK).Append(T_DELETING).Append(T_DELETE_FAILED)
+        .Append(T_DOWNLOAD).Append(T_DOWNLOADING).Append(T_DOWNLOAD_FAILED).Append(T_REMOVE)
+        .Append(T_WORLD_BODY).Append(T_WORLD_DONE).Append(T_WORLD_INSTALLED_BODY)
         .Append(T_WORLD_REMOVED).Append(SpaceWorld.T_TITLE)
         .Append(T_WORLD_LOCKED_A).Append(T_WORLD_LOCKED_B).Append(T_WORLD_LOCKED_STARS).Append(T_WORLD_LOCKED_ADMIN)
         .Append(T_WORLD_SEE).Append("0123456789/")
@@ -181,7 +173,6 @@ public class SpaceAccountMenu : MonoBehaviour
         AddItem(safe, SpaceRenameDialog.T_RENAME, false, DrawRenameIcon, OnRename);
         AddItem(safe, T_BIRTH, false, DrawBirthIcon, OnBirth);
         AddItem(safe, T_INVITE, false, DrawInviteIcon, OnInvite);
-        AddItem(safe, T_ZUKAN, false, DrawDownloadIcon, OnZukan);
         var world = AddItem(safe, SpaceWorld.T_TITLE, false, DrawWorldIcon, OnWorld);
         _worldBubble = world.Find("Icon").GetComponent<Image>();
         _worldLabel = world.Find("Label").GetComponent<TextMeshProUGUI>();
@@ -551,29 +542,6 @@ public class SpaceAccountMenu : MonoBehaviour
             () => _dialog = null, T_CANCEL);
     }
 
-    /// <summary>ボードゲーム図鑑: ダウンロードしていなければダウンロード、済みなら削除の確認</summary>
-    private void OnZukan()
-    {
-        Close();
-        if (!SpaceZukan.Installed)
-        {
-            _dialog = SpaceDialog.Confirm(_canvas, T_ZUKAN, T_ZUKAN_BODY, T_ZUKAN_DOWNLOAD, false,
-                () => { _dialog = null; DownloadZukanAsync().Forget(); },
-                () => _dialog = null, T_CANCEL);
-        }
-        else
-        {
-            _dialog = SpaceDialog.Confirm(_canvas, T_ZUKAN, T_ZUKAN_INSTALLED_BODY, T_ZUKAN_REMOVE, true,
-                () =>
-                {
-                    _dialog = null;
-                    SpaceZukan.Remove();
-                    SpaceTheme.Toast(T_ZUKAN_REMOVED, _canvas);
-                },
-                () => _dialog = null, T_CANCEL);
-        }
-    }
-
     /// <summary>
     /// INTALES WORLD（2026-11-10）: ダウンロード済みなら削除の確認。まだなら、鍵（職人座の完成。2026-11-11）が
     /// 開いていれば注意（ユーザー指定の文言）を出してからダウンロード、かかっていれば鍵の知らせ
@@ -583,7 +551,7 @@ public class SpaceAccountMenu : MonoBehaviour
         Close();
         if (SpaceWorld.Installed)
         {
-            _dialog = SpaceDialog.Confirm(_canvas, SpaceWorld.T_TITLE, T_WORLD_INSTALLED_BODY, T_ZUKAN_REMOVE, true,
+            _dialog = SpaceDialog.Confirm(_canvas, SpaceWorld.T_TITLE, T_WORLD_INSTALLED_BODY, T_REMOVE, true,
                 () =>
                 {
                     _dialog = null;
@@ -601,7 +569,7 @@ public class SpaceAccountMenu : MonoBehaviour
     /// <summary>ダウンロード前の注意（ユーザー指定の文言そのまま）→ ダウンロード</summary>
     private void ConfirmWorldDownload()
     {
-        _dialog = SpaceDialog.Confirm(_canvas, SpaceWorld.T_TITLE, T_WORLD_BODY, T_ZUKAN_DOWNLOAD, false,
+        _dialog = SpaceDialog.Confirm(_canvas, SpaceWorld.T_TITLE, T_WORLD_BODY, T_DOWNLOAD, false,
             () => { _dialog = null; DownloadWorldAsync().Forget(); },
             () => _dialog = null, T_CANCEL);
     }
@@ -618,7 +586,7 @@ public class SpaceAccountMenu : MonoBehaviour
                       + key.Partial + " / " + def.Size;
         if (AdminClaim.IsAdmin)
         {
-            _dialog = SpaceDialog.Confirm(_canvas, SpaceWorld.T_TITLE, body + T_WORLD_LOCKED_ADMIN, T_ZUKAN_DOWNLOAD,
+            _dialog = SpaceDialog.Confirm(_canvas, SpaceWorld.T_TITLE, body + T_WORLD_LOCKED_ADMIN, T_DOWNLOAD,
                 false, ConfirmWorldDownload, () => _dialog = null, T_CLOSE);
             return;
         }
@@ -631,7 +599,7 @@ public class SpaceAccountMenu : MonoBehaviour
     {
         if (_busy) return;
         _busy = true;
-        var busy = SpaceDialog.Busy(_canvas, T_ZUKAN_DOWNLOADING);
+        var busy = SpaceDialog.Busy(_canvas, T_DOWNLOADING);
         bool ok = false;
         try
         {
@@ -649,33 +617,7 @@ public class SpaceAccountMenu : MonoBehaviour
             _busy = false;
         }
         if (this == null) return;
-        SpaceTheme.Toast(ok ? T_WORLD_DONE : T_ZUKAN_FAILED, _canvas);
-    }
-
-    /// <summary>ダウンロード（すぐ終わっても「ダウンロード中…」が一瞬で消えないよう、少しだけ見せる）</summary>
-    private async UniTaskVoid DownloadZukanAsync()
-    {
-        if (_busy) return;
-        _busy = true;
-        var busy = SpaceDialog.Busy(_canvas, T_ZUKAN_DOWNLOADING);
-        bool ok = false;
-        try
-        {
-            var download = SpaceZukan.DownloadAsync();
-            await UniTask.Delay(TimeSpan.FromSeconds(0.8f), ignoreTimeScale: true);
-            ok = await download;
-        }
-        catch (Exception ex)
-        {
-            Debug.LogError($"[AccountMenu] 図鑑のダウンロードでエラー: {ex.Message}");
-        }
-        finally
-        {
-            if (busy != null) Destroy(busy);
-            _busy = false;
-        }
-        if (this == null) return;
-        SpaceTheme.Toast(ok ? T_ZUKAN_DONE : T_ZUKAN_FAILED, _canvas);
+        SpaceTheme.Toast(ok ? T_WORLD_DONE : T_DOWNLOAD_FAILED, _canvas);
     }
 
     private void OnDelete()

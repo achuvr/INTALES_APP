@@ -166,6 +166,41 @@ public class CallMethodFromQR : MonoBehaviour
     }
 
     /// <summary>
+    /// G（アプリ内の通貨）を渡すQR（"gold:{金額}:{営業日}:{番号}:{署名}"。2026-11-12。GoldQr）。
+    /// 管理者の「お客様に見せるQRコード」のクーポンタブで金額を決めて出したもの。その営業日のうちだけ・同じQRは1人1回まで。
+    /// 金貨座が完成していない人も受け取れる（2026-11-12 ユーザー指定）
+    /// </summary>
+    public async UniTask ClaimGold(string qrText)
+    {
+        var parsed = GoldQr.Parse(qrText, System.DateTime.UtcNow, out int amount, out string nonce);
+        if (parsed != GoldQr.Result.Ok)
+        {
+            FriendMenuController.ShowToast(parsed == GoldQr.Result.Expired ? GoldQr.T_EXPIRED : GoldQr.T_INVALID);
+            EndFromButton();
+            return;
+        }
+
+        var (result, balance) = await GoldQr.ClaimAsync(amount, nonce);
+        switch (result)
+        {
+            case GoldQr.ClaimResult.Ok:
+                AssetsDatabase.instance?.PlayLevelUpSE();
+                End();
+                if (SpaceTheme.InUse) SpaceNotice.GoldGot(amount, balance);
+                else InfoModal.Show(IgCurrency.Format(amount) + " をもらいました！", "所持金 " + IgCurrency.Format(balance), "");
+                break;
+            case GoldQr.ClaimResult.Already:
+                EndFromButton();
+                InfoModal.Show(GoldQr.T_ALREADY, IgCurrency.Format(amount), GoldQr.T_ALREADY_SUB);
+                break;
+            default:
+                FriendMenuController.ShowToast(GoldQr.T_FAILED);
+                EndFromButton();
+                break;
+        }
+    }
+
+    /// <summary>
     /// 1か月遊び放題パスの受け取りQR（"pass:{ID}"）。管理者の「お客様に見せるQRコード」の「1か月パス」で
     /// 発行したもの（1回だけ・発行から60分間使える）。受け取ると、今日を1日目として30日間のパスが所持品に入る
     /// </summary>

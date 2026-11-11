@@ -74,7 +74,7 @@ public class NewHomeController : MonoBehaviour
     private const float HISTORY_SIZE = 112f;  // 絵の大きさ（球の直径は 0.8 倍）
     private const float HISTORY_HIT = 176f;
 
-    // ボードゲーム図鑑ボタン（緑の小さな惑星）: 履歴の惑星と左右対称の左下。図鑑をダウンロードした人だけ（SpaceZukan）
+    // ボードゲーム図鑑ボタン（緑の小さな惑星）: 履歴の惑星と左右対称の左下。初めからだれにでも出す（2026-11-11）
     private static readonly Vector2 ZUKAN_POS = new Vector2(-HISTORY_POS.x, HISTORY_POS.y);
     private static readonly Color ZUKAN_ACCENT = SpaceTheme.Hex(0x63F0A8);
 
@@ -170,7 +170,6 @@ public class NewHomeController : MonoBehaviour
     private RectTransform _zukanBtn, _zukanMoon;
     private CanvasGroup _zukanGroup;
     private Image _zukanGlow;
-    private Coroutine _zukanAnim;
     private RectTransform _adminPassBtn;
     private RectTransform _adminBtn;
     private RectTransform _adminNoticeBtn;
@@ -209,7 +208,6 @@ public class NewHomeController : MonoBehaviour
         SpaceRecruitDigest.Changed -= RefreshNewsBadge;
         SpaceRecruitDigest.StopListening();
         SpaceRenameDialog.NameChanged -= RefreshUser;
-        SpaceZukan.Changed -= OnZukanChanged;
         SpaceWorld.Changed -= OnWorldChanged;
         SpaceWorld.StopListening();
         StoreVisitors.Changed -= RefreshVisitors;
@@ -283,7 +281,6 @@ public class NewHomeController : MonoBehaviour
         RefreshAdminAsync().Forget(); // 管理者ならQRコード一覧（クーポン・惑星の解放）のボタンを出す
         StartNewsWatch();             // お知らせ（店の画像・相席募集）に見ていない内容があれば「New」
         SpaceRenameDialog.NameChanged += RefreshUser; // 歯車メニューでユーザー名を変えたら、自分のカードの名前も新しく
-        SpaceZukan.Changed += OnZukanChanged;        // 図鑑をダウンロード・削除したら、図鑑の惑星を出し入れ
         SpaceWorld.Changed += OnWorldChanged;        // INTALES WORLD をダウンロード・削除したら、ボタンを出し入れ
         StoreVisitors.Changed += RefreshVisitors;    // 入店中の人数ぶんの球（いちばん外の円）
         StoreVisitors.StartListening();
@@ -322,7 +319,8 @@ public class NewHomeController : MonoBehaviour
           .Append(SpaceMonthPicker.GlyphText).Append(SpaceQrSheet.T_CLOSE).Append(SpacePlayLog.GlyphText).Append(SpacePlayCalendar.GlyphText)
           .Append(SpaceNotice.CertifyGlyphText).Append(BoardGameCertify.GlyphText).Append(SpaceNotice.ConstellationGlyphText)
           .Append(T_ORBIT).Append(T_STREAK_UNIT).Append(PlanetPowers.GlyphText).Append(SpaceNotice.JourneyGlyphText)
-          .Append(SpaceOrbitPanel.GlyphText).Append(SpaceDiceRoller.GlyphText).Append(DiceChallenge.GlyphText);
+          .Append(SpaceOrbitPanel.GlyphText).Append(SpaceDiceRoller.GlyphText).Append(DiceChallenge.GlyphText)
+          .Append(IgCurrency.GlyphText).Append(SpaceShop.GlyphText);
         var d = Data;
         if (d != null && !string.IsNullOrEmpty(d.Username)) sb.Append(d.Username);
         return sb.ToString();
@@ -567,7 +565,8 @@ public class NewHomeController : MonoBehaviour
 
     /// <summary>
     /// ボードゲーム図鑑ボタン（緑の小さな惑星）。履歴の惑星と左右対称の左下に置く。
-    /// 文字もアイコンもない、ほかの小さな惑星と同じ見た目。図鑑をダウンロードしていなければ出さない
+    /// 文字もアイコンもない、ほかの小さな惑星と同じ見た目。図鑑は初めから入っている（2026-11-11 ユーザー指定。
+    /// 以前は歯車メニューからダウンロードした人だけに出していた）
     /// </summary>
     private void BuildZukanMoon()
     {
@@ -584,7 +583,6 @@ public class NewHomeController : MonoBehaviour
         SpaceTheme.Img(body, SpaceSprites.GreenMoon, Color.white);
         MoonLabel(_zukanBtn, T_MOON_ZUKAN, HISTORY_SIZE);
         SpaceTheme.Clickable(_zukanBtn.gameObject, hit, OpenZukan);
-        _zukanBtn.gameObject.SetActive(SpaceZukan.Installed);
     }
 
     /// <summary>
@@ -622,49 +620,6 @@ public class NewHomeController : MonoBehaviour
         return t;
     }
 
-    /// <summary>図鑑をダウンロード・削除した: 惑星をふくらませて出す／しぼませて消す</summary>
-    private void OnZukanChanged()
-    {
-        if (this == null || _zukanBtn == null) return;
-        if (_zukanAnim != null) StopCoroutine(_zukanAnim);
-        _zukanAnim = StartCoroutine(SpaceZukan.Installed ? ShowZukanMoon() : HideZukanMoon());
-    }
-
-    private IEnumerator ShowZukanMoon()
-    {
-        _zukanBtn.gameObject.SetActive(true);
-        _zukanGroup.alpha = 0f;
-        yield return SpaceTheme.Tween(0.6f, 0.2f, k =>
-        {
-            _zukanGroup.alpha = k;
-            float s = Mathf.LerpUnclamped(0.3f, 1f, EaseOutBack(k));
-            _zukanMoon.localScale = new Vector3(s, s, 1f);
-        });
-        // 出たところに光の輪（どこに増えたかわかるように）
-        var ring = SpaceTheme.Rect("ZukanFlash", _orbRt, SpaceTheme.CENTER, ZUKAN_POS, new Vector2(HISTORY_SIZE, HISTORY_SIZE));
-        var img = SpaceTheme.Img(ring, SpaceSprites.RingSmall, Color.clear);
-        yield return SpaceTheme.Tween(0.7f, 0f, k =>
-        {
-            ring.sizeDelta = Vector2.one * Mathf.Lerp(HISTORY_SIZE, HISTORY_SIZE * 2.6f, k);
-            img.color = SpaceTheme.A(ZUKAN_ACCENT, 0.9f * (1f - k));
-        });
-        Destroy(ring.gameObject);
-        _zukanAnim = null;
-    }
-
-    private IEnumerator HideZukanMoon()
-    {
-        float from = _zukanGroup.alpha;
-        yield return SpaceTheme.Tween(0.3f, 0f, k =>
-        {
-            _zukanGroup.alpha = from * (1f - k);
-            float s = Mathf.Lerp(1f, 0.6f, k);
-            _zukanMoon.localScale = new Vector3(s, s, 1f);
-        });
-        _zukanBtn.gameObject.SetActive(false);
-        _zukanAnim = null;
-    }
-
     // 星座の画面の「このジャンルのゲームを見る」で、図鑑をそのジャンルで開く（星座の画面が閉じてから。2026-11-09）
     private static ConstellationDef _pendingZukanGenre;
 
@@ -682,7 +637,7 @@ public class NewHomeController : MonoBehaviour
     /// <summary>ボードゲーム図鑑を開く（宇宙デザイン。できることは旧ホームの図鑑と同じ。ホームの上に全画面で重ねる）</summary>
     private void OpenZukan()
     {
-        if (!_built || PanelOpen || _landing || !SpaceZukan.Installed) return;
+        if (!_built || PanelOpen || _landing) return;
         _zukan = SpaceBoardGameZukan.Open(_canvas);
     }
 
@@ -1281,7 +1236,8 @@ public class NewHomeController : MonoBehaviour
                               || _picker != null || _qrList != null || _passList != null || _composer != null
                               || _starter != null || _world != null || _zukan != null
                               || _prices != null || _orbitPanel != null || _accountMenu.IsOpen
-                              || SpaceConstellationPage.Instance != null || SpaceDiceRoller.Instance != null;
+                              || SpaceConstellationPage.Instance != null || SpaceDiceRoller.Instance != null
+                              || SpaceShop.Instance != null;
 
     /// <summary>公転の画面（ユーザーカードの公転・来店回数・入店状況を押す）</summary>
     private void OpenOrbit()
@@ -1998,7 +1954,7 @@ public class NewHomeController : MonoBehaviour
         if (_planetView != null)
             _planetView.Animate = !qrOpen && _news == null && _zukan == null && _prices == null
                                   && SpaceConstellationPage.Instance == null && SpaceDiceRoller.Instance == null
-                                  && (_picker == null || _landing);
+                                  && SpaceShop.Instance == null && (_picker == null || _landing);
 
         // 惑星を解放したお知らせで「この惑星にする」が押されたら、中央の惑星を入れ替える
         // （選ぶ画面からの決定は OnPlanetChosen が先に _planet を変えるので、ここでは何もしない）
@@ -2028,6 +1984,7 @@ public class NewHomeController : MonoBehaviour
             else if (_starter != null) _starter.HandleBack(); // 最初の惑星を選ぶまでは閉じない
             else if (SpaceConstellationPage.Instance != null) SpaceConstellationPage.Instance.HandleBack();
             else if (SpaceDiceRoller.Instance != null) SpaceDiceRoller.Instance.HandleBack();
+            else if (SpaceShop.Instance != null) SpaceShop.Instance.HandleBack();
             else if (_zukan != null) _zukan.HandleBack();
             else if (_prices != null) _prices.HandleBack();
             else if (_qrList != null) _qrList.HandleBack();
@@ -2053,6 +2010,8 @@ public class NewHomeController : MonoBehaviour
         }
         // エディタ専用: R キーで流れ星を1回引く（当たりはログイン中のアカウントに本当に足す）
         if (DebugStarPressed() && !SpaceNoticeQueue.Running && !_debugDrawing) DebugDrawAsync().Forget();
+        // エディタ専用: G キーでログイン中のアカウントに 10G を足す（ショップを試すため。本当に足す。2026-11-12）
+        if (DebugGoldPressed() && !_debugGold) DebugGoldAsync().Forget();
 #endif
     }
 
@@ -2179,6 +2138,44 @@ public class NewHomeController : MonoBehaviour
 #endif
 #if ENABLE_LEGACY_INPUT_MANAGER
         if (Input.GetKeyDown(KeyCode.R)) pressed = true;
+#endif
+        return pressed;
+    }
+
+    private const int DEBUG_GOLD = 10;
+    private bool _debugGold;
+
+    /// <summary>エディタ専用: G キーでログイン中のアカウントに 10G を足す（ショップを試すため。IgCurrency.DebugAddAsync）</summary>
+    private async UniTaskVoid DebugGoldAsync()
+    {
+        _debugGold = true;
+        try
+        {
+            bool ok = await IgCurrency.DebugAddAsync(DEBUG_GOLD);
+            if (this == null) return;
+            SpaceTheme.Toast(SpaceTheme.SafeNow(ok ? IgCurrency.Format(DEBUG_GOLD) + " を足しました（デバッグ）" : "ログインしていません"),
+                _canvas);
+        }
+        catch (Exception ex)
+        {
+            Debug.LogError($"[Debug] G の書き込みに失敗: {ex.Message}");
+        }
+        finally
+        {
+            _debugGold = false;
+        }
+    }
+
+    /// <summary>エディタ専用: G キー（10G を足す）</summary>
+    private static bool DebugGoldPressed()
+    {
+        bool pressed = false;
+#if ENABLE_INPUT_SYSTEM
+        var kb = UnityEngine.InputSystem.Keyboard.current;
+        if (kb != null && kb.gKey.wasPressedThisFrame) pressed = true;
+#endif
+#if ENABLE_LEGACY_INPUT_MANAGER
+        if (Input.GetKeyDown(KeyCode.G)) pressed = true;
 #endif
         return pressed;
     }

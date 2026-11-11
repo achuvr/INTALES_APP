@@ -1,8 +1,12 @@
-# INTALES WORLD の世界地図（オリジナル。手続き生成）を PNG に書き出す（2026-11-10。2026-11-11 に5か所目を追加）
+# INTALES WORLD の世界地図（オリジナル。手続き生成）を PNG に書き出す
+# （2026-11-10。2026-11-11 に5か所目、2026-11-12 に6か所目を追加）
 #   python make_world_map.py <書き出し先.png> [確認用の縮小版.png]
-# 5か所の置き場（SpaceWorld.Areas の Pos と同じ割合の位置）には、必ずそれらしい陸を作る:
+# 置き場（SpaceWorld.Areas の Pos と同じ割合の位置）には、必ずそれらしい陸を作る:
 #   0 星見の丘（北の雪山）/ 1 惑星の神殿（東の小島）/ 2 コマの工房（西の平原と森）/ 3 商人の港（南東の入り江）
 #   4 星くずの島（南西の小島。まわりの海に星くずがきらめく。何色のコマでも置ける保険の置き場）
+#   5 黄金の鉱山（地図の右上の北東の小島。島の上に金のきらめき。3G をもらう。2026-11-12。
+#     最初は南東の大陸の山並みに置いたが、同日ユーザー指定で右上へ移した）
+#     前の版の地図と木の並びが変わらないよう、木の乱数は前の5か所で判定してから、鉱山のまわりだけ描かない
 import sys
 
 import numpy as np
@@ -15,7 +19,8 @@ SEED = 20261110
 rng = np.random.default_rng(SEED)
 
 # 置き場の位置（横・縦の割合。SpaceWorld.cs の Areas と同じ値にする）
-SPOTS = [(0.30, 0.21), (0.75, 0.37), (0.27, 0.60), (0.70, 0.80), (0.125, 0.855)]
+SPOTS = [(0.30, 0.21), (0.75, 0.37), (0.27, 0.60), (0.70, 0.80), (0.125, 0.855), (0.80, 0.145)]
+BASE_SPOTS = SPOTS[:5]  # 2026-11-11 までの5か所（木の乱数の並びをそろえるのに使う）
 
 
 def noise(scale, octaves=5, persistence=0.5):
@@ -153,8 +158,8 @@ def jitter_points(step):
     return pts
 
 
-def near_spot(x, y, r=70):
-    return any(((x - sx * W) ** 2 + (y - sy * H) ** 2) < r * r for sx, sy in SPOTS)
+def near_spot(x, y, r=70, spots=None):
+    return any(((x - sx * W) ** 2 + (y - sy * H) ** 2) < r * r for sx, sy in (spots or SPOTS))
 
 
 for x, y in jitter_points(34):
@@ -171,9 +176,12 @@ for x, y in jitter_points(34):
                       fill=(250, 250, 255, 240))
 for x, y in jitter_points(22):
     xi, yi = int(x), int(y)
-    if xi >= W or yi >= H or near_spot(x, y, 56):
+    if xi >= W or yi >= H or near_spot(x, y, 56, BASE_SPOTS):
         continue
     if land[yi, xi] and forest[yi, xi] and 0.07 < hl[yi, xi] < 0.40 and rng.random() < 0.8:
+        if near_spot(x, y, 56, SPOTS[5:]):
+            rng.uniform(5, 8)  # 黄金の鉱山のまわりは描かない（乱数は描いたときと同じだけ使い、ほかの木の並びを変えない）
+            continue
         r0 = rng.uniform(5, 8)
         d.ellipse((x - r0, y - r0 + 2, x + r0, y + r0 + 2), fill=(28, 60, 36, 150))
         d.ellipse((x - r0, y - r0, x + r0, y + r0), fill=(48, 104, 62, 255))
@@ -201,6 +209,32 @@ for i in range(40):
         continue
     r0 = srng.uniform(0.8, 2.0)
     d.ellipse((x - r0, y - r0, x + r0, y + r0), fill=(255, 246, 214, int(srng.uniform(140, 230))))
+
+# ---- 黄金の鉱山の島に、金のきらめきと金の粒（2026-11-12。別の乱数で描く。陸の上だけ。
+#      島は小さく、まん中は置き場の丸に隠れるので、丸のすぐ外の島のふちに散らす） ----
+grng = np.random.default_rng(SEED + 5)
+gcx, gcy = SPOTS[5][0] * W, SPOTS[5][1] * H
+for i in range(22):
+    ang = grng.uniform(0, np.pi * 2)
+    rr = grng.uniform(60, 96)
+    x, y = gcx + np.cos(ang) * rr, gcy + np.sin(ang) * rr * 0.9
+    if not land[min(H - 1, int(y)), min(W - 1, int(x))]:
+        continue
+    s0 = grng.uniform(3.5, 7.5)
+    col = (255, 218, 96, 240) if grng.random() < 0.7 else (255, 244, 200, 235)
+    d.polygon([(x, y - s0 * 1.8), (x + s0 * 0.32, y), (x, y + s0 * 1.8), (x - s0 * 0.32, y)], fill=col)
+    d.polygon([(x - s0 * 1.8, y), (x, y + s0 * 0.32), (x + s0 * 1.8, y), (x, y - s0 * 0.32)], fill=col)
+    d.ellipse((x - 1.6, y - 1.6, x + 1.6, y + 1.6), fill=(255, 255, 240, 255))
+for i in range(34):
+    ang = grng.uniform(0, np.pi * 2)
+    rr = grng.uniform(58, 98)
+    x, y = gcx + np.cos(ang) * rr, gcy + np.sin(ang) * rr * 0.9
+    if not land[min(H - 1, int(y)), min(W - 1, int(x))]:
+        continue
+    r0 = grng.uniform(1.6, 3.2)
+    d.ellipse((x - r0, y - r0 + 1, x + r0, y + r0 + 1), fill=(120, 80, 20, 150))   # 影
+    d.ellipse((x - r0, y - r0, x + r0, y + r0), fill=(240, 186, 60, 255))           # 金の粒
+    d.ellipse((x - r0 * 0.5, y - r0 * 0.6, x, y - r0 * 0.1), fill=(255, 246, 200, 230))  # 光
 
 # ---- 方位記号（右下の海） ----
 cx, cy, R = W * 0.88, H * 0.92, 58

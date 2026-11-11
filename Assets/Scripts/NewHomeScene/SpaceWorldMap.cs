@@ -10,7 +10,8 @@ using UnityEngine.UI;
 
 /// <summary>
 /// INTALES WORLD の世界地図（2026-11-10 ユーザー指定。ホームの所持品の下の「INTALES WORLD」から開く全画面）。
-/// オリジナルの世界地図（SpaceWorld.MapSprite）の上に置き場が5か所あり、置かれたコマの色と数を全員で同期して出す。
+/// オリジナルの世界地図（SpaceWorld.MapSprite）の上に置き場が6か所あり、置かれたコマの色と数を全員で同期して出す
+/// （6か所目の黄金の鉱山＝3G をもらう は 2026-11-12 追加）。
 /// 置き場を押すと下からシートが出て、色を選んで「ここに置く」→ 確認 → 置く（SpaceWorld.PlaceAsync）→ 効果のお知らせ。
 ///  ・まだ誰も置いていなければ好きな色、1体でも置かれていればその色だけ（マストフォロー）
 ///  ・左下の星くずの島だけは何色でも置ける保険の置き場（輪が赤・青・黄の3つの弧。2026-11-11）
@@ -58,6 +59,7 @@ public class SpaceWorldMap : MonoBehaviour
     private const string T_ANY_UNIT = "体";
     private const string T_HAVE = "持っている";
     private const string T_HAVE_SEP = "：";
+    private const string T_WALLET = "所持金"; // 黄金の鉱山のシート（2026-11-12）
 
     /// <summary>この画面で出しうる文字（置き場の名前・効果は SpaceWorld.GlyphText、惑星の名前は SpacePlanets.GlyphText）</summary>
     public static string GlyphText => new StringBuilder()
@@ -70,6 +72,7 @@ public class SpaceWorldMap : MonoBehaviour
         .Append(T_CONFIRM_NOTE_ADMIN)
         .Append(T_CONFIRM_REVIVE).Append(T_OK).Append(T_PLACING).Append(T_CHOOSE_TITLE).Append(T_CHOOSE_OK)
         .Append(T_CANCEL).Append(T_ANY_EMPTY).Append(T_ANY_PLACED).Append(T_ANY_UNIT).Append(T_HAVE).Append(T_HAVE_SEP)
+        .Append(T_WALLET).Append(IgCurrency.GlyphText)
         .Append(SpaceWorld.GlyphText).Append(SpaceMeeples.GlyphText)
         .Append("0123456789×/ ・").ToString();
 
@@ -408,6 +411,15 @@ public class SpaceWorldMap : MonoBehaviour
                 image.enabled = SpaceWorld.StarFragmentIcon != null;
                 break;
             }
+            case WorldEffect.Gold:
+            {
+                // 黄金の鉱山: G の金貨（2026-11-12）
+                var img = SpaceTheme.Rect("Coin", rt, SpaceTheme.CENTER, Vector2.zero, new Vector2(84f, 84f));
+                var image = SpaceTheme.Img(img, IgCurrency.Icon, Color.white);
+                image.preserveAspect = true;
+                image.enabled = IgCurrency.Icon != null;
+                break;
+            }
         }
     }
 
@@ -726,6 +738,8 @@ public class SpaceWorldMap : MonoBehaviour
             state += "\n" + T_HAVE + SpaceWorld.STAR_FRAGMENT_NAME + T_HAVE_SEP
                      + Mathf.Clamp(d.StarFragment, 0, SpaceWorld.STAR_FRAGMENTS_PER_STAR) + " / "
                      + SpaceWorld.STAR_FRAGMENTS_PER_STAR;
+        if (d != null && area.Effect == WorldEffect.Gold)
+            state += "\n" + T_WALLET + T_HAVE_SEP + IgCurrency.Format(IgCurrency.Balance); // 所持金：12G
         _sheetState.text = state;
 
         int allowedCount = 0;
@@ -885,6 +899,10 @@ public class SpaceWorldMap : MonoBehaviour
             case WorldEffect.Coupon:
                 // 5%OFFチケットのカケラ（2枚そろうと5%OFFチケット。2026-11-10）
                 steps.Add(() => SpaceNotice.FragmentGot(r.Area.Name, r.Fragments, r.CouponCompleted));
+                break;
+            case WorldEffect.Gold:
+                // 黄金の鉱山: 金貨が上から収まり「3G をもらいました」（2026-11-12）
+                steps.Add(() => SpaceNotice.GoldGot(r.Gold, r.GoldBalance, T_CAPTION, r.Area.Name));
                 break;
         }
         SpaceNoticeQueue.Run(steps, null);

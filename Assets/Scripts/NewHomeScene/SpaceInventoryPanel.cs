@@ -134,6 +134,8 @@ public static class SpaceCoupons
 /// 消費は旧バッグと同じく FieldValue.Increment による1回の書き込みで、読み取りは発生しない。
 /// 1か月遊び放題パス（StorePasses）を持っていれば、クーポンの上に「パス」の欄を出す
 /// （使えるもの・期限切れから30日以内のもの）。タップでカードを大きく表示（SpacePassViewer）。
+/// アプリ内の通貨（単位 G。金貨座の完成で使えるようになる。IgCurrency）は、いちばん上の「通貨」の欄の「所持金」の行に
+/// 「5G」のように出す。
 /// </summary>
 public class SpaceInventoryPanel : MonoBehaviour
 {
@@ -173,6 +175,31 @@ public class SpaceInventoryPanel : MonoBehaviour
     // コマの欄を押したときの説明（2026-11-10 ユーザー指定の文言。画面の表記は「コマ」にそろえる）
     private const string T_MEEPLE_INFO =
         "入店時、選択中の惑星の色のコマを手に入れることができる。\n一度使用した惑星は一時的に力を失う。";
+    // 金貨座のショップでコマ・星のカケラを買える人（2026-11-12。INTALES WORLD をダウンロードしていなくても欄を出す）
+    private const string T_MEEPLE_HINT_SHOP = "ショップ（空の金貨座）で買えます";
+    private const string T_MEEPLE_INFO_SHOP =
+        "ホームの空の金貨座をタップすると、ショップでコマを買えます。\nコマは職人座を完成させると、INTALES WORLD で使えます。";
+    private const string T_MEEPLE_INFO_ALSO_SHOP = "金貨座のショップでも買えます。";
+    private const string T_STAR_FRAGMENT_INFO_SHOP =
+        "ショップ（空の金貨座）で買えます。5個そろうと流れ星を1回見られます";
+    private const string T_STAR_FRAGMENT_INFO_BOTH =
+        "INTALES WORLD の星くずの島にコマを置くか、ショップで買うと手に入ります。5個そろうと流れ星を1回見られます";
+    // 所持金（アプリ内の通貨。単位 G。2026-11-12。金貨座を完成させると、いちばん上に出る。IgCurrency）。
+    // 欄の見出しを「所持金」にすると行の名前と重なるので、見出しは「通貨」
+    private const string T_IG_SECTION = "通貨";
+    private const string T_IG_NAME = "所持金";
+    private const string T_IG_DESC_A = "来店するたびに ";
+    private const string T_IG_DESC_B = " もらえます";
+    private const string T_IG_INFO_A = "アプリ内の通貨です。単位は " + IgCurrency.UNIT + " で、来店するたびに ";
+    private const string T_IG_INFO_B = " もらえます。ホームの空の金貨座のショップで使えます";
+    // 金貨座がまだの人（管理者の G のQRで受け取って持っている。2026-11-12）
+    private const string T_IG_DESC_LOCKED = "金貨座を完成させると使えます";
+    private const string T_IG_INFO_LOCKED =
+        "アプリ内の通貨です。単位は " + IgCurrency.UNIT + " です。経済・経営のゲームで金貨座を完成させると、" +
+        "ショップで使えるようになり、来店するたびにもらえるようになります";
+    // アイテム（惑星回復薬。2026-11-12。所持品のいちばん下）
+    private const string T_ITEM_SECTION = "アイテム";
+    private const string T_ITEM_HINT = "押すと使えます";
     private const string T_MEMBER = "会員証";
     private const string T_MEMBER_CAPTION = "MEMBER CARD";
     private const string T_MEMBER_TITLE = "会員証";
@@ -235,7 +262,12 @@ public class SpaceInventoryPanel : MonoBehaviour
               .Append("合計OFF枚×0123456789%/: ")
               .Append(T_MEEPLE_SECTION).Append(T_MEEPLE_HINT).Append(T_MEEPLE_INFO).Append(SpaceMeeples.GlyphText)
               .Append(T_FRAGMENT_DESC).Append(T_FRAGMENT_INFO).Append(SpaceWorld.FRAGMENT_NAME)
-              .Append(T_STAR_FRAGMENT_DESC).Append(T_STAR_FRAGMENT_INFO).Append(SpaceWorld.STAR_FRAGMENT_NAME);
+              .Append(T_STAR_FRAGMENT_DESC).Append(T_STAR_FRAGMENT_INFO).Append(SpaceWorld.STAR_FRAGMENT_NAME)
+              .Append(T_IG_SECTION).Append(T_IG_NAME).Append(T_IG_DESC_A).Append(T_IG_DESC_B).Append(T_IG_INFO_A).Append(T_IG_INFO_B)
+              .Append(IgCurrency.GlyphText).Append(T_MEEPLE_HINT_SHOP).Append(T_MEEPLE_INFO_SHOP)
+              .Append(T_MEEPLE_INFO_ALSO_SHOP).Append(T_STAR_FRAGMENT_INFO_SHOP).Append(T_STAR_FRAGMENT_INFO_BOTH)
+              .Append(T_ITEM_SECTION).Append(T_ITEM_HINT).Append(SpacePlanetPotion.GlyphText)
+              .Append(T_IG_DESC_LOCKED).Append(T_IG_INFO_LOCKED);
             foreach (var c in SpaceCoupons.All) sb.Append(c.Name).Append(c.RowDesc).Append(c.Desc);
             return sb.ToString();
         }
@@ -262,6 +294,7 @@ public class SpaceInventoryPanel : MonoBehaviour
     private TextMeshProUGUI _section;
     private float _safeH;
     private SpacePassViewer _viewer;
+    private SpacePotionChooser _potion; // 惑星回復薬で力を戻す惑星を選ぶ画面（開いている間）
 
     // 使用画面
     private RectTransform _useSheet;
@@ -301,7 +334,8 @@ public class SpaceInventoryPanel : MonoBehaviour
     public void HandleBack()
     {
         if (_busy) return;
-        if (_viewer != null) _viewer.Close();
+        if (_potion != null) _potion.HandleBack(); // 惑星回復薬で力を戻す惑星を選ぶ画面
+        else if (_viewer != null) _viewer.Close();
         else if (_result != null) CloseResult();
         else if (_useSheet != null) CloseUseSheet();
         else Close();
@@ -434,43 +468,75 @@ public class SpaceInventoryPanel : MonoBehaviour
 
         var passes = StorePasses.MineToShow(DateTime.Now);
         float y = 0f;
-        var perk = PlanetPowers.Of(SpacePlanets.Current);
-        bool hasPerk = perk != null && perk.Store;
-        if (hasPerk)
+        // 最初の欄の見出しはシートの上（_section）に出し、2つ目からは一覧の中に置く
+        string head = null;
+        void Section(string label)
         {
+            if (head == null) head = label;
+            else y = SectionLabel(label, y);
+        }
+
+        // 所持金（アプリ内の通貨 G。金貨座を完成させた人だけ。いちばん上に。2026-11-12）
+        if (IgCurrency.Visible)
+        {
+            Section(T_IG_SECTION);
+            BuildIgRow(_content, -y);
+            y += ROW_H + ROW_GAP;
+        }
+        var perk = PlanetPowers.Of(SpacePlanets.Current);
+        if (perk != null && perk.Store)
+        {
+            Section(T_PERK_SECTION);
             BuildPerkRow(_content, perk, -y);
             y += ROW_H + ROW_GAP;
-            if (passes.Count > 0) y = SectionLabel(T_PASS_SECTION, y);
         }
+        if (passes.Count > 0) Section(T_PASS_SECTION);
         foreach (var pass in passes)
         {
             BuildPassRow(_content, pass, -y);
             y += ROW_H + ROW_GAP;
         }
-        if (passes.Count > 0 || hasPerk) y = SectionLabel(T_SECTION, y);
-        _section.text = hasPerk ? T_PERK_SECTION : passes.Count > 0 ? T_PASS_SECTION : T_SECTION;
+        Section(T_SECTION);
+        _section.text = head;
 
         int n = SpaceCoupons.All.Length;
         for (int i = 0; i < n; i++) BuildRow(_content, SpaceCoupons.All[i], -(y + i * (ROW_H + ROW_GAP)));
         y += n * ROW_H + (n - 1) * ROW_GAP;
 
-        // コマ（INTALES WORLD をダウンロードした人だけ。クーポンの下に、3色を1枚のカードに並べる）
-        if (SpaceWorld.Installed)
+        // コマ（クーポンの下に、3色を1枚のカードに並べる）。INTALES WORLD をダウンロードした人と、
+        // 金貨座が完成してショップでコマを買える人（2026-11-12 ユーザー指定「職人座がアクティブでなくても、
+        // 通貨座がアクティブになると所持品にミープルが増えるように」）
+        bool world = SpaceWorld.Installed;
+        bool shop = IgCurrency.Unlocked;
+        if (world || shop)
         {
-            y = SectionLabel(T_MEEPLE_SECTION, y + ROW_GAP, T_MEEPLE_HINT);
-            BuildMeepleRow(_content, -y);
+            y = SectionLabel(T_MEEPLE_SECTION, y + ROW_GAP, world ? T_MEEPLE_HINT : T_MEEPLE_HINT_SHOP);
+            BuildMeepleRow(_content, -y,
+                world ? (shop ? T_MEEPLE_INFO + "\n" + T_MEEPLE_INFO_ALSO_SHOP : T_MEEPLE_INFO) : T_MEEPLE_INFO_SHOP);
             y += ROW_H;
-            // 5%OFFチケットのカケラ（INTALES WORLD の商人の港でもらう。2枚で5%OFFチケット。2026-11-10）
             var d = Data;
-            y += ROW_GAP;
-            BuildFragmentRow(_content, -y, "Fragment", SpaceWorld.FragmentIcon, true, SpaceWorld.FRAGMENT_NAME,
-                T_FRAGMENT_DESC, T_FRAGMENT_INFO, d != null ? d.FiveFragment : 0, SpaceWorld.FRAGMENTS_PER_COUPON);
-            y += ROW_H;
-            // 星のカケラ（INTALES WORLD の星くずの島でもらう。5個で流れ星を1回。2026-11-11）
+            if (world)
+            {
+                // 5%OFFチケットのカケラ（INTALES WORLD の商人の港でだけもらう。2枚で5%OFFチケット。2026-11-10）
+                y += ROW_GAP;
+                BuildFragmentRow(_content, -y, "Fragment", SpaceWorld.FragmentIcon, true, SpaceWorld.FRAGMENT_NAME,
+                    T_FRAGMENT_DESC, T_FRAGMENT_INFO, d != null ? d.FiveFragment : 0, SpaceWorld.FRAGMENTS_PER_COUPON);
+                y += ROW_H;
+            }
+            // 星のカケラ（INTALES WORLD の星くずの島でもらう・ショップで買う。5個で流れ星を1回。2026-11-11）
             y += ROW_GAP;
             BuildFragmentRow(_content, -y, "StarFragment", SpaceWorld.StarFragmentIcon, false, SpaceWorld.STAR_FRAGMENT_NAME,
-                T_STAR_FRAGMENT_DESC, T_STAR_FRAGMENT_INFO, d != null ? d.StarFragment : 0,
-                SpaceWorld.STAR_FRAGMENTS_PER_STAR);
+                T_STAR_FRAGMENT_DESC,
+                world ? (shop ? T_STAR_FRAGMENT_INFO_BOTH : T_STAR_FRAGMENT_INFO) : T_STAR_FRAGMENT_INFO_SHOP,
+                d != null ? d.StarFragment : 0, SpaceWorld.STAR_FRAGMENTS_PER_STAR);
+            y += ROW_H;
+        }
+        // アイテム（惑星回復薬。金貨座のショップで買う。所持品のいちばん下に。2026-11-12 ユーザー指定）
+        int potions = SpacePlanetPotion.Count;
+        if (shop || potions > 0)
+        {
+            y = SectionLabel(T_ITEM_SECTION, y + ROW_GAP, T_ITEM_HINT);
+            BuildPotionRow(_content, -y, potions);
             y += ROW_H;
         }
         float listH = y;
@@ -502,13 +568,64 @@ public class SpaceInventoryPanel : MonoBehaviour
     }
 
     // ================================================================
+    // 所持金（アプリ内の通貨。単位 G。金貨座を完成させると使えるようになり、来店するたびにもらえる。今は貯まるだけ）
+    // ================================================================
+    /// <summary>所持金の行: 金貨の絵＋「所持金」＋もらい方、右に「5G」（数字のすぐあとに G）。押すと通貨の説明</summary>
+    private void BuildIgRow(RectTransform content, float y)
+    {
+        int n = IgCurrency.Balance;
+        // 金貨座がまだの人も、管理者の G のQRで受け取って持てる（2026-11-12 ユーザー指定）。
+        // その人には「来店するたびに」ではなく、使えるようになる条件を出す
+        bool unlocked = IgCurrency.Unlocked;
+        var row = SpaceTheme.Rect("Ig", content);
+        row.anchorMin = new Vector2(0f, 1f);
+        row.anchorMax = new Vector2(1f, 1f);
+        row.pivot = new Vector2(0.5f, 1f);
+        row.sizeDelta = new Vector2(0f, ROW_H);
+        row.anchoredPosition = new Vector2(0f, y);
+        var face = SpaceTheme.Glass(row, 36f, SpaceTheme.GLASS, SpaceTheme.A(SpaceTheme.GOLD, n > 0 ? 0.5f : 0.25f), true);
+        string info = unlocked ? T_IG_INFO_A + IgCurrency.Format(IgCurrency.PerVisit) + T_IG_INFO_B : T_IG_INFO_LOCKED;
+        SpaceTheme.Clickable(row.gameObject, face, () =>
+        {
+            if (_busy || _useSheet != null || _result != null || _closing || _viewer != null) return;
+            SpaceTheme.Toast(info, _canvas);
+        });
+
+        // 金貨の絵（まわりの光ときらめきも絵に入っているので、枠なしでそのまま）
+        var iconRt = SpaceTheme.Rect("Icon", row, new Vector2(0f, 0.5f), new Vector2(24f + 64f, 0f), new Vector2(128f, 128f));
+        var icon = IgCurrency.Icon;
+        var img = SpaceTheme.Img(iconRt, icon, Color.white);
+        img.preserveAspect = true;
+        img.enabled = icon != null;
+
+        SpaceTheme.Text(row, "Name", T_IG_NAME, 40, SpaceTheme.TEXT,
+            new Vector2(0f, 0.5f), new Vector2(176f, 26f), new Vector2(440f, 56f), FontStyles.Bold,
+            TextAlignmentOptions.Left, new Vector2(0f, 0.5f));
+        var desc = SpaceTheme.Text(row, "Desc",
+            unlocked ? T_IG_DESC_A + IgCurrency.Format(IgCurrency.PerVisit) + T_IG_DESC_B : T_IG_DESC_LOCKED, 26,
+            SpaceTheme.TEXT_SUB, new Vector2(0f, 0.5f), new Vector2(176f, -28f), new Vector2(440f, 40f), FontStyles.Bold,
+            TextAlignmentOptions.Left, new Vector2(0f, 0.5f));
+        desc.enableAutoSizing = true;
+        desc.fontSizeMin = 18f;
+        desc.fontSizeMax = 26f;
+        // 「5G」: 数字のすぐあとに、少し小さい G
+        var count = SpaceTheme.Text(row, "Count",
+            $"{n.ToString("N0", CultureInfo.InvariantCulture)}<size=55%>{IgCurrency.UNIT}</size>", 60,
+            n > 0 ? SpaceTheme.GOLD : SpaceTheme.TEXT_MUTED, new Vector2(1f, 0.5f), new Vector2(-40f, 0f),
+            new Vector2(300f, 80f), FontStyles.Bold, TextAlignmentOptions.Right, new Vector2(1f, 0.5f));
+        count.enableAutoSizing = true;
+        count.fontSizeMin = 36f;
+        count.fontSizeMax = 60f;
+    }
+
+    // ================================================================
     // コマ（赤・青・黄。入店した日に中央の惑星の色のコマをもらえる。今は持つだけ）
     // ================================================================
     private const float MEEPLE_ICON = 112f;
     private const float MEEPLE_TEXT_X = 24f + MEEPLE_ICON + 14f;
 
-    /// <summary>コマの欄: 3色を1枚のカードに横に並べ、それぞれの数を出す。押すと、もらい方を知らせる</summary>
-    private void BuildMeepleRow(RectTransform content, float y)
+    /// <summary>コマの欄: 3色を1枚のカードに横に並べ、それぞれの数を出す。押すと、もらい方（info）を知らせる</summary>
+    private void BuildMeepleRow(RectTransform content, float y, string info)
     {
         var row = SpaceTheme.Rect("Meeples", content);
         row.anchorMin = new Vector2(0f, 1f);
@@ -520,7 +637,7 @@ public class SpaceInventoryPanel : MonoBehaviour
         SpaceTheme.Clickable(row.gameObject, face, () =>
         {
             if (_busy || _useSheet != null || _result != null || _closing) return;
-            SpaceTheme.Toast(T_MEEPLE_INFO, _canvas);
+            SpaceTheme.Toast(info, _canvas);
         });
 
         var d = Data;
@@ -602,6 +719,75 @@ public class SpaceInventoryPanel : MonoBehaviour
             $"{n}<size=43%><color={SpaceTheme.SUB_HEX}> / {need}</color></size>", 60,
             n > 0 ? SpaceTheme.GOLD : SpaceTheme.TEXT_MUTED, new Vector2(1f, 0.5f), new Vector2(-40f, 0f),
             new Vector2(220f, 80f), FontStyles.Bold, TextAlignmentOptions.Right, new Vector2(1f, 0.5f));
+    }
+
+    // ================================================================
+    // アイテム（惑星回復薬。2026-11-12）
+    // ================================================================
+    /// <summary>惑星回復薬の行: 薬の絵＋名前＋できること、右に数。押すと使う（力を戻す惑星を選ぶ画面）</summary>
+    private void BuildPotionRow(RectTransform content, float y, int n)
+    {
+        var row = SpaceTheme.Rect("PlanetPotion", content);
+        row.anchorMin = new Vector2(0f, 1f);
+        row.anchorMax = new Vector2(1f, 1f);
+        row.pivot = new Vector2(0.5f, 1f);
+        row.sizeDelta = new Vector2(0f, ROW_H);
+        row.anchoredPosition = new Vector2(0f, y);
+        var face = SpaceTheme.Glass(row, 36f, SpaceTheme.GLASS, n > 0 ? SpaceTheme.A(SpacePlanetPotion.TINT, 0.45f) : (Color?)null,
+            true);
+        SpaceTheme.Clickable(row.gameObject, face, OnPotionTapped);
+        row.gameObject.AddComponent<CanvasGroup>().alpha = n > 0 ? 1f : 0.55f;
+
+        var iconRt = SpaceTheme.Rect("Icon", row, new Vector2(0f, 0.5f), new Vector2(24f + 64f, 0f), new Vector2(128f, 128f));
+        var icon = SpacePlanetPotion.Icon;
+        var img = SpaceTheme.Img(iconRt, icon, Color.white);
+        img.preserveAspect = true;
+        img.enabled = icon != null;
+        var name = SpaceTheme.Text(row, "Name", SpacePlanetPotion.NAME, 40, SpaceTheme.TEXT,
+            new Vector2(0f, 0.5f), new Vector2(176f, 26f), new Vector2(500f, 56f), FontStyles.Bold,
+            TextAlignmentOptions.Left, new Vector2(0f, 0.5f));
+        name.enableAutoSizing = true;
+        name.fontSizeMin = 26f;
+        name.fontSizeMax = 40f;
+        var desc = SpaceTheme.Text(row, "Desc", SpacePlanetPotion.ROW_DESC, 26, SpaceTheme.TEXT_SUB,
+            new Vector2(0f, 0.5f), new Vector2(176f, -28f), new Vector2(520f, 40f), FontStyles.Bold,
+            TextAlignmentOptions.Left, new Vector2(0f, 0.5f));
+        desc.enableAutoSizing = true;
+        desc.fontSizeMin = 18f;
+        desc.fontSizeMax = 26f;
+        SpaceTheme.Text(row, "Count", $"{n}<size=43%><color={SpaceTheme.SUB_HEX}> {SpaceMeeples.T_UNIT}</color></size>", 60,
+            n > 0 ? SpaceTheme.GOLD : SpaceTheme.TEXT_MUTED, new Vector2(1f, 0.5f), new Vector2(-40f, 0f),
+            new Vector2(220f, 80f), FontStyles.Bold, TextAlignmentOptions.Right, new Vector2(1f, 0.5f));
+    }
+
+    /// <summary>
+    /// 惑星回復薬を押した: 持っていなければ「まだ持っていません」、力を失った惑星が1つもなければ「使えません」
+    /// （2026-11-12 ユーザー指定）。あれば、力を戻す惑星を1つ選ぶ画面を開く
+    /// </summary>
+    private void OnPotionTapped()
+    {
+        if (_busy || _useSheet != null || _result != null || _closing || _viewer != null || _potion != null) return;
+        if (SpacePlanetPotion.Count <= 0)
+        {
+            SpaceTheme.Toast(T_EMPTY, _canvas);
+            return;
+        }
+        var candidates = SpacePlanetPotion.Candidates();
+        if (candidates.Count == 0)
+        {
+            SpaceTheme.Toast(SpacePlanetPotion.T_CANNOT, _canvas);
+            return;
+        }
+        _potion = SpacePotionChooser.Open(transform, _canvas, candidates, def =>
+        {
+            // 力が戻った惑星が、白く淡い色からいつもの色に戻っていくお知らせ（惑星の神殿と同じもの）
+            AssetsDatabase.instance?.PlayLevelUpSE();
+            SpaceNotice.PlanetsRevived(new List<SpacePlanetDef> { def }, SpacePlanetPotion.T_CAPTION);
+        }, () =>
+        {
+            _potion = null;
+            if (this != null && !_closing) BuildList(); // 薬の数を最新に
+        });
     }
 
     /// <summary>コマの欄の1色分の中で、絵の右から右端までの幅に文字を置く（y は縦の中心からのずれ）</summary>
