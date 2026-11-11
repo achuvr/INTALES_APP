@@ -15,14 +15,19 @@ using UnityEngine;
 ///   静止後、各面の法線がワールド上方向と最も一致する面を「上面」として読む。
 ///   d4（四面体）だけは慣習に合わせて接地面（下向きの面）を読む。
 ///
-/// メッシュは全てコード生成（d4=正四面体, d6=立方体, d8=正八面体, d10=五方台形体）。
-/// 数字は面ごとに 3D TextMeshPro を貼り付ける。
+/// メッシュは全てコード生成（d4=正四面体, d6=立方体, d8=正八面体, d10=五方台形体,
+/// d12=正十二面体, d20=正二十面体。d12・d20 は 2026-11-11 に新ホームのさいころ座のダイスのために追加）。
+/// 数字は面ごとに 3D TextMeshPro を貼り付ける（d4 は本物と同じく、各面の3つの角に頂点の数字を置き、
+/// 上を向いた頂点の数字＝出目が見える3つの面にそろって出る）。
+/// 新ホームのさいころ座のダイス（SpaceDiceRoller）は、トレイを宇宙の色にして（SetTray・FrameWholeTray）、
+/// ダイスの色を種類ごとに変え（SetDieColors）、最大10個（D100 は十の位と一の位の組で最大5組）を一度に振る。
 /// </summary>
 public class Dice3DSimulator : MonoBehaviour
 {
     private const float TRAY_HALF = 3.1f;   // トレイの内側半径
     private const float DIE_SIZE = 1.0f;    // ダイスの基準サイズ
     private const float SETTLE_TIMEOUT = 6f;
+    private const float CEILING = 5.5f;     // 見えない天井（コライダー）の下面の高さ
 
     private Camera _cam;
     private RenderTexture _rt;
@@ -33,6 +38,11 @@ public class Dice3DSimulator : MonoBehaviour
     private AudioClip _knockClip;
     private Material _fxMat;
     private readonly List<GameObject> _activeDice = new List<GameObject>();
+    private int _textureSize = 768;
+    private int _antiAliasing = 1;
+    // 数字の色と縁取り（SetDieColors で変えられる。初めはアイボリーのダイスに合う焦げ茶）
+    private Color _labelColor = new Color(0.18f, 0.08f, 0.02f);
+    private Color32 _labelOutline = new Color32(46, 20, 5, 255);
 
     public RenderTexture Texture => _rt;
 
@@ -42,17 +52,62 @@ public class Dice3DSimulator : MonoBehaviour
         public Vector3 center;
         public Vector3 normal;
         public int value;
+        public TextMeshPro label; // 面の真ん中の数字（d4 の角の数字は持たない）
     }
 
-    /// <summary>ダイスワールドを構築して返す</summary>
-    public static Dice3DSimulator Create(TMP_FontAsset font)
+    /// <summary>
+    /// ダイスワールドを構築して返す。textureSize は映像（RenderTexture）の一辺、antiAliasing はそのMSAA
+    /// （新ホームのダイスは大きく見せるので 1024・4。戦闘のダイスはこれまでどおり 768・なし）
+    /// </summary>
+    public static Dice3DSimulator Create(TMP_FontAsset font, int textureSize = 768, int antiAliasing = 1)
     {
         var root = new GameObject("__DiceWorld");
         root.transform.position = new Vector3(0, -500, 0); // シーンと干渉しない遠い場所
         var sim = root.AddComponent<Dice3DSimulator>();
         sim._font = font;
+        sim._textureSize = Mathf.Max(64, textureSize);
+        sim._antiAliasing = Mathf.Max(1, antiAliasing);
         sim.BuildWorld();
         return sim;
+    }
+
+    /// <summary>
+    /// ダイス本体と数字の色を変える（本体はすぐ、数字は次に振るダイスから）。
+    /// 新ホームのさいころ座のダイスで、ダイスの種類ごとに色を変えるのに使う
+    /// </summary>
+    public void SetDieColors(Color body, Color label, Color labelOutline)
+    {
+        if (_dieMat != null)
+        {
+            if (_dieMat.HasProperty("_BaseColor")) _dieMat.SetColor("_BaseColor", body);
+            if (_dieMat.HasProperty("_Color")) _dieMat.SetColor("_Color", body);
+        }
+        _labelColor = label;
+        _labelOutline = labelOutline;
+    }
+
+    /// <summary>トレイの床と背景の色を変える（floorTexture があれば床の模様にする。色は模様に掛け合わされる）</summary>
+    public void SetTray(Color floor, Color background, Texture floorTexture = null)
+    {
+        if (_floorMat != null)
+        {
+            if (_floorMat.HasProperty("_BaseColor")) _floorMat.SetColor("_BaseColor", floor);
+            if (_floorMat.HasProperty("_Color")) _floorMat.SetColor("_Color", floor);
+            if (floorTexture != null)
+            {
+                if (_floorMat.HasProperty("_BaseMap")) _floorMat.SetTexture("_BaseMap", floorTexture);
+                if (_floorMat.HasProperty("_MainTex")) _floorMat.SetTexture("_MainTex", floorTexture);
+            }
+        }
+        if (_cam != null) _cam.backgroundColor = background;
+    }
+
+    /// <summary>カメラを少し引いて、トレイの内側がまるごと入るようにする（たくさんのダイスを振るとき用）</summary>
+    public void FrameWholeTray()
+    {
+        if (_cam == null) return;
+        _cam.transform.localPosition = new Vector3(0f, 8.4f, -3.3f);
+        _cam.transform.LookAt(transform.position + new Vector3(0f, 0.3f, 0f));
     }
 
     public void SetVisible(bool visible)
@@ -90,29 +145,67 @@ public class Dice3DSimulator : MonoBehaviour
     /// </summary>
     public async UniTask<int> RollPercentileAsync()
     {
-        var specs = new List<(int faces, System.Func<int, string> labeler)>
-        {
-            (10, v => ((v - 1) * 10).ToString("00")), // 十の位: 00,10,…,90
-            (10, v => (v - 1).ToString()),            // 一の位: 0,1,…,9
-        };
-        var res = await RollDiceAsync(specs);
-        int value = (res[0] - 1) * 10 + (res[1] - 1);
-        return value == 0 ? 100 : value;
+        var res = await RollPercentileAsync(1);
+        return res.Count > 0 ? res[0] : 100;
     }
 
-    /// <summary>指定スペックのダイス群を投げ込み、静止後の出目（面番号1..faces）を返す。</summary>
-    private async UniTask<List<int>> RollDiceAsync(List<(int faces, System.Func<int, string> labeler)> specs)
+    /// <summary>
+    /// パーセンタイルロールを count 回ぶん同時に振る（十の位と一の位の組を count 組投げ込む）。
+    /// それぞれの値（1〜100）を返す（新ホームのさいころ座のダイスの 2D100 など）
+    /// </summary>
+    public async UniTask<List<int>> RollPercentileAsync(int count)
+    {
+        var specs = new List<(int faces, System.Func<int, string> labeler)>();
+        for (int i = 0; i < count; i++)
+        {
+            specs.Add((10, v => ((v - 1) * 10).ToString("00"))); // 十の位: 00,10,…,90
+            specs.Add((10, v => (v - 1).ToString()));            // 一の位: 0,1,…,9
+        }
+        var res = await RollDiceAsync(specs);
+        var values = new List<int>();
+        for (int i = 0; i + 1 < res.Count; i += 2)
+        {
+            int value = (res[i] - 1) * 10 + (res[i + 1] - 1);
+            values.Add(value == 0 ? 100 : value);
+        }
+        return values;
+    }
+
+    /// <summary>
+    /// 指定スペックのダイス群を投げ込み、静止後の出目（面番号1..faces）を返す。
+    /// thrown を渡すと、投げたダイス（止まったあと）をそこに入れて返す。hideLabels なら転がっている間は数字を隠す
+    /// </summary>
+    private async UniTask<List<int>> RollDiceAsync(List<(int faces, System.Func<int, string> labeler)> specs,
+        List<(GameObject go, List<FaceInfo> faceInfos, int faces)> thrown = null, bool hideLabels = false)
     {
         ClearDice();
         SetVisible(true);
 
-        var dice = new List<(GameObject go, List<FaceInfo> faceInfos, int faces)>();
+        var dice = thrown ?? new List<(GameObject go, List<FaceInfo> faceInfos, int faces)>();
+        dice.Clear();
+        List<Vector3> cells = null;
         for (int i = 0; i < specs.Count; i++)
         {
             var (go, infos) = CreateDie(specs[i].faces, specs[i].labeler);
-            // トレイ上空のランダムな位置・回転・勢いで投げ込む
-            go.transform.position = transform.position + new Vector3(
-                Random.Range(-1.2f, 1.2f), 3.5f + i * 1.4f, Random.Range(-1.2f, 1.2f));
+            if (hideLabels)
+                foreach (var f in infos)
+                    if (f.label != null) f.label.gameObject.SetActive(false);
+            if (specs.Count <= 2)
+            {
+                // トレイ上空のランダムな位置・回転・勢いで投げ込む（戦闘のダイス。これまでどおり）
+                go.transform.position = transform.position + new Vector3(
+                    Random.Range(-1.2f, 1.2f), 3.5f + i * 1.4f, Random.Range(-1.2f, 1.2f));
+            }
+            else
+            {
+                // 3個以上（新ホームのダイスは最大10個）: 重なって弾け飛ばないよう、
+                // 天井より下の格子に1個ずつ置いてから投げ込む（下の段から使い、段の中ではばらばら）
+                if (cells == null) cells = SpawnCells(DieRadius(go), specs.Count);
+                var p = i < cells.Count
+                    ? cells[i]
+                    : new Vector3(Random.Range(-1.5f, 1.5f), Mathf.Min(CEILING - 1f, 2f + 0.3f * i), Random.Range(-1.5f, 1.5f));
+                go.transform.position = transform.position + p;
+            }
             go.transform.rotation = Random.rotation;
 
             var rb = go.GetComponent<Rigidbody>();
@@ -128,6 +221,7 @@ public class Dice3DSimulator : MonoBehaviour
         while (elapsed < SETTLE_TIMEOUT)
         {
             await UniTask.Delay(100);
+            if (this == null) return new List<int>(); // 転がっている間に画面ごと閉じられた
             elapsed += 0.1f;
             if (elapsed < 0.8f) continue; // 投げた直後は判定しない
 
@@ -152,11 +246,13 @@ public class Dice3DSimulator : MonoBehaviour
     }
 
     /// <summary>静止したダイスの出目を読む</summary>
-    private static int ReadResult(Transform t, List<FaceInfo> faceInfos, int faces)
-    {
-        // d4は接地面（下向きの面）を、それ以外は上向きの面を読む
-        Vector3 target = faces == 4 ? Vector3.down : Vector3.up;
+    private static int ReadResult(Transform t, List<FaceInfo> faceInfos, int faces) =>
+        ReadFace(t, faceInfos, faces)?.value ?? 1;
 
+    /// <summary>静止したダイスの、出目として読む面（d4は接地面＝下向きの面、それ以外は上向きの面）</summary>
+    private static FaceInfo ReadFace(Transform t, List<FaceInfo> faceInfos, int faces)
+    {
+        Vector3 target = faces == 4 ? Vector3.down : Vector3.up;
         FaceInfo best = null;
         float bestDot = float.MinValue;
         foreach (var f in faceInfos)
@@ -168,14 +264,120 @@ public class Dice3DSimulator : MonoBehaviour
                 best = f;
             }
         }
-        return best?.value ?? 1;
+        return best;
+    }
+
+    /// <summary>
+    /// 出目を先に決めて振る 1D100（新ホームのダイスチャレンジ用。2026-11-11）。
+    /// 十の位と一の位のダイスは転がっている間は数字を隠しておき、止まったら上の面に決めた出目が出るよう数字を入れ替えてから
+    /// 数字を見せる（数字の並びが入れ替わるだけで、見えている面と出目は必ず一致する）。
+    /// 出目は振る前に決まっているので、途中で画面を閉じても出目は変わらない
+    /// </summary>
+    public async UniTask<int> RollPercentileFixedAsync(int value)
+    {
+        value = Mathf.Clamp(value, 1, 100);
+        int tens = value % 100 / 10; // 100 は十の位「00」・一の位「0」
+        int units = value % 10;
+        var specs = new List<(int faces, System.Func<int, string> labeler)>
+        {
+            (10, v => ((v - 1) * 10).ToString("00")),
+            (10, v => (v - 1).ToString()),
+        };
+        var thrown = new List<(GameObject go, List<FaceInfo> faceInfos, int faces)>();
+        await RollDiceAsync(specs, thrown, true);
+        if (this == null || thrown.Count < 2) return value;
+        RevealFace(thrown[0], tens + 1);
+        RevealFace(thrown[1], units + 1);
+        return value;
+    }
+
+    /// <summary>止まったダイスの上の面に faceValue の数字が出るよう数字を入れ替え、隠していた数字をぽんと出す</summary>
+    private void RevealFace((GameObject go, List<FaceInfo> faceInfos, int faces) die, int faceValue)
+    {
+        if (die.go == null) return;
+        var up = ReadFace(die.go.transform, die.faceInfos, die.faces);
+        var target = die.faceInfos.Find(f => f.value == faceValue);
+        if (up != null && target != null && up != target && up.label != null && target.label != null)
+        {
+            (up.label.text, target.label.text) = (target.label.text, up.label.text);
+            (up.value, target.value) = (target.value, up.value);
+        }
+        foreach (var f in die.faceInfos)
+        {
+            if (f.label == null) continue;
+            f.label.gameObject.SetActive(true);
+            StartCoroutine(PopLabel(f.label.transform));
+        }
+    }
+
+    private static System.Collections.IEnumerator PopLabel(Transform t)
+    {
+        const float D = 0.28f;
+        for (float e = 0f; e < D; e += Time.unscaledDeltaTime)
+        {
+            if (t == null) yield break;
+            float k = e / D;
+            float s = k < 0.6f ? Mathf.Lerp(0f, 1.25f, k / 0.6f) : Mathf.Lerp(1.25f, 1f, (k - 0.6f) / 0.4f);
+            t.localScale = new Vector3(s, s, 1f);
+            yield return null;
+        }
+        if (t != null) t.localScale = Vector3.one;
     }
 
     public void ClearDice()
     {
         foreach (var d in _activeDice)
-            if (d != null) Destroy(d);
+        {
+            if (d == null) continue;
+            // 数字に縁取りを付けると文字ごとに材質の複製ができ（Renderer.material）、ダイスを消しても残るので一緒に消す
+            // （TextMeshPro の OnDestroy はメッシュしか消さない）
+            foreach (var tmp in d.GetComponentsInChildren<TextMeshPro>(true))
+            {
+                var r = tmp.GetComponent<MeshRenderer>();
+                var m = r != null ? r.sharedMaterial : null;
+                if (m != null && (_font == null || m != _font.material)) Destroy(m);
+            }
+            Destroy(d);
+        }
         _activeDice.Clear();
+    }
+
+    /// <summary>ダイスの中心からいちばん遠い頂点までの距離（投げ込む格子の間隔を決める）</summary>
+    private static float DieRadius(GameObject die)
+    {
+        var mf = die.GetComponent<MeshFilter>();
+        if (mf == null || mf.sharedMesh == null) return DIE_SIZE;
+        float r = 0f;
+        foreach (var v in mf.sharedMesh.vertices) r = Mathf.Max(r, v.magnitude);
+        return r > 0f ? r : DIE_SIZE;
+    }
+
+    /// <summary>
+    /// ダイスを置く格子（トレイの中・天井より下）。間隔はダイスの大きさ＋すきま。
+    /// 下の段から順に、段の中はばらばらの順で並べる。足りなければ作れた分だけ
+    /// </summary>
+    private static List<Vector3> SpawnCells(float radius, int needed)
+    {
+        float step = radius * 2f + 0.1f;
+        float limit = TRAY_HALF - radius - 0.05f;
+        int perAxis = Mathf.Max(1, Mathf.FloorToInt(limit * 2f / step) + 1);
+        float start = -(perAxis - 1) * step * 0.5f;
+        var cells = new List<Vector3>();
+        for (float y = radius + 0.3f; y + radius < CEILING - 0.05f && cells.Count < needed; y += step)
+        {
+            var layer = new List<Vector3>();
+            for (int a = 0; a < perAxis; a++)
+                for (int b = 0; b < perAxis; b++)
+                    layer.Add(new Vector3(start + a * step + Random.Range(-0.04f, 0.04f), y,
+                        start + b * step + Random.Range(-0.04f, 0.04f)));
+            for (int k = layer.Count - 1; k > 0; k--)
+            {
+                int j = Random.Range(0, k + 1);
+                (layer[k], layer[j]) = (layer[j], layer[k]);
+            }
+            cells.AddRange(layer);
+        }
+        return cells;
     }
 
     // ================================================================
@@ -225,7 +427,7 @@ public class Dice3DSimulator : MonoBehaviour
         fill.color = new Color(1f, 0.97f, 0.9f);
 
         // カメラ（RenderTextureに描画）
-        _rt = new RenderTexture(768, 768, 16);
+        _rt = new RenderTexture(_textureSize, _textureSize, 16) { antiAliasing = _antiAliasing };
         var camGO = new GameObject("__DiceCam");
         camGO.transform.SetParent(transform, false);
         camGO.transform.localPosition = new Vector3(0, 7.2f, -3.6f);
@@ -251,7 +453,12 @@ public class Dice3DSimulator : MonoBehaviour
 
     private void OnDestroy()
     {
+        // 新ホームのダイスは画面を開くたびに作って閉じるたびに消すので、作った材質も残さない
+        ClearDice();
         if (_rt != null) _rt.Release();
+        if (_dieMat != null) Destroy(_dieMat);
+        if (_floorMat != null) Destroy(_floorMat);
+        if (_fxMat != null) Destroy(_fxMat);
     }
 
     // ================================================================
@@ -1124,6 +1331,8 @@ public class Dice3DSimulator : MonoBehaviour
             6 => BuildCubeFaces(),
             8 => BuildOctahedronFaces(),
             10 => BuildD10Faces(),
+            12 => BuildDodecahedronFaces(),
+            20 => BuildIcosahedronFaces(),
             _ => BuildCubeFaces(),
         };
 
@@ -1135,6 +1344,23 @@ public class Dice3DSimulator : MonoBehaviour
         var normals = new List<Vector3>();
         var tris = new List<int>();
         var faceInfos = new List<FaceInfo>();
+
+        // d4（数字の指定なし）は本物と同じく、各面の3つの角にその頂点の数字を置く。
+        // 出目は「上を向いた頂点の数字」＝下を向いた面の向かいの頂点。見えている3つの面の上の角に同じ数字が並ぶ
+        List<Vector3> corners4 = null;
+        if (faces == 4 && labeler == null)
+        {
+            corners4 = new List<Vector3>();
+            foreach (var poly in facePolys)
+                foreach (var v in poly)
+                    if (corners4.FindIndex(c => (c - v).sqrMagnitude < 1e-6f) < 0) corners4.Add(v);
+        }
+
+        // 面の数字の大きさ（数字を収める正方形の一辺・1文字と2文字の上限）。面が小さい d12・d20 は小さく
+        float labelBox = faces == 20 ? 0.38f : faces == 12 ? 0.50f : 0.58f;
+        float labelMax1 = faces == 20 ? 5.0f : faces == 12 ? 6.8f : 8.5f;
+        float labelMax2 = faces == 20 ? 3.8f : faces == 12 ? 4.8f : 5.5f;
+        bool tightLabel = faces != 12 && faces != 20; // 字間を詰めるのは以前からのダイスだけ（d12・d20 は大きさだけで収める）
 
         int value = 1;
         foreach (var poly in facePolys)
@@ -1178,9 +1404,28 @@ public class Dice3DSimulator : MonoBehaviour
             // 非平面の面では折り目に数字が食い込むため、浮かせ量を面の形状に応じて変える
             float labelOffset = polyList.Count >= 4 && faces == 10 ? 0.09f : 0.025f;
 
+            if (corners4 != null)
+            {
+                // この面にない頂点（向かいの頂点）の数字が、この面が下になったときの出目
+                int opposite = corners4.FindIndex(c => polyList.FindIndex(v => (v - c).sqrMagnitude < 1e-6f) < 0);
+                faceInfos.Add(new FaceInfo { center = center, normal = faceNormal, value = opposite + 1 });
+                foreach (var v in polyList)
+                {
+                    int vi = corners4.FindIndex(c => (c - v).sqrMagnitude < 1e-6f);
+                    // 角の近くに、数字の上が角を向くように置く
+                    AttachNumberLabel(go.transform, center + (v - center) * 0.55f, faceNormal, (vi + 1).ToString(), 0.02f,
+                        (v - center).normalized, 0.30f, 6f, 6f, false);
+                }
+                value++;
+                continue;
+            }
+
             string label = labeler != null ? labeler(value) : value.ToString();
-            faceInfos.Add(new FaceInfo { center = center, normal = faceNormal, value = value });
-            AttachNumberLabel(go.transform, center, faceNormal, label, labelOffset);
+            // 6 と 9 は上下を逆さにすると見分けにくいので、10面以上のダイスでは「6.」「9.」と点を付ける
+            if (labeler == null && faces >= 10 && (value == 6 || value == 9)) label += ".";
+            var numberLabel = AttachNumberLabel(go.transform, center, faceNormal, label, labelOffset, null, labelBox,
+                labelMax1, labelMax2, tightLabel);
+            faceInfos.Add(new FaceInfo { center = center, normal = faceNormal, value = value, label = numberLabel });
             value++;
         }
 
@@ -1198,8 +1443,9 @@ public class Dice3DSimulator : MonoBehaviour
 
         var rb = go.AddComponent<Rigidbody>();
         rb.mass = 1f;
-        rb.linearDamping = 0.1f;
-        rb.angularDamping = 0.25f;
+        // 丸に近い d12・d20 はいつまでも転がるので、回転を早めに弱める
+        rb.linearDamping = faces == 20 ? 0.2f : 0.1f;
+        rb.angularDamping = faces == 20 ? 0.6f : faces == 12 ? 0.45f : 0.25f;
         rb.collisionDetectionMode = CollisionDetectionMode.Continuous;
 
         // 衝突に同期してダイス音を鳴らす
@@ -1281,34 +1527,40 @@ public class Dice3DSimulator : MonoBehaviour
         return clip;
     }
 
-    /// <summary>面に数字の3Dテキストを貼る</summary>
-    private void AttachNumberLabel(Transform parent, Vector3 center, Vector3 normal, string label, float offset = 0.025f)
+    /// <summary>
+    /// 面に数字の3Dテキストを貼る。up は数字の上の向き（null なら世界の上に近い向き）、box は数字を収める正方形の一辺、
+    /// max1/max2 は1文字・2文字の大きさの上限、tight は2文字のとき字間を詰めるか（以前からのダイス）
+    /// </summary>
+    private TextMeshPro AttachNumberLabel(Transform parent, Vector3 center, Vector3 normal, string label, float offset,
+        Vector3? up, float box, float max1, float max2, bool tight)
     {
         var go = new GameObject($"__Num_{label}");
         go.transform.SetParent(parent, false);
         go.transform.localPosition = center + normal * offset;
 
         // 法線と上方向が平行に近いときはLookRotationのupを差し替える
-        Vector3 upHint = Mathf.Abs(Vector3.Dot(normal, Vector3.up)) > 0.95f ? Vector3.forward : Vector3.up;
+        Vector3 upHint = up ?? (Mathf.Abs(Vector3.Dot(normal, Vector3.up)) > 0.95f ? Vector3.forward : Vector3.up);
         go.transform.localRotation = Quaternion.LookRotation(-normal, upHint);
 
         var tmp = go.AddComponent<TextMeshPro>();
         if (_font != null) tmp.font = _font;
         tmp.text = label;
-        tmp.color = new Color(0.18f, 0.08f, 0.02f);
+        tmp.color = _labelColor;
         tmp.alignment = TextAlignmentOptions.Center;
         tmp.enableAutoSizing = true;
         tmp.fontSizeMin = 0.3f;
         // 面からはみ出さないよう上限を下げる。2桁（00,10…の十の位）は更に小さく＆字間を詰める
-        bool twoChar = label.Length >= 2;
-        tmp.fontSizeMax = twoChar ? 5.5f : 8.5f;
-        if (twoChar) tmp.characterSpacing = -10f;
+        // （「6.」「9.」の点は細いので1文字と同じ扱い）
+        bool twoChar = label.Length >= 2 && !label.EndsWith(".");
+        tmp.fontSizeMax = twoChar ? max2 : max1;
+        if (twoChar && tight) tmp.characterSpacing = -10f;
         // 視認性のため太字＋アウトラインで数字を太らせる
         tmp.fontStyle = FontStyles.Bold;
         tmp.outlineWidth = 0.18f;
-        tmp.outlineColor = new Color32(46, 20, 5, 255);
+        tmp.outlineColor = _labelOutline;
         var rt = tmp.GetComponent<RectTransform>();
-        rt.sizeDelta = new Vector2(0.58f, 0.58f) * DIE_SIZE;
+        rt.sizeDelta = new Vector2(box, box) * DIE_SIZE;
+        return tmp;
     }
 
     // ================================================================
@@ -1386,6 +1638,124 @@ public class Dice3DSimulator : MonoBehaviour
         }
         return faces;
     }
+
+    // ---- d12・d20（2026-11-11 追加。新ホームのさいころ座のダイス）----
+    private static readonly float PHI = (1f + Mathf.Sqrt(5f)) * 0.5f;
+
+    /// <summary>
+    /// 正二十面体の12頂点（外接球の半径 √(1+φ²)）。dual は x・y・z の役割を入れ替えた向きで、
+    /// こちらの向きが下の正十二面体の12の面の向きにちょうど重なる
+    /// </summary>
+    private static List<Vector3> IcosahedronVertices(bool dual = false)
+    {
+        var v = new List<Vector3>();
+        for (int a = -1; a <= 1; a += 2)
+            for (int b = -1; b <= 1; b += 2)
+            {
+                if (!dual)
+                {
+                    v.Add(new Vector3(0f, a, b * PHI));
+                    v.Add(new Vector3(a, b * PHI, 0f));
+                    v.Add(new Vector3(a * PHI, 0f, b));
+                }
+                else
+                {
+                    v.Add(new Vector3(0f, a * PHI, b));
+                    v.Add(new Vector3(a * PHI, b, 0f));
+                    v.Add(new Vector3(a, 0f, b * PHI));
+                }
+            }
+        return v;
+    }
+
+    /// <summary>
+    /// 正十二面体の20頂点（外接球の半径 √3）。dual は x・y・z の役割を入れ替えた向きで、
+    /// こちらの向きが上の正二十面体の20の面の向きにちょうど重なる
+    /// </summary>
+    private static List<Vector3> DodecahedronVertices(bool dual = false)
+    {
+        float inv = 1f / PHI;
+        var v = new List<Vector3>();
+        for (int x = -1; x <= 1; x += 2)
+            for (int y = -1; y <= 1; y += 2)
+                for (int z = -1; z <= 1; z += 2)
+                    v.Add(new Vector3(x, y, z));
+        for (int a = -1; a <= 1; a += 2)
+            for (int b = -1; b <= 1; b += 2)
+            {
+                if (!dual)
+                {
+                    v.Add(new Vector3(0f, a * inv, b * PHI));
+                    v.Add(new Vector3(a * inv, b * PHI, 0f));
+                    v.Add(new Vector3(a * PHI, 0f, b * inv));
+                }
+                else
+                {
+                    v.Add(new Vector3(0f, a * PHI, b * inv));
+                    v.Add(new Vector3(a * PHI, b * inv, 0f));
+                    v.Add(new Vector3(a * inv, 0f, b * PHI));
+                }
+            }
+        return v;
+    }
+
+    /// <summary>
+    /// 頂点 verts の多面体の面を作る。面の向き（法線）は directions（正十二面体と正二十面体は、たがいの頂点の向きを入れ替えたもの）。
+    /// それぞれの向きに最も近い perFace 個の頂点を、向きのまわりの角度順に並べて1つの面にする。
+    /// 向かい合う面の数字の和が「面の数＋1」になるよう、向かいの面を組にして並べ替える（本物のダイスと同じ）
+    /// </summary>
+    private static List<Vector3[]> BuildDualFaces(List<Vector3> verts, List<Vector3> directions, int perFace, float radius)
+    {
+        float vr = verts[0].magnitude;
+        var scaled = verts.Select(p => p * (radius / vr)).ToList();
+        var faces = new List<(Vector3 n, Vector3[] poly)>();
+        foreach (var d in directions)
+        {
+            var n = d.normalized;
+            var pick = scaled.OrderByDescending(p => Vector3.Dot(p, n)).Take(perFace).ToList();
+            var c = Vector3.zero;
+            foreach (var p in pick) c += p;
+            c /= pick.Count;
+            var u = (pick[0] - c).normalized;
+            var w = Vector3.Cross(n, u);
+            pick.Sort((p, q) =>
+                Mathf.Atan2(Vector3.Dot(p - c, w), Vector3.Dot(p - c, u))
+                    .CompareTo(Mathf.Atan2(Vector3.Dot(q - c, w), Vector3.Dot(q - c, u))));
+            faces.Add((n, pick.ToArray()));
+        }
+
+        int count = faces.Count;
+        var ordered = new Vector3[count][];
+        var used = new bool[count];
+        int next = 0;
+        for (int i = 0; i < count; i++)
+        {
+            if (used[i]) continue;
+            int opp = -1;
+            float best = 0f;
+            for (int j = 0; j < count; j++)
+            {
+                if (used[j] || j == i) continue;
+                float dot = Vector3.Dot(faces[i].n, faces[j].n);
+                if (dot < best) { best = dot; opp = j; }
+            }
+            used[i] = true;
+            ordered[next] = faces[i].poly;
+            if (opp >= 0)
+            {
+                used[opp] = true;
+                ordered[count - 1 - next] = faces[opp].poly;
+            }
+            next++;
+        }
+        return ordered.Where(f => f != null).ToList();
+    }
+
+    private static List<Vector3[]> BuildDodecahedronFaces() =>
+        BuildDualFaces(DodecahedronVertices(), IcosahedronVertices(true), 5, DIE_SIZE * 0.80f);
+
+    private static List<Vector3[]> BuildIcosahedronFaces() =>
+        BuildDualFaces(IcosahedronVertices(), DodecahedronVertices(true), 3, DIE_SIZE * 0.82f);
 
     private static Material MakeMaterial(Color color, float smoothness = 0.3f)
     {

@@ -1,7 +1,7 @@
 using TMPro;
 using UnityEngine;
 
-/// <summary>贈りもののお知らせ（誕生月の特典・友だち紹介の特典。2026-11-07）</summary>
+/// <summary>贈りもののお知らせ（誕生月の特典・友だち紹介の特典。2026-11-07。ダイスチャレンジの優勝も。2026-11-11）</summary>
 public static partial class SpaceNotice
 {
     private const string T_GIFT_CAPTION = "GIFT";
@@ -16,16 +16,21 @@ public static partial class SpaceNotice
     public static string GiftGlyphText => T_GIFT_CAPTION + T_BIRTHDAY_TITLE + T_BIRTHDAY_BODY + T_REFERRAL_TITLE_NEW
                                          + T_REFERRAL_BODY_NEW + T_REFERRAL_TITLE_FROM + T_REFERRAL_BODY_FROM + T_GIFT_GOT;
 
-    /// <summary>チケットの贈りもの（絵・名前・ひとこと）。accent は枠と光の色</summary>
-    public static GameObject Gift(string title, string body, SpaceCouponDef coupon, Color accent)
+    /// <summary>
+    /// チケットの贈りもの（絵・名前・ひとこと）。accent は枠と光の色。
+    /// caption は上の英字（なければ GIFT）、got はチケット名のあとの一言（なければ「を1枚 プレゼント」）
+    /// </summary>
+    public static GameObject Gift(string title, string body, SpaceCouponDef coupon, Color accent, string caption = null,
+        string got = null)
     {
         var card = Overlay("__GiftModal", out var root, SpaceTheme.A(accent, 0.55f));
         if (card == null) return null;
 
         float y = 48f;
-        var caption = SpaceTheme.Text(card, "Caption", T_GIFT_CAPTION, 24, SpaceTheme.A(accent, 0.95f), FontStyles.Bold);
-        SpaceTheme.Tracking(caption, 18f);
-        Stack(caption.rectTransform, ref y, 36f, 0f);
+        var captionText = SpaceTheme.Text(card, "Caption", caption ?? T_GIFT_CAPTION, 24, SpaceTheme.A(accent, 0.95f),
+            FontStyles.Bold);
+        SpaceTheme.Tracking(captionText, 18f);
+        Stack(captionText.rectTransform, ref y, 36f, 0f);
         var t = SpaceTheme.Text(card, "Title", title, 40, SpaceTheme.TEXT, FontStyles.Bold);
         t.enableAutoSizing = true;
         t.fontSizeMin = 26f;
@@ -45,7 +50,7 @@ public static partial class SpaceNotice
         if (coupon != null)
         {
             var strong = SpaceTheme.Text(card, "Strong",
-                $"<color=#{ColorUtility.ToHtmlStringRGB(SpaceTheme.GOLD)}>{coupon.Name}</color>{T_GIFT_GOT}", 38,
+                $"<color=#{ColorUtility.ToHtmlStringRGB(SpaceTheme.GOLD)}>{coupon.Name}</color>{got ?? T_GIFT_GOT}", 38,
                 SpaceTheme.TEXT, FontStyles.Bold);
             Wrap(strong);
             Stack(strong.rectTransform, ref y, Measure(strong, 56f), 16f);

@@ -12,6 +12,8 @@ using UnityEngine.UI;
 /// 新ホーム右上の設定ボタン（歯車）。押すと下に4つのボタンが順に出てくる:
 ///   ・ボードゲーム図鑑     … 使いたい人だけのダウンロード（SpaceZukan）。ダウンロードすると、ホームの惑星の左下に
 ///                            図鑑の小さな惑星が出る。ダウンロード済みなら削除（ホームから図鑑の惑星を消す）
+///   ・INTALES WORLD        … 同じく使いたい人だけのダウンロード（SpaceWorld）。ワーカープレイスメントの星座（職人座）を
+///                            完成させるまでは錠前がかかっていて、ダウンロードできない（2026-11-11）
 ///   ・プライバシーポリシー … 公開ページ（Firebase Hosting）をブラウザで開く
 ///   ・ログアウト             … 確認ダイアログ → 自動ログインを解除して Start へ
 ///   ・退会                   … 2段階の確認 → アカウントと全データを削除して Start へ
@@ -45,6 +47,12 @@ public class SpaceAccountMenu : MonoBehaviour
     private const string T_WORLD_INSTALLED_BODY =
         "ダウンロード済みです。\nホームの所持品の下の\n「INTALES WORLD」から遊べます。\n\n削除すると、ボタンと所持品のコマが\n見えなくなり、入店してもコマを\nもらえなくなります。\n（持っているコマは残ります）";
     private const string T_WORLD_REMOVED = "INTALES WORLD を削除しました";
+    // INTALES WORLD の鍵（2026-11-11 ユーザー指定）: ワーカープレイスメントの星座（職人座）を完成させるまでダウンロードできない
+    private const string T_WORLD_LOCKED_A = "ワーカープレイスメントの星座\n「";
+    private const string T_WORLD_LOCKED_B = "」を完成させると\n鍵が開いてダウンロードできます。\n\n";
+    private const string T_WORLD_LOCKED_STARS = "の星　";
+    private const string T_WORLD_LOCKED_ADMIN = "\n\n（管理者は鍵がかかっていても\nダウンロードできます）";
+    private const string T_WORLD_SEE = "星座を見る";
     private const string T_ZUKAN_DOWNLOADING = "ダウンロード中…";
     private const string T_ZUKAN_DONE = "ダウンロードしました\nホームの惑星の左下の、緑の小さな惑星から開けます";
     private const string T_ZUKAN_FAILED = "ダウンロードに失敗しました\n通信環境を確認して再度お試しください";
@@ -76,6 +84,8 @@ public class SpaceAccountMenu : MonoBehaviour
         .Append(T_ZUKAN_DONE).Append(T_ZUKAN_FAILED).Append(T_ZUKAN_INSTALLED_BODY).Append(T_ZUKAN_REMOVE)
         .Append(T_ZUKAN_REMOVED).Append(T_WORLD_BODY).Append(T_WORLD_DONE).Append(T_WORLD_INSTALLED_BODY)
         .Append(T_WORLD_REMOVED).Append(SpaceWorld.T_TITLE)
+        .Append(T_WORLD_LOCKED_A).Append(T_WORLD_LOCKED_B).Append(T_WORLD_LOCKED_STARS).Append(T_WORLD_LOCKED_ADMIN)
+        .Append(T_WORLD_SEE).Append("0123456789/")
         .Append(T_TEXT_SIZE).Append(T_TEXT_SIZE_BODY).Append(T_TEXT_SIZE_SAMPLE)
         .Append(T_CLOSE).Append(string.Concat(SpaceTheme.TEXT_SCALE_NAMES)).Append("あ")
         .Append(T_BIRTH).Append(T_BIRTH_SET_A).Append(T_BIRTH_SET_B).Append(T_BIRTH_BODY).Append(T_BIRTH_FAILED)
@@ -108,6 +118,10 @@ public class SpaceAccountMenu : MonoBehaviour
     private float _progress;   // 0=閉 1=開
     private bool _open, _busy;
     private GameObject _dialog;
+    // INTALES WORLD のボタン（鍵がかかっている間は、矢印を錠前に替えて文字を暗くする）
+    private GameObject _worldDownloadIcon, _worldLockIcon;
+    private Image _worldBubble;
+    private TextMeshProUGUI _worldLabel;
 
     /// <summary>メニューかダイアログが開いているか（開いている間はホームの他のボタンを押させない）</summary>
     public bool IsOpen => _open || _dialog != null || _busy;
@@ -168,7 +182,9 @@ public class SpaceAccountMenu : MonoBehaviour
         AddItem(safe, T_BIRTH, false, DrawBirthIcon, OnBirth);
         AddItem(safe, T_INVITE, false, DrawInviteIcon, OnInvite);
         AddItem(safe, T_ZUKAN, false, DrawDownloadIcon, OnZukan);
-        AddItem(safe, SpaceWorld.T_TITLE, false, DrawDownloadIcon, OnWorld);
+        var world = AddItem(safe, SpaceWorld.T_TITLE, false, DrawWorldIcon, OnWorld);
+        _worldBubble = world.Find("Icon").GetComponent<Image>();
+        _worldLabel = world.Find("Label").GetComponent<TextMeshProUGUI>();
         AddItem(safe, T_PRIVACY, false, DrawDocIcon, OnPrivacy);
         AddItem(safe, T_LOGOUT, false, DrawLogoutIcon, OnLogout);
         AddItem(safe, T_DELETE, true, DrawTrashIcon, OnDelete);
@@ -267,6 +283,20 @@ public class SpaceAccountMenu : MonoBehaviour
         SpaceTheme.Bar(p, new Vector2(12f, -10f), 9f, 3f, 90f, c);     // 受け皿の右
     }
 
+    /// <summary>INTALES WORLD: ふだんはダウンロードの矢印、鍵がかかっている間は錠前（RefreshWorldItem で切り替える）</summary>
+    private void DrawWorldIcon(RectTransform p, Color c)
+    {
+        var download = SpaceTheme.Rect("Download", p);
+        SpaceTheme.Stretch(download);
+        DrawDownloadIcon(download, c);
+        _worldDownloadIcon = download.gameObject;
+        // 錠前の絵は下寄りなので少し上げて、丸の中央に見えるようにする
+        var lockIcon = SpaceTheme.Rect("Lock", p, SpaceTheme.CENTER, new Vector2(0f, 2f), new Vector2(44f, 44f));
+        SpaceTheme.Img(lockIcon, SpaceSprites.Lock, SpaceTheme.TEXT_SUB);
+        _worldLockIcon = lockIcon.gameObject;
+        _worldLockIcon.SetActive(false);
+    }
+
     private static void DrawLogoutIcon(RectTransform p, Color c)
     {
         SpaceTheme.Bar(p, new Vector2(-14f, 0f), 33f, 3f, 90f, c);   // 扉の縦線
@@ -303,9 +333,24 @@ public class SpaceAccountMenu : MonoBehaviour
         if (_open || _busy) return;
         _open = true;
         transform.SetAsLastSibling(); // ホームの上に出す（所持品・ダイアログはこのあと開くので更に上に来る）
+        RefreshWorldItem(); // 星座はホームにいる間にも灯るので、開くたびに鍵を確かめる
         _dim.SetActive(true);
         foreach (var it in _items) it.Rt.gameObject.SetActive(true);
         Animate(1f, 0.30f);
+    }
+
+    /// <summary>
+    /// INTALES WORLD のボタンの見た目。鍵がかかっている間（まだダウンロードしていなくて、職人座が完成していない）は
+    /// 矢印を錠前に替えて、文字と丸を暗くする
+    /// </summary>
+    private void RefreshWorldItem()
+    {
+        if (_worldLabel == null) return;
+        bool locked = !SpaceWorld.Installed && !SpaceWorld.Unlocked;
+        _worldDownloadIcon.SetActive(!locked);
+        _worldLockIcon.SetActive(locked);
+        _worldLabel.color = locked ? SpaceTheme.TEXT_SUB : SpaceTheme.TEXT;
+        _worldBubble.color = locked ? SpaceTheme.A(SpaceTheme.LINE, 0.10f) : SpaceTheme.A(SpaceTheme.CYAN, 0.13f);
     }
 
     public void Close()
@@ -530,19 +575,13 @@ public class SpaceAccountMenu : MonoBehaviour
     }
 
     /// <summary>
-    /// INTALES WORLD（2026-11-10）: ダウンロードしていなければ注意（ユーザー指定の文言）を出してから、
-    /// 済みなら削除の確認
+    /// INTALES WORLD（2026-11-10）: ダウンロード済みなら削除の確認。まだなら、鍵（職人座の完成。2026-11-11）が
+    /// 開いていれば注意（ユーザー指定の文言）を出してからダウンロード、かかっていれば鍵の知らせ
     /// </summary>
     private void OnWorld()
     {
         Close();
-        if (!SpaceWorld.Installed)
-        {
-            _dialog = SpaceDialog.Confirm(_canvas, SpaceWorld.T_TITLE, T_WORLD_BODY, T_ZUKAN_DOWNLOAD, false,
-                () => { _dialog = null; DownloadWorldAsync().Forget(); },
-                () => _dialog = null, T_CANCEL);
-        }
-        else
+        if (SpaceWorld.Installed)
         {
             _dialog = SpaceDialog.Confirm(_canvas, SpaceWorld.T_TITLE, T_WORLD_INSTALLED_BODY, T_ZUKAN_REMOVE, true,
                 () =>
@@ -552,7 +591,40 @@ public class SpaceAccountMenu : MonoBehaviour
                     SpaceTheme.Toast(T_WORLD_REMOVED, _canvas);
                 },
                 () => _dialog = null, T_CANCEL);
+            return;
         }
+        var key = SpaceWorld.UnlockProgress;
+        if (key != null && !key.Complete) ShowWorldLocked(key);
+        else ConfirmWorldDownload();
+    }
+
+    /// <summary>ダウンロード前の注意（ユーザー指定の文言そのまま）→ ダウンロード</summary>
+    private void ConfirmWorldDownload()
+    {
+        _dialog = SpaceDialog.Confirm(_canvas, SpaceWorld.T_TITLE, T_WORLD_BODY, T_ZUKAN_DOWNLOAD, false,
+            () => { _dialog = null; DownloadWorldAsync().Forget(); },
+            () => _dialog = null, T_CANCEL);
+    }
+
+    /// <summary>
+    /// 鍵がかかっているとき（2026-11-11 ユーザー指定）: 職人座を完成させるとダウンロードできることと、いま灯っている星の数。
+    /// 「星座を見る」で職人座の詳細（灯った星のゲーム・このジャンルのゲームを見る）を開く。
+    /// 管理者はデバッグのため、同じ知らせを見たうえでダウンロードに進める
+    /// </summary>
+    private void ShowWorldLocked(ConstellationProgress key)
+    {
+        var def = key.Def;
+        string body = T_WORLD_LOCKED_A + def.Name + T_WORLD_LOCKED_B + def.Name + T_WORLD_LOCKED_STARS
+                      + key.Partial + " / " + def.Size;
+        if (AdminClaim.IsAdmin)
+        {
+            _dialog = SpaceDialog.Confirm(_canvas, SpaceWorld.T_TITLE, body + T_WORLD_LOCKED_ADMIN, T_ZUKAN_DOWNLOAD,
+                false, ConfirmWorldDownload, () => _dialog = null, T_CLOSE);
+            return;
+        }
+        _dialog = SpaceDialog.Confirm(_canvas, SpaceWorld.T_TITLE, body, T_WORLD_SEE, false,
+            () => { _dialog = null; SpaceConstellationPage.OpenDetail(def.Id); },
+            () => _dialog = null, T_CLOSE);
     }
 
     private async UniTaskVoid DownloadWorldAsync()

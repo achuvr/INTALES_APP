@@ -65,6 +65,7 @@ public class SpaceHistoryPanel : MonoBehaviour
         new Kind { Key = "group",  Label = "グループ", Color = SpaceTheme.Hex(0x7FA8FF) },
         new Kind { Key = "dice",   Label = "バトル",   Color = SpaceTheme.Hex(0xFF9E7A) }, // 旧ホームのボス戦
         new Kind { Key = "certify", Label = "アチーブメント", Color = SpaceTheme.Hex(0xFFE7A8) }, // ボードゲームの公認・星座の完成
+        new Kind { Key = DiceChallenge.HISTORY, Label = "ダイス", Color = SpaceTheme.Hex(0xDDE6FF) }, // ダイスチャレンジ（2026-11-11）
     };
     private static readonly Kind OTHER = new Kind { Key = "", Label = "その他", Color = SpaceTheme.TEXT_SUB };
 

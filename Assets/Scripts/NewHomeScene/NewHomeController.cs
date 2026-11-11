@@ -295,6 +295,8 @@ public class NewHomeController : MonoBehaviour
         JourneyService.Changed += OnJourneyChanged;  // 入店・退店で公転・来店回数が変わったら表示を更新
         // 入店中にフレンドから届いた「一緒に来店」などがあれば処理する（流れ星・新しい惑星のお知らせ）
         JourneyService.ProcessAndReport(r => SpaceNotice.ShowJourneyRewards(r, true)).Forget();
+        // ダイスチャレンジで振ったのに送れていない今日の出目があれば送る（ダイスの画面を途中で閉じたときなど。2026-11-11）
+        DiceChallenge.SubmitPendingAsync().Forget();
 
         // 惑星を選ぶ画面の一覧用（小さいテクスチャ）を、登場の演出が落ち着いてから裏で作っておく
         yield return new WaitForSecondsRealtime(1.5f);
@@ -320,7 +322,7 @@ public class NewHomeController : MonoBehaviour
           .Append(SpaceMonthPicker.GlyphText).Append(SpaceQrSheet.T_CLOSE).Append(SpacePlayLog.GlyphText).Append(SpacePlayCalendar.GlyphText)
           .Append(SpaceNotice.CertifyGlyphText).Append(BoardGameCertify.GlyphText).Append(SpaceNotice.ConstellationGlyphText)
           .Append(T_ORBIT).Append(T_STREAK_UNIT).Append(PlanetPowers.GlyphText).Append(SpaceNotice.JourneyGlyphText)
-          .Append(SpaceOrbitPanel.GlyphText);
+          .Append(SpaceOrbitPanel.GlyphText).Append(SpaceDiceRoller.GlyphText).Append(DiceChallenge.GlyphText);
         var d = Data;
         if (d != null && !string.IsNullOrEmpty(d.Username)) sb.Append(d.Username);
         return sb.ToString();
@@ -1142,7 +1144,7 @@ public class NewHomeController : MonoBehaviour
         if (SpaceNoticeQueue.Running || SpaceNotice.AnyOpen || PanelOpen || _arrivalFlying || _returning) return;
         if (GameObject.FindWithTag("QR") != null) return;
         bool referrer = Time.unscaledTime >= _nextReferrerCheck;
-        if (!BirthdayGift.Due && !Referral.CanTakeNewcomerGift && !referrer) return;
+        if (!BirthdayGift.Due && !Referral.CanTakeNewcomerGift && !referrer && !DiceChallenge.ClaimReady) return;
         GiftsAsync(referrer).Forget();
     }
 
@@ -1175,6 +1177,18 @@ public class NewHomeController : MonoBehaviour
                     await ShowAndWait(SpaceNotice.Gift(SpaceNotice.T_REFERRAL_TITLE_FROM,
                         SpaceTheme.NoParse(SpaceTheme.Safe(n)) + SpaceNotice.T_REFERRAL_BODY_FROM, drink, SpaceTheme.MINT));
                     await ShowReferralPlanet();
+                }
+            }
+            // ダイスチャレンジ（2026-11-11）: 終わった日にいちばん大きい目を出していたら、5%OFFチケットを受け取る
+            if (DiceChallenge.ClaimReady)
+            {
+                var win = await DiceChallenge.ClaimAsync();
+                if (win.HasValue)
+                {
+                    SyncCouponSnapshot();
+                    await ShowAndWait(SpaceNotice.Gift(DiceChallenge.WinTitle(win.Value), DiceChallenge.WinBody(win.Value),
+                        SpaceCoupons.ByField(DiceChallenge.REWARD_FIELD), SpaceTheme.GOLD, DiceChallenge.T_WIN_CAPTION,
+                        DiceChallenge.T_WIN_GET));
                 }
             }
         }
@@ -1267,7 +1281,7 @@ public class NewHomeController : MonoBehaviour
                               || _picker != null || _qrList != null || _passList != null || _composer != null
                               || _starter != null || _world != null || _zukan != null
                               || _prices != null || _orbitPanel != null || _accountMenu.IsOpen
-                              || SpaceConstellationPage.Instance != null;
+                              || SpaceConstellationPage.Instance != null || SpaceDiceRoller.Instance != null;
 
     /// <summary>公転の画面（ユーザーカードの公転・来店回数・入店状況を押す）</summary>
     private void OpenOrbit()
@@ -1983,7 +1997,7 @@ public class NewHomeController : MonoBehaviour
         // QR画面・惑星を選ぶ画面・お知らせで隠れている間は中央の惑星の自転を止める（毎フレームの再描画を省く）
         if (_planetView != null)
             _planetView.Animate = !qrOpen && _news == null && _zukan == null && _prices == null
-                                  && SpaceConstellationPage.Instance == null
+                                  && SpaceConstellationPage.Instance == null && SpaceDiceRoller.Instance == null
                                   && (_picker == null || _landing);
 
         // 惑星を解放したお知らせで「この惑星にする」が押されたら、中央の惑星を入れ替える
@@ -2013,6 +2027,7 @@ public class NewHomeController : MonoBehaviour
             if (SpaceNotice.CloseTop()) { }
             else if (_starter != null) _starter.HandleBack(); // 最初の惑星を選ぶまでは閉じない
             else if (SpaceConstellationPage.Instance != null) SpaceConstellationPage.Instance.HandleBack();
+            else if (SpaceDiceRoller.Instance != null) SpaceDiceRoller.Instance.HandleBack();
             else if (_zukan != null) _zukan.HandleBack();
             else if (_prices != null) _prices.HandleBack();
             else if (_qrList != null) _qrList.HandleBack();

@@ -42,6 +42,7 @@ public sealed class SpaceWorldArea
 /// <summary>
 /// INTALES WORLD（2026-11-10 ユーザー指定）。コマ（SpaceMeeples）を使う遊びで、ボードゲーム図鑑と同じく
 /// 使いたい人だけが歯車メニューからダウンロードする（端末に記録。PlayerPrefs）。
+/// ダウンロードできるのは、ワーカープレイスメントの星座（職人座）を完成させた人だけ（2026-11-11 ユーザー指定。Unlocked）。
 ///  ・ダウンロードしていない人: 所持品のコマの欄を出さない・入店でコマをもらえない・惑星が力を失うこともない
 ///  ・ダウンロードした人: ホームの所持品の下に「INTALES WORLD」のボタン → オリジナルの世界地図（SpaceWorldMap）
 /// 世界地図には置き場が5か所あり、コマを1体置くと、その置き場の効果をもらえる（ワーカープレイスメント）。
@@ -157,6 +158,28 @@ public static class SpaceWorld
     // ================================================================
     /// <summary>この端末でダウンロード済みか（コマを使う遊び全体のスイッチ）</summary>
     public static bool Installed => PlayerPrefs.GetInt(PREF_KEY, 0) == 1;
+
+    /// <summary>
+    /// ダウンロードの鍵になる星座（ワーカープレイスメントの星座＝職人座）。2026-11-11 ユーザー指定
+    /// 「ダウンロードするには事前にワーカープレイスメントの星座を解放している必要がある」。
+    /// 完成（Lv.1）するまでは歯車メニューの INTALES WORLD に錠前がかかり、ダウンロードできない
+    /// （ダウンロード済みの人はそのまま遊べる。管理者はデバッグのため、錠前を見たうえでダウンロードに進める）
+    /// </summary>
+    public const string UNLOCK_CONSTELLATION = "artisan";
+
+    /// <summary>鍵になる星座の進み具合（見つからなければ null）</summary>
+    public static ConstellationProgress UnlockProgress =>
+        Constellations.Progress().Find(p => p.Def.Id == UNLOCK_CONSTELLATION);
+
+    /// <summary>ダウンロードの鍵が開いているか（職人座が完成している）。星座が見つからないときは鍵をかけない</summary>
+    public static bool Unlocked
+    {
+        get
+        {
+            var p = UnlockProgress;
+            return p == null || p.Complete;
+        }
+    }
 
     /// <summary>ダウンロード・削除したとき</summary>
     public static event Action Changed;

@@ -13,6 +13,8 @@ using UnityEngine.UI;
 /// 新ホームでは、完成した星座（Constellations）を空に並べる（EnableConstellations。2026-11-06 ユーザー指定
 /// 「宇宙空間に配置」）。星座ごとに決まった場所に、レベルの明るさで薄く出る。新しく完成・レベルアップすると、
 /// お知らせが閉じてからその場所に光ってふくらんで現れる。
+/// 空の星座をタップするとその星座の詳細が開く。さいころ座だけは、いろいろなダイスを振れる画面（SpaceDiceRoller）が開く
+/// （2026-11-11。押せるものだと分かるよう後ろの光が明滅し、ホームの部品に隠れない場所に置いている）。
 /// </summary>
 public class SpaceBackground : MonoBehaviour
 {
@@ -57,13 +59,19 @@ public class SpaceBackground : MonoBehaviour
     {
         new Vector2(0.14f, 0.92f), new Vector2(0.42f, 0.95f), new Vector2(0.10f, 0.73f), new Vector2(0.90f, 0.66f),
         new Vector2(0.12f, 0.53f), new Vector2(0.88f, 0.48f), new Vector2(0.10f, 0.32f), new Vector2(0.90f, 0.30f),
-        new Vector2(0.17f, 0.11f), new Vector2(0.50f, 0.05f), new Vector2(0.83f, 0.11f), new Vector2(0.36f, 0.80f),
+        // さいころ座は押すとダイスの画面が開くので、ホームのどの部品にも隠れない右の中ほど（うたげ座と旗座の間）に置く
+        // （2026-11-11 ユーザー指定で移動。以前の 0.17,0.11 は所持品ボタンの裏で押せなかった。
+        //   16:9・縦長のiPhone/Android・iPad、INTALES WORLD のボタンのあり・なしのどれでも、押せる部品と重ならない）
+        new Vector2(0.885f, 0.39f), new Vector2(0.50f, 0.05f), new Vector2(0.83f, 0.11f), new Vector2(0.36f, 0.80f),
         new Vector2(0.30f, 0.21f), new Vector2(0.70f, 0.21f),
         new Vector2(0.12f, 0.42f), new Vector2(0.50f, 0.15f), // 盤座・積み木座（2026-11-07 追加）
     };
     private RectTransform _skyLayer;
     private readonly Dictionary<string, int> _skyLevels = new Dictionary<string, int>(); // 星座ID → 空に出しているレベル
     private readonly Dictionary<string, RectTransform> _skyFigures = new Dictionary<string, RectTransform>();
+    // さいころ座の後ろの光（押せるものだと分かるよう、ゆっくり明滅させる）
+    private Image _diceGlow;
+    private Color _diceGlowColor;
     private float _nextSkyCheck;
     private bool _skyFirst = true;
 
@@ -253,6 +261,8 @@ public class SpaceBackground : MonoBehaviour
         _moon.anchoredPosition = _moonBase + new Vector2(Mathf.Sin(t * 0.21f + 1f) * 5f, Mathf.Sin(t * 0.33f + 1f) * 4f);
         if (_moonGlow != null)
             _moonGlow.color = SpaceTheme.A(_moonGlowColor, 0.18f + 0.14f * (0.5f + 0.5f * Mathf.Sin(t * 1.4f + 1.5f)));
+        if (_diceGlow != null)
+            _diceGlow.color = SpaceTheme.A(_diceGlowColor, 0.10f + 0.14f * (0.5f + 0.5f * Mathf.Sin(t * 1.2f)));
 
         // New の吹き出し: 出たときにぽんと膨らみ、そのあとはふわふわ上下する
         if (_badge != null && _badge.gameObject.activeSelf)
@@ -326,13 +336,23 @@ public class SpaceBackground : MonoBehaviour
         for (int i = 0; i < progress.Count && i < SKY_SLOTS.Length; i++)
         {
             var p = progress[i];
-            int level = p.Level;
+            bool dice = p.Def.Id == SpaceDiceRoller.CONSTELLATION;
+            // 完成した星座だけ空に出す。さいころ座（ダイスの画面の入口）も、お客様は完成するまで出ない。
+            // 管理者だけは初めから出ている（未完成なら完成した姿で。2026-11-11 ユーザー指定）。
+            // 空に出している状態はふつうレベルで覚えるが、管理者のこの表示だけ -1 で覚える（管理者の判定はあとから届くため）
+            bool adminDice = dice && p.Level == 0 && AdminClaim.IsAdmin;
+            int level = adminDice ? -1 : p.Level;
             _skyLevels.TryGetValue(p.Def.Id, out int shown);
             if (level == shown) continue;
             _skyLevels[p.Def.Id] = level;
             if (_skyFigures.TryGetValue(p.Def.Id, out var old) && old != null) Destroy(old.gameObject);
             _skyFigures.Remove(p.Def.Id);
-            if (level <= 0) continue;
+            if (dice && _diceGlow != null)
+            {
+                Destroy(_diceGlow.gameObject);
+                _diceGlow = null;
+            }
+            if (level == 0) continue;
 
             int slot = Array.IndexOf(all, p.Def);
             if (slot < 0 || slot >= SKY_SLOTS.Length) continue;
@@ -340,15 +360,39 @@ public class SpaceBackground : MonoBehaviour
             var fig = SpaceTheme.Rect("Sky_" + p.Def.Id, _skyLayer, Vector2.zero, pos, new Vector2(SKY_FIG, SKY_FIG));
             // 星座ごとに少しだけ傾ける（並べたときに単調にならないように）
             fig.localEulerAngles = new Vector3(0f, 0f, ((slot * 37) % 30) - 15f);
-            SpaceConstellationPage.Figure(fig, p.Def, p.Count - p.Partial, SKY_FIG); // いまのレベルの姿
+            SpaceConstellationPage.Figure(fig, p.Def, adminDice ? p.Def.Size : p.Count - p.Partial, SKY_FIG); // いまのレベルの姿
             var group = fig.gameObject.AddComponent<CanvasGroup>();
             group.alpha = SKY_ALPHA;
-            // タップすると、その星座の詳細を開く（2026-11-09 ユーザー指定）。背景の動く層はふだん当たり判定を持たないので足す
+            // タップすると、その星座の詳細を開く（2026-11-09 ユーザー指定）。背景の動く層はふだん当たり判定を持たないので足す。
+            // さいころ座だけは、いろいろなダイスを振れる画面を開く（2026-11-11 ユーザー指定）
             if (_anim.GetComponent<GraphicRaycaster>() == null) _anim.gameObject.AddComponent<GraphicRaycaster>();
             string id = p.Def.Id;
-            SpaceTheme.Clickable(fig.gameObject, SpaceTheme.HitArea(fig), () => SpaceConstellationPage.OpenDetail(id));
+            if (dice)
+            {
+                var glowRt = SpaceTheme.Rect("Sky_dice_glow", _skyLayer, Vector2.zero, pos,
+                    new Vector2(SKY_FIG * 1.5f, SKY_FIG * 1.5f));
+                glowRt.SetSiblingIndex(fig.GetSiblingIndex()); // 星座の後ろ
+                _diceGlowColor = p.Def.Color;
+                _diceGlow = SpaceTheme.Img(glowRt, SpaceSprites.Glow, SpaceTheme.A(_diceGlowColor, 0.2f));
+                SpaceTheme.Clickable(fig.gameObject, SpaceTheme.HitArea(fig), () => SpaceDiceRoller.Open());
+            }
+            else
+            {
+                SpaceTheme.Clickable(fig.gameObject, SpaceTheme.HitArea(fig), () => SpaceConstellationPage.OpenDetail(id));
+            }
             _skyFigures[p.Def.Id] = fig;
-            if (!_skyFirst) StartCoroutine(SkyArrive(fig, group, p.Def.Color));
+            if (adminDice)
+            {
+                // 管理者の判定が届いてから出るので、ぱっと出さずに静かに浮かび上がらせる
+                if (!_skyFirst) StartCoroutine(SpaceTheme.Tween(0.6f, 0f, k => { if (group != null) group.alpha = SKY_ALPHA * k; }));
+            }
+            else if (!_skyFirst) StartCoroutine(SkyArrive(fig, group, p.Def.Color));
+        }
+        // さいころ座は隣の星座（うたげ座・旗座）と枠が少し重なるので、いつもいちばん手前にして押しやすくする
+        if (_skyFigures.TryGetValue(SpaceDiceRoller.CONSTELLATION, out var diceFig) && diceFig != null)
+        {
+            if (_diceGlow != null) _diceGlow.transform.SetAsLastSibling();
+            diceFig.SetAsLastSibling();
         }
         _skyFirst = false;
     }

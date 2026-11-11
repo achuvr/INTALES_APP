@@ -413,6 +413,38 @@ service cloud.firestore {
     }
 
     // ================================================================
+    // ダイスチャレンジ（2026-11-11）dice_daily/{営業日 yyyy-MM-dd}/rolls/{記録のID}
+    //   = { v: 1D100 の出目（1〜100）, t: 振った時刻（サーバーの時刻） }
+    //   さいころ座が完成した人が1日1回だけ振れる（アプリ側。DiceChallenge）。ランキングに名前は出さない
+    //   記録のID = SHA-256(UID + '|' + 営業日) の16進（小文字）。UID も名前も入れない（だれの記録かは本人にしかわからない）
+    //   読み取り: ログインユーザー（ランキング）
+    //   作成: 自分のIDの記録を、その営業日のうちに1回だけ（朝4時切り替え・日本時間。サーバーの時刻で判定するので、
+    //         終わった日の記録はあとから作れない）
+    //   更新: できない（あとから出目を変えられない）。削除: 管理者だけ
+    //   優勝（その日いちばん大きい目。同じ目なら全員）の5%OFFチケットは、次にアプリを開いたとき本人が受け取る
+    //   （users の dice_claimed で同じ日を二重に受け取らない）
+    // ================================================================
+    function diceToday(day) {
+      let t = request.time + duration.value(5, 'h'); // 日本時間（+9時間）の朝4時切り替え（−4時間）
+      let p = day.split('-');
+      return p.size() == 3 && int(p[0]) == t.year() && int(p[1]) == t.month() && int(p[2]) == t.day();
+    }
+
+    match /dice_daily/{day}/rolls/{rollId} {
+      allow read: if signedIn();
+      allow create: if signedIn()
+        && rollId == hashing.sha256(request.auth.uid + '|' + day).toHexString().lower()
+        && diceToday(day)
+        && request.resource.data.keys().hasOnly(['v', 't'])
+        && request.resource.data.v is int
+        && request.resource.data.v >= 1
+        && request.resource.data.v <= 100
+        && request.resource.data.t == request.time;
+      allow update: if false;
+      allow delete: if isAdmin();
+    }
+
+    // ================================================================
     // 旧構造（バックアップ残置分）: 読み取りのみ許可、書き込みは禁止
     // ================================================================
     match /events/{docId} {

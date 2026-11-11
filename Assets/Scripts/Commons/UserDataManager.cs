@@ -208,6 +208,17 @@ public class UserData
     [FirestoreProperty("star_fragment")]
     public int StarFragment { get; set; }
 
+    // ダイスチャレンジ（2026-11-11。さいころ座が完成すると1日1回 1D100 を振ってランキングに載る。DiceChallenge）
+    /// <summary>ダイスチャレンジを振った営業日 "yyyy-MM-dd"</summary>
+    [FirestoreProperty("dice_day")]
+    public string DiceDay { get; set; }
+    /// <summary>その日の出目（1〜100）</summary>
+    [FirestoreProperty("dice_value")]
+    public int DiceValue { get; set; }
+    /// <summary>結果を確かめ終えた営業日（優勝なら5%OFFチケットを受け取った日。同じ日を二重に受け取らない）</summary>
+    [FirestoreProperty("dice_claimed")]
+    public string DiceClaimed { get; set; }
+
     /// <summary>誕生月（1〜12。0＝未登録。アカウント作成時に聞く。登録したあとは本人は変えられない画面にしている）</summary>
     [FirestoreProperty("birth_month")]
     public int BirthMonth { get; set; }

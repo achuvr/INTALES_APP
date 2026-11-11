@@ -31,7 +31,8 @@ public static partial class SpaceNotice
     public static string ConstellationGlyphText => new StringBuilder()
         .Append(T_CHOOSE_CAPTION).Append(T_CHOOSE_TITLE).Append(T_CHOOSE_NOTE).Append(T_CHOOSE_NOTE_AGAIN).Append(T_CHOOSE_DONE).Append(T_CHOOSE_LEVEL)
         .Append(T_CHOOSE_CLOSE).Append(T_REVEAL_COMPLETE).Append(T_REVEAL_LEVEL).Append(T_REVEAL_DONE).Append(T_REVEAL_UP)
-        .Append(T_REVEAL_PLACED).Append(T_REVEAL_SHINE).Append(T_REVEAL_NEXT).Append("Lv.0123456789/ →（）枚").ToString();
+        .Append(T_REVEAL_PLACED).Append(T_REVEAL_SHINE).Append(T_REVEAL_NEXT).Append(SpaceNoticeTexts.DiceUnlocked)
+        .Append("Lv.0123456789/ →（）枚").ToString();
 
     // ================================================================
     // 星座を選ぶ
@@ -302,6 +303,16 @@ public class SpaceConstellationReveal : MonoBehaviour
         name.transform.SetParent(textGroup, true);
         en.transform.SetParent(textGroup, true);
         line.transform.SetParent(textGroup, true);
+        if (first && def.Id == SpaceDiceRoller.CONSTELLATION)
+        {
+            // さいころ座の完成でダイスの画面が使えるようになる（2026-11-11）。どこから開くかを添える
+            var dice = SpaceTheme.Text(safe, "Dice", SpaceNoticeTexts.DiceUnlocked, 30, SpaceTheme.TEXT, SpaceTheme.CENTER,
+                new Vector2(0f, textY - 204f), new Vector2(1000f, 46f), FontStyles.Bold);
+            dice.enableAutoSizing = true;
+            dice.fontSizeMin = 22f;
+            dice.fontSizeMax = 30f;
+            dice.transform.SetParent(textGroup, true);
+        }
         var tg = textGroup.gameObject.AddComponent<CanvasGroup>();
         tg.alpha = 0f;
         yield return SpaceTheme.Tween(0.5f, 0f, k =>
@@ -340,4 +351,6 @@ internal static class SpaceNoticeTexts
     public const string Placed = "宇宙に星座が加わりました";
     public const string Shine = "宇宙の星座がもっと輝きます";
     public const string Next = "つづける";
+    /// <summary>さいころ座が完成したときだけ添える一言（2026-11-11）</summary>
+    public const string DiceUnlocked = "ホームの空のさいころ座をタップすると、ダイスを振れます";
 }
