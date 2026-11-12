@@ -13,7 +13,8 @@ using UnityEngine;
 ///  ・別シーン CoinPusher（Assets/Scenes/CoinPusher.unity）を SceneLoader.MergeScene で加算マージして開く
 ///    （図鑑と同じ。UserDataManager などのシングルトンを残すため）。中身は CoinPusherController と CoinPusherWorld
 ///  ・コインを1枚入れるたびに 1G。台の手前から落ちた物を獲得（コイン＝1G・赤／青／黄コマ＝1個・星のカケラ＝1個）。
-///    手前の左右から横に落ちた物は没収。コインを BONUS_EVERY 枚入れるごとに、ボーナスでコマか星のカケラが1つ落ちてくる
+///    手前の左右から横に落ちた物は没収。コインを BONUS_EVERY 枚入れるごとに、ボーナスでコマか星のカケラが1つ落ちてくる。
+///    コインを TOWER_EVERY 枚ゲットするごとに、ボーナスでプッシャーの上にコインタワー（TOWER_COINS 枚を積んだ柱）が出る
 ///  ・台の上の物の並びは端末に保存して、次に開いたときに続きから（閉じて開き直しても景品は戻らない）
 ///  ・所持金・コマ・星のカケラの増減は、手元の数はすぐに、サーバー（users）には数秒ごとと閉じるときにまとめて送る
 ///    （FieldValue.Increment。送れなかった分は端末に残して、次に送る）。星のカケラが5個そろったら、閉じたあとホームで流れ星
@@ -27,6 +28,13 @@ public static class CoinPusher
     public const int COST = 1;
     /// <summary>この枚数を入れるごとに、ボーナスの景品（コマか星のカケラ）が1つ落ちてくる</summary>
     public const int BONUS_EVERY = 15;
+    /// <summary>
+    /// コインをこの枚数ゲットする（受け皿に落とす）ごとに、ボーナスでコインタワーが出る
+    /// （2026-11-12 ユーザー指定「30枚コインを落下させてゲットするとボーナスでコインタワーが出現」。数は台と一緒に端末に保存）
+    /// </summary>
+    public const int TOWER_EVERY = 30;
+    /// <summary>コインタワーに積むコインの枚数</summary>
+    public const int TOWER_COINS = 10;
     /// <summary>履歴の種類（SpaceHistoryPanel）</summary>
     public const string HISTORY = "pusher";
 
@@ -44,6 +52,9 @@ public static class CoinPusher
     public const string T_BONUS = "ボーナス！";
     public const string T_BONUS_STAR = "星のカケラが落ちてくる";
     public const string T_BONUS_MEEPLE_B = "が落ちてくる";
+    public const string T_TOWER = "コインタワー！";
+    public const string T_TOWER_SUB_A = "コインを ";          // 「コインを 30 枚ゲットしたボーナス」
+    public const string T_TOWER_SUB_B = " 枚ゲットしたボーナス";
     public const string T_SAVING = "保存しています…";
     public const string T_SAVE_FAILED = "通信に失敗しました。結果は次に開いたときに送ります";
     public const string T_SUMMARY_A = "コインプッシャー：";
@@ -56,7 +67,7 @@ public static class CoinPusher
     public static string GlyphText => new StringBuilder()
         .Append(T_TITLE).Append(T_CAPTION).Append(T_SIGN).Append(T_LOCKED).Append(T_DROP).Append(T_DROP_SUB).Append(T_HINT)
         .Append(T_WALLET).Append(T_GOT).Append(T_SHORT).Append(T_FULL).Append(T_BONUS).Append(T_BONUS_STAR)
-        .Append(T_BONUS_MEEPLE_B).Append(T_SAVING).Append(T_SAVE_FAILED).Append(T_SUMMARY_A).Append(T_SUMMARY_SPENT_B)
+        .Append(T_BONUS_MEEPLE_B).Append(T_TOWER).Append(T_TOWER_SUB_A).Append(T_TOWER_SUB_B).Append(T_SAVING).Append(T_SAVE_FAILED).Append(T_SUMMARY_A).Append(T_SUMMARY_SPENT_B)
         .Append(T_SUMMARY_GOT_B).Append(T_SUMMARY_NONE).Append(T_RULES).Append(SpaceWorld.STAR_FRAGMENT_NAME)
         .Append(SpaceMeeples.GlyphText).Append(IgCurrency.GlyphText).Append("+×・：、0123456789").ToString();
 

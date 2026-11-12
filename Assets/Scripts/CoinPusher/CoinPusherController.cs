@@ -40,9 +40,9 @@ public class CoinPusherController : MonoBehaviour
     private CoinPusherWorld _world;
     private TextMeshProUGUI _wallet;
     private readonly TextMeshProUGUI[] _gotCounts = new TextMeshProUGUI[5]; // G・赤・青・黄・星のカケラ
-    private bool _built, _closing, _holding, _fieldDirty;
+    private bool _built, _closing, _holding, _fieldDirty, _towerPending;
     private float _nextDrop, _holdNext, _nextFlush, _nextSave, _nextResave, _nextShortToast;
-    private int _sinceBonus, _popups;
+    private int _sinceBonus, _sinceTower, _popups; // ボーナスまでに入れた枚数・コインタワーまでにゲットした枚数（台と一緒に保存）
     private string _uid;
     private Vector2 _canvasSize;
     // 今回遊んだ分（終わったときの一言・履歴）
@@ -104,10 +104,11 @@ public class CoinPusherController : MonoBehaviour
         _world = CoinPusherWorld.Create(rtW, rtH);
         _world.Won += OnWon;
         _world.Lost += OnLost;
-        if (!_world.Load(PlayerPrefs.GetString(CoinPusher.FieldKey(_uid), ""), out _sinceBonus))
+        if (!_world.Load(PlayerPrefs.GetString(CoinPusher.FieldKey(_uid), ""), out _sinceBonus, out _sinceTower))
         {
             _world.FillInitial();
             _sinceBonus = 0;
+            _sinceTower = 0;
         }
 
         _ui = SpaceTheme.Rect("__CoinPusher", _canvas.transform);
@@ -146,6 +147,7 @@ public class CoinPusherController : MonoBehaviour
         _nextResave = Time.unscaledTime + RESAVE_INTERVAL;
         RefreshHud();
         StartCoroutine(SpaceTheme.Tween(0.3f, 0f, k => { if (_group != null) _group.alpha = k; }));
+        MaybeTower(); // 前に開いていたとき、タワーが出る前に閉じていたら
     }
 
     /// <summary>
@@ -301,7 +303,7 @@ public class CoinPusherController : MonoBehaviour
     private void SaveField()
     {
         if (_world == null || string.IsNullOrEmpty(_uid)) return;
-        PlayerPrefs.SetString(CoinPusher.FieldKey(_uid), _world.Save(_sinceBonus));
+        PlayerPrefs.SetString(CoinPusher.FieldKey(_uid), _world.Save(_sinceBonus, _sinceTower));
         CoinPusher.Persist();
         PlayerPrefs.Save();
         _fieldDirty = false;
@@ -418,6 +420,41 @@ public class CoinPusherController : MonoBehaviour
         else CoinPusherSounds.Prize();
         string text = kind == PusherItem.Coin ? "+1" + IgCurrency.UNIT : NameOf(kind) + " +1";
         ShowPopup(text, ColorOf(kind), IconOf(kind), _world != null ? _world.WorldToViewport(world) : new Vector2(0.5f, 0.2f));
+        if (kind == PusherItem.Coin)
+        {
+            _sinceTower++;
+            MaybeTower();
+        }
+    }
+
+    /// <summary>ゲットしたコインが TOWER_EVERY 枚に届いていたら、コインタワーを出す（出している途中なら待つ）</summary>
+    private void MaybeTower()
+    {
+        if (_towerPending || _closing || !_built || _sinceTower < CoinPusher.TOWER_EVERY) return;
+        _towerPending = true;
+        StartCoroutine(TowerBonus());
+    }
+
+    /// <summary>
+    /// コインタワー: 知らせを出してから、プッシャーの上にコインを積んだタワーを出す。数はタワーが出てから減らす
+    /// （出る前に閉じたら、数はそのまま保存されて、次に開いたときに出る）
+    /// </summary>
+    private IEnumerator TowerBonus()
+    {
+        ShowBanner(CoinPusher.T_TOWER, CoinPusher.T_TOWER_SUB_A + CoinPusher.TOWER_EVERY + CoinPusher.T_TOWER_SUB_B, SpaceTheme.GOLD);
+        CoinPusherSounds.Bonus();
+        yield return new WaitForSecondsRealtime(0.35f);
+        if (_world == null || _closing)
+        {
+            _towerPending = false;
+            yield break;
+        }
+        _world.SpawnTower(CoinPusher.TOWER_COINS);
+        CoinPusherSounds.Prize();
+        _sinceTower -= CoinPusher.TOWER_EVERY;
+        _fieldDirty = true;
+        _towerPending = false;
+        MaybeTower();
     }
 
     private void OnLost(PusherItem kind) => _fieldDirty = true;
@@ -470,10 +507,14 @@ public class CoinPusherController : MonoBehaviour
     }
 
     /// <summary>画面のまん中より上に、ボーナスの知らせ</summary>
+    /// <summary>
+    /// ボーナスの知らせ。奥の壁のあたり（下から 75%）に出す（ボーナスの景品もコインタワーもプッシャーの上に出るので、
+    /// そこを隠さないように。2026-11-12 までは 62% で、プッシャーの上と重なっていた）
+    /// </summary>
     private void ShowBanner(string title, string sub, Color color)
     {
         if (_popLayer == null) return;
-        var rt = SpaceTheme.Rect("Banner", _popLayer, new Vector2(0.5f, 0.62f), Vector2.zero, new Vector2(900f, 160f));
+        var rt = SpaceTheme.Rect("Banner", _popLayer, new Vector2(0.5f, 0.75f), Vector2.zero, new Vector2(900f, 160f));
         var shade = SpaceTheme.Rect("Shade", rt, SpaceTheme.CENTER, Vector2.zero, new Vector2(1000f, 300f));
         SpaceTheme.Img(shade, SpaceSprites.Glow, new Color(0.01f, 0.015f, 0.05f, 0.8f));
         var glow = SpaceTheme.Rect("Glow", rt, SpaceTheme.CENTER, Vector2.zero, new Vector2(900f, 340f));

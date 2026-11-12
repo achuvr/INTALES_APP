@@ -46,6 +46,9 @@ public sealed class CoinPusherWorld : MonoBehaviour
     private const float AIM_Z_DEFAULT = (PUSH_FAR + WALL_Z) * 0.5f; // はじめの狙いの奥行き（いちばん奥に下がっても上面が残る所のまん中）
     private const float FALL_TIME = 0.23f;     // 投入口からプッシャーの上まで落ちる時間（重力96・初めの速さ3で約0.21〜0.22秒）
     private const float ITEM_HALF = 0.55f;     // コマ・星のカケラの半分の大きさ（向きが変わってもこの円に収まる）
+    // コインタワーの中心とプッシャーの前の面の距離（いちばん奥に下がっても上面が残る帯のまん中。壁にも前のふちにも当たらない）
+    private const float TOWER_FROM_FRONT = PUSH_TOP_KEEP * 0.5f;
+    private const float TOWER_HALF_W = 1.8f;   // コインタワーを置く左右の範囲
     public const float GONE_Y = -1.2f;         // ここより下に落ちたら、手前なら獲得・それ以外は没収
     public const int MAX_ITEMS = 220;          // 台に乗せられる数（これ以上はコインを入れられない）
     // 重力と物理の刻み。2026-11-12 ユーザー指定「落ちる速さを今の倍に（プッシャーから落ちるときも含めて）」で、
@@ -377,6 +380,13 @@ public sealed class CoinPusherWorld : MonoBehaviour
     /// <summary>時計 time のときのプッシャーの中心（台の中の座標）</summary>
     private static Vector3 PusherLocal(float time) => new Vector3(0f, PUSHER_H * 0.5f, PusherFront(time) + PUSHER_D * 0.5f);
 
+    /// <summary>時計 time のときのプッシャーの前後の速さ（奥へ向かうときが +。PusherFront を時間で微分したもの）</summary>
+    private static float PusherSpeed(float time)
+    {
+        float w = Mathf.PI * 2f / PUSH_PERIOD;
+        return (PUSH_FAR - PUSH_NEAR) * 0.5f * w * Mathf.Sin(time * w);
+    }
+
     // プッシャーが動くと落とせる範囲も動くので、投入口も毎フレーム合わせる
     private void Update() => PlaceChute();
 
@@ -494,6 +504,63 @@ public sealed class CoinPusherWorld : MonoBehaviour
         var it = Spawn(kind, lp, rot);
         it.Rb.linearVelocity = transform.TransformDirection(new Vector3(0f, -3f, 0f));
         it.Rb.angularVelocity = UnityEngine.Random.insideUnitSphere * 1.5f;
+    }
+
+    /// <summary>
+    /// コインタワー: プッシャーの上に、コインを count 枚まっすぐ積む。置く所はプッシャーの前の面から TOWER_FROM_FRONT 奥
+    /// （プッシャーと一緒に動き、いちばん奥に下がっても壁に当たらない）。左右は、上に何も乗っていない所をなるべく選ぶ
+    /// （ほかのコインの上に積むと傾いて崩れやすい）。プッシャーは動いているので、積んだコインにもプッシャーと同じ速さを与える
+    /// （止まったまま置くと、動く床に引っぱられて崩れる）。崩すのは、上に落としたコインや、ほかの物に押されて
+    /// </summary>
+    public void SpawnTower(int count)
+    {
+        if (_pusher == null || count <= 0) return;
+        float z = PusherFront(_time) + TOWER_FROM_FRONT;
+        var xs = new List<float>();
+        for (int i = 0; i < 7; i++) xs.Add(Mathf.Lerp(-TOWER_HALF_W, TOWER_HALF_W, i / 6f));
+        for (int i = xs.Count - 1; i > 0; i--)
+        {
+            int j = UnityEngine.Random.Range(0, i + 1);
+            (xs[i], xs[j]) = (xs[j], xs[i]);
+        }
+        float bestX = xs[0], bestTop = float.MaxValue;
+        foreach (float x in xs)
+        {
+            // 上から下へ、コインより少し細い球を落として、そこにある物のいちばん上を調べる
+            var from = transform.TransformPoint(new Vector3(x, PUSHER_H + 3f, z));
+            if (!Physics.SphereCast(from, CoinPusherMeshes.COIN_R - 0.02f, -transform.up, out var hit, 4f, ~0,
+                    QueryTriggerInteraction.Ignore)) continue;
+            float top = transform.InverseTransformPoint(hit.point).y;
+            if (hit.rigidbody == _pusher)
+            {
+                bestX = x; // プッシャーの上に何も乗っていない
+                bestTop = top;
+                break;
+            }
+            if (top < bestTop)
+            {
+                bestX = x;
+                bestTop = top;
+            }
+        }
+        if (bestTop == float.MaxValue) bestTop = PUSHER_H;
+
+        const float STEP = CoinPusherMeshes.COIN_H + 0.004f;
+        var velocity = transform.TransformDirection(new Vector3(0f, 0f, PusherSpeed(_time)));
+        float y = bestTop + CoinPusherMeshes.COIN_H * 0.5f + 0.004f;
+        for (int i = 0; i < count; i++)
+        {
+            var pos = new Vector3(bestX + UnityEngine.Random.Range(-0.008f, 0.008f), y + i * STEP, z + UnityEngine.Random.Range(-0.008f, 0.008f));
+            var it = Spawn(PusherItem.Coin, pos, Quaternion.Euler(0f, UnityEngine.Random.Range(0f, 360f), 0f));
+            it.Rb.linearVelocity = velocity;
+        }
+
+        // 出たときの光の柱（プッシャーと一緒に動き、薄れて消える。当たり判定なし）
+        float h = count * STEP;
+        var flash = Solid("TowerFlash", new Vector3(bestX, bestTop + h * 0.5f + 0.2f, z), new Vector3(1.0f, h + 0.8f, 1.0f),
+            Unlit(SpaceTheme.Hex(0xFFD37A, 0.55f)), null, false);
+        flash.transform.SetParent(_pusher.transform, true);
+        flash.AddComponent<CoinPusherFade>().Init(0.9f);
     }
 
     /// <summary>
@@ -632,13 +699,14 @@ public sealed class CoinPusherWorld : MonoBehaviour
         public int v = 1;
         public float time;
         public int bonus;
+        public int tower; // コインタワーまでに数えた、ゲットしたコインの枚数（2026-11-12 追加。前の保存では 0）
         public List<SaveItem> items = new List<SaveItem>();
     }
 
-    /// <summary>台の上の物の位置・向きと、プッシャーの時計・ボーナスまでの数を文字にする</summary>
-    public string Save(int sinceBonus)
+    /// <summary>台の上の物の位置・向きと、プッシャーの時計・ボーナスとコインタワーまでの数を文字にする</summary>
+    public string Save(int sinceBonus, int sinceTower)
     {
-        var data = new SaveData { time = _time % PUSH_PERIOD, bonus = sinceBonus };
+        var data = new SaveData { time = _time % PUSH_PERIOD, bonus = sinceBonus, tower = sinceTower };
         foreach (var it in _items)
         {
             if (it.Rb == null) continue;
@@ -650,9 +718,10 @@ public sealed class CoinPusherWorld : MonoBehaviour
     }
 
     /// <summary>保存した台を並べ直す。読めなければ false（呼んだ側で FillInitial）</summary>
-    public bool Load(string json, out int sinceBonus)
+    public bool Load(string json, out int sinceBonus, out int sinceTower)
     {
         sinceBonus = 0;
+        sinceTower = 0;
         if (string.IsNullOrEmpty(json)) return false;
         SaveData data;
         try
@@ -667,6 +736,7 @@ public sealed class CoinPusherWorld : MonoBehaviour
         if (data == null || data.items == null || data.items.Count == 0) return false;
         _time = data.time;
         sinceBonus = Mathf.Max(0, data.bonus);
+        sinceTower = Mathf.Max(0, data.tower);
         // プッシャーを保存したときの位置へ先に置き直してから物を並べる（置き直さないと、いちばん手前の位置に作ったプッシャーに
         // 前の物がめり込み、最初の物理の1回で MovePosition が一気に動かして前の物をはじき飛ばす）
         if (_pusher != null)
@@ -817,5 +887,31 @@ public sealed class CoinPusherWorld : MonoBehaviour
         tex.SetPixels32(px);
         tex.Apply(true, false);
         return tex;
+    }
+}
+
+/// <summary>コインタワーが出たときの光の柱: だんだん薄く、少し太くなって消える（材質は CoinPusherWorld が片づける）</summary>
+public class CoinPusherFade : MonoBehaviour
+{
+    private Material _mat;
+    private Color _color;
+    private Vector3 _scale;
+    private float _life, _t;
+
+    public void Init(float life)
+    {
+        _life = Mathf.Max(0.1f, life);
+        _mat = GetComponent<MeshRenderer>().sharedMaterial;
+        _color = _mat != null ? _mat.color : Color.white;
+        _scale = transform.localScale;
+    }
+
+    private void Update()
+    {
+        _t += Time.deltaTime;
+        float k = Mathf.Clamp01(_t / _life);
+        if (_mat != null) _mat.color = new Color(_color.r, _color.g, _color.b, _color.a * (1f - k));
+        transform.localScale = new Vector3(_scale.x * (1f + 0.35f * k), _scale.y, _scale.z * (1f + 0.35f * k));
+        if (k >= 1f) Destroy(gameObject);
     }
 }
