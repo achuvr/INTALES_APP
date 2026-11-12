@@ -36,6 +36,12 @@ public sealed class JourneyResult
     public bool CheckOut;
     /// <summary>もらったアプリ内の通貨（単位 G。入店した日の最初の入店のときだけ。金貨座を完成させた人だけ。2026-11-12）</summary>
     public int Ig;
+    /// <summary>山札から引いたトランプ（入店した日の最初の入店のときだけ。宝石座か切り札座を完成させた人だけ。なければ -1）</summary>
+    public int Card = -1;
+    /// <summary>引いて手札が8枚になった（このあと1枚捨てる）</summary>
+    public bool CardOverflow;
+    /// <summary>書き込む手札と山札（users.cards。引いたときだけ）</summary>
+    public Dictionary<string, object> CardsMap;
 
     public bool HasRewards => Prizes.Count > 0 || Unlocked.Count > 0;
 }
@@ -114,6 +120,10 @@ public static class JourneyRules
         public bool Debug;
         /// <summary>アプリ内の通貨（G）がもらえるか（金貨座が完成している。管理者は初めから。2026-11-12）</summary>
         public bool Ig;
+        /// <summary>トランプを引けるか（宝石座か切り札座が完成している。管理者は初めから。2026-11-12）</summary>
+        public bool Cards;
+        /// <summary>営業日の月 "yyyy-MM"（トランプは月が変わるとリセット）</summary>
+        public string CardMonth;
         public long InAt;
         public int SeedDays;
     }
@@ -255,6 +265,22 @@ public static class JourneyRules
                 AddPrize(Roll(rng, j.Streak, c.Center, c.Weekday, c.Season), owned, r);
         }
         return j;
+    }
+
+    /// <summary>
+    /// トランプを1枚引く（2026-11-12 ユーザー指定「来店時に1枚山札から引ける」）。入店した日の最初の入店のときだけ
+    /// （来店回数と同じく1営業日に1回）。cardsRaw は users.cards の中身。引いたら r.Card・r.CardOverflow・r.CardsMap を入れる
+    /// </summary>
+    public static void DrawCardOnVisit(object cardsRaw, VisitContext c, JourneyResult r, System.Random rng)
+    {
+        if (!r.NewDay || !c.Cards || string.IsNullOrEmpty(c.CardMonth)) return;
+        var s = CardState.From(cardsRaw);
+        CardRules.Normalize(s, c.CardMonth);
+        if (s.Day == c.DayKey) return; // その営業日はもう引いた（ショップで引いた分は別に数える）
+        r.Card = CardRules.Draw(s, rng);
+        s.Day = c.DayKey;
+        r.CardOverflow = CardRules.Overflow(s);
+        r.CardsMap = s.ToMap();
     }
 
     /// <summary>

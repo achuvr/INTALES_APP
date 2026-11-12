@@ -164,6 +164,10 @@ public class SpaceInventoryPanel : MonoBehaviour
     // コマ（2026-11-10。入店した日に、ホームの中央の惑星の色のコマをもらえる。SpaceMeeples）
     private const string T_MEEPLE_SECTION = "コマ";
     private const string T_MEEPLE_HINT = "入店した日に、ホームの惑星の色のコマがもらえます";
+    // カケラの欄（2026-11-12 ユーザー指定「コマではないので、カケラという枠に」。それまではコマの欄に入っていた）
+    private const string T_FRAGMENT_SECTION = "カケラ";
+    private const string T_FRAGMENT_HINT = "そろうとチケットや流れ星になります";
+    private const string T_FRAGMENT_HINT_SHOP = "そろうと流れ星になります"; // INTALES WORLD がない人（星のカケラだけ）
     // 5%OFFチケットのカケラ（2026-11-10。INTALES WORLD の商人の港でもらう。2枚で5%OFFチケット）
     private const string T_FRAGMENT_DESC = "2枚集めると5%OFFチケットになります";
     private const string T_FRAGMENT_INFO =
@@ -180,6 +184,8 @@ public class SpaceInventoryPanel : MonoBehaviour
     private const string T_MEEPLE_INFO_SHOP =
         "ホームの空の金貨座をタップすると、ショップでコマを買えます。\nコマは職人座を完成させると、INTALES WORLD で使えます。";
     private const string T_MEEPLE_INFO_ALSO_SHOP = "金貨座のショップでも買えます。";
+    // 黒コマ（2026-11-12。切り札座の完成でショップに並ぶ）
+    private const string T_BLACK_INFO = "黒コマは何色にでもなるコマです。色が決まった置き場にも置けます。";
     private const string T_STAR_FRAGMENT_INFO_SHOP =
         "ショップ（空の金貨座）で買えます。5個そろうと流れ星を1回見られます";
     private const string T_STAR_FRAGMENT_INFO_BOTH =
@@ -198,6 +204,10 @@ public class SpaceInventoryPanel : MonoBehaviour
         "アプリ内の通貨です。単位は " + IgCurrency.UNIT + " です。経済・経営のゲームで金貨座を完成させると、" +
         "ショップで使えるようになり、来店するたびにもらえるようになります";
     // アイテム（惑星回復薬。2026-11-12。所持品のいちばん下）
+    private const string T_CARD_SECTION = "トランプ";
+    private const string T_CARD_HINT = "毎月1日に手札と山札がリセットされます";
+    private const string T_CARD_HINT_POKER = "空の宝石座をタップするとポーカー";
+    private const string T_CARD_RESET = "毎月1日にリセット";
     private const string T_ITEM_SECTION = "アイテム";
     private const string T_ITEM_HINT = "押すと使えます";
     private const string T_MEMBER = "会員証";
@@ -261,13 +271,17 @@ public class SpaceInventoryPanel : MonoBehaviour
               .Append(T_DISCOUNT_TITLE).Append(T_DISCOUNT_DESC).Append(T_DISCOUNT_NONE).Append("・")
               .Append("合計OFF枚×0123456789%/: ")
               .Append(T_MEEPLE_SECTION).Append(T_MEEPLE_HINT).Append(T_MEEPLE_INFO).Append(SpaceMeeples.GlyphText)
+              .Append(T_BLACK_INFO)
               .Append(T_FRAGMENT_DESC).Append(T_FRAGMENT_INFO).Append(SpaceWorld.FRAGMENT_NAME)
               .Append(T_STAR_FRAGMENT_DESC).Append(T_STAR_FRAGMENT_INFO).Append(SpaceWorld.STAR_FRAGMENT_NAME)
               .Append(T_IG_SECTION).Append(T_IG_NAME).Append(T_IG_DESC_A).Append(T_IG_DESC_B).Append(T_IG_INFO_A).Append(T_IG_INFO_B)
               .Append(IgCurrency.GlyphText).Append(T_MEEPLE_HINT_SHOP).Append(T_MEEPLE_INFO_SHOP)
               .Append(T_MEEPLE_INFO_ALSO_SHOP).Append(T_STAR_FRAGMENT_INFO_SHOP).Append(T_STAR_FRAGMENT_INFO_BOTH)
               .Append(T_ITEM_SECTION).Append(T_ITEM_HINT).Append(SpacePlanetPotion.GlyphText)
-              .Append(T_IG_DESC_LOCKED).Append(T_IG_INFO_LOCKED);
+              .Append(T_IG_DESC_LOCKED).Append(T_IG_INFO_LOCKED)
+              .Append(T_FRAGMENT_SECTION).Append(T_FRAGMENT_HINT).Append(T_FRAGMENT_HINT_SHOP)
+              .Append(T_CARD_SECTION).Append(T_CARD_HINT).Append(T_CARD_HINT_POKER).Append(T_CARD_RESET)
+              .Append(CardDeck.GlyphText);
             foreach (var c in SpaceCoupons.All) sb.Append(c.Name).Append(c.RowDesc).Append(c.Desc);
             return sb.ToString();
         }
@@ -447,6 +461,8 @@ public class SpaceInventoryPanel : MonoBehaviour
         // パスを読み込んでいなければ読み込み、増えたら一覧を作り直す
         StorePasses.Changed += OnPassesChanged;
         if (!StorePasses.MineLoaded) StorePasses.LoadMineAsync().Forget();
+        // トランプの手札が変わったら（捨てた・ポーカーで使った など）一覧を作り直す（2026-11-12）
+        JourneyService.Changed += OnJourneyChanged;
 
         // 下から浮き上がって開く
         _group.alpha = 0f;
@@ -465,6 +481,8 @@ public class SpaceInventoryPanel : MonoBehaviour
     {
         foreach (Transform child in _content) Destroy(child.gameObject);
         _rows.Clear();
+        // 横幅の補正値を先に 0 に（作った直後の仮の値 100 のままだと、組み立て中に測る _content の幅が実際より広い）
+        _content.sizeDelta = new Vector2(0f, _content.sizeDelta.y);
 
         var passes = StorePasses.MineToShow(DateTime.Now);
         float y = 0f;
@@ -514,22 +532,31 @@ public class SpaceInventoryPanel : MonoBehaviour
             BuildMeepleRow(_content, -y,
                 world ? (shop ? T_MEEPLE_INFO + "\n" + T_MEEPLE_INFO_ALSO_SHOP : T_MEEPLE_INFO) : T_MEEPLE_INFO_SHOP);
             y += ROW_H;
+
+            // カケラ（コマではないので、コマの欄とは分ける。2026-11-12 ユーザー指定）
+            y = SectionLabel(T_FRAGMENT_SECTION, y + ROW_GAP, world ? T_FRAGMENT_HINT : T_FRAGMENT_HINT_SHOP);
             var d = Data;
             if (world)
             {
                 // 5%OFFチケットのカケラ（INTALES WORLD の商人の港でだけもらう。2枚で5%OFFチケット。2026-11-10）
-                y += ROW_GAP;
                 BuildFragmentRow(_content, -y, "Fragment", SpaceWorld.FragmentIcon, true, SpaceWorld.FRAGMENT_NAME,
                     T_FRAGMENT_DESC, T_FRAGMENT_INFO, d != null ? d.FiveFragment : 0, SpaceWorld.FRAGMENTS_PER_COUPON);
-                y += ROW_H;
+                y += ROW_H + ROW_GAP;
             }
             // 星のカケラ（INTALES WORLD の星くずの島でもらう・ショップで買う。5個で流れ星を1回。2026-11-11）
-            y += ROW_GAP;
             BuildFragmentRow(_content, -y, "StarFragment", SpaceWorld.StarFragmentIcon, false, SpaceWorld.STAR_FRAGMENT_NAME,
                 T_STAR_FRAGMENT_DESC,
                 world ? (shop ? T_STAR_FRAGMENT_INFO_BOTH : T_STAR_FRAGMENT_INFO) : T_STAR_FRAGMENT_INFO_SHOP,
                 d != null ? d.StarFragment : 0, SpaceWorld.STAR_FRAGMENTS_PER_STAR);
             y += ROW_H;
+        }
+        // トランプ（宝石座か切り札座を完成させた人。手札を7つの枠に並べる。2026-11-12）
+        var cards = CardDeck.Current;
+        _shownCards = CardsKey(cards);
+        if (CardDeck.Unlocked || cards.Hand.Count > 0)
+        {
+            y = SectionLabel(T_CARD_SECTION, y + ROW_GAP, CardDeck.PokerUnlocked ? T_CARD_HINT_POKER : T_CARD_HINT);
+            y += BuildCardRow(_content, -y, cards);
         }
         // アイテム（惑星回復薬。金貨座のショップで買う。所持品のいちばん下に。2026-11-12 ユーザー指定）
         int potions = SpacePlanetPotion.Count;
@@ -622,11 +649,21 @@ public class SpaceInventoryPanel : MonoBehaviour
     // コマ（赤・青・黄。入店した日に中央の惑星の色のコマをもらえる。今は持つだけ）
     // ================================================================
     private const float MEEPLE_ICON = 112f;
+    private const float MEEPLE_ICON_4 = 92f; // 黒コマも並べて4つに分けるとき（文字の幅を空ける）
     private const float MEEPLE_TEXT_X = 24f + MEEPLE_ICON + 14f;
 
-    /// <summary>コマの欄: 3色を1枚のカードに横に並べ、それぞれの数を出す。押すと、もらい方（info）を知らせる</summary>
+    /// <summary>
+    /// コマの欄: 3色を1枚のカードに横に並べ、それぞれの数を出す。押すと、もらい方（info）を知らせる。
+    /// 黒コマ（2026-11-12）を持っているか切り札座が完成していれば、4つ目に黒コマを並べ、押したときの説明にも黒コマのことを足す
+    /// </summary>
     private void BuildMeepleRow(RectTransform content, float y, string info)
     {
+        var defs = new List<SpaceMeepleDef>(SpaceMeeples.All);
+        if (SpaceMeeples.ShowBlack(Data))
+        {
+            defs.Add(SpaceMeeples.Black);
+            info += "\n" + T_BLACK_INFO;
+        }
         var row = SpaceTheme.Rect("Meeples", content);
         row.anchorMin = new Vector2(0f, 1f);
         row.anchorMax = new Vector2(1f, 1f);
@@ -641,27 +678,29 @@ public class SpaceInventoryPanel : MonoBehaviour
         });
 
         var d = Data;
-        int count = SpaceMeeples.All.Length;
+        int count = defs.Count;
+        float iconSize = count > 3 ? MEEPLE_ICON_4 : MEEPLE_ICON;
+        float textX = 24f + iconSize + 14f;
         for (int i = 0; i < count; i++)
         {
-            var m = SpaceMeeples.All[i];
+            var m = defs[i];
             int n = d != null ? Mathf.Max(0, m.Get(d)) : 0;
-            // カードを3等分した1つ分（横幅は端末の幅に合わせて伸び縮みする）
+            // カードを3等分（黒コマもあれば4等分）した1つ分（横幅は端末の幅に合わせて伸び縮みする）
             var cell = SpaceTheme.Rect("Meeple_" + m.Field, row);
             cell.anchorMin = new Vector2(i / (float)count, 0f);
             cell.anchorMax = new Vector2((i + 1) / (float)count, 1f);
             cell.offsetMin = cell.offsetMax = Vector2.zero;
             cell.gameObject.AddComponent<CanvasGroup>().alpha = n > 0 ? 1f : 0.5f;
 
-            var icon = SpaceTheme.Rect("Icon", cell, new Vector2(0f, 0.5f), new Vector2(24f + MEEPLE_ICON * 0.5f, 0f),
-                new Vector2(MEEPLE_ICON, MEEPLE_ICON));
+            var icon = SpaceTheme.Rect("Icon", cell, new Vector2(0f, 0.5f), new Vector2(24f + iconSize * 0.5f, 0f),
+                new Vector2(iconSize, iconSize));
             var img = SpaceTheme.Img(icon, m.Icon, Color.white);
             img.preserveAspect = true;
             img.enabled = m.Icon != null;
 
             var name = SpaceTheme.Text(cell, "Name", m.Name, 32, SpaceTheme.TEXT, FontStyles.Bold);
             name.alignment = TextAlignmentOptions.Left;
-            FillCellRight(name.rectTransform, 26f, 44f);
+            FillCellRight(name.rectTransform, 26f, 44f, textX);
             name.enableAutoSizing = true;
             name.fontSizeMin = 22f;
             name.fontSizeMax = 32f;
@@ -669,11 +708,74 @@ public class SpaceInventoryPanel : MonoBehaviour
                 $"{n}<size=43%><color={SpaceTheme.SUB_HEX}> {SpaceMeeples.T_UNIT}</color></size>", 52,
                 n > 0 ? SpaceTheme.GOLD : SpaceTheme.TEXT_MUTED, FontStyles.Bold);
             num.alignment = TextAlignmentOptions.Left;
-            FillCellRight(num.rectTransform, -28f, 64f);
+            FillCellRight(num.rectTransform, -28f, 64f, textX);
             num.enableAutoSizing = true;
             num.fontSizeMin = 30f;
             num.fontSizeMax = 52f;
         }
+    }
+
+    /// <summary>
+    /// トランプの行: 「手札 3 / 7 ・ 山札 41枚」と、手札を7つの枠に並べる（空いた枠は点線のような淡い縁だけ）。
+    /// 押すと、引き方とリセットの説明（ポーカーができる人には宝石座のこと）。手札が8枚なら捨てるカードを選ぶ画面。
+    /// 行の高さを返す
+    /// </summary>
+    private float BuildCardRow(RectTransform content, float y, CardState state)
+    {
+        // 一覧の横幅は、外枠（ビューポート）から測る。_content の横幅は BuildList の最後に sizeDelta を決めるまで
+        // 仮の値（作った直後は +100）のままなので、それを使うとカードが実際より大きくなり、右端が枠からはみ出していた（2026-11-12）
+        var viewport = _content.parent as RectTransform;
+        float width = viewport != null ? viewport.rect.width : 0f;
+        if (width <= 1f) width = SpaceTheme.CanvasSize(_canvas).x - 128f; // シート（左右32）と一覧（左右32）の内側
+        int slots = Mathf.Max(CardRules.HAND_MAX, state.Hand.Count);
+        const float PAD = 24f, GAP = 12f, TOP = 76f;
+        float w = Mathf.Min(130f, (width - PAD * 2f - GAP * (slots - 1)) / slots);
+        float h = w * CardDeck.ASPECT;
+        float total = slots * w + (slots - 1) * GAP; // カードを並べた幅（行のまん中にそろえる）
+        float rowH = TOP + h + PAD;
+
+        var row = SpaceTheme.Rect("Cards", content);
+        row.anchorMin = new Vector2(0f, 1f);
+        row.anchorMax = new Vector2(1f, 1f);
+        row.pivot = new Vector2(0.5f, 1f);
+        row.sizeDelta = new Vector2(0f, rowH);
+        row.anchoredPosition = new Vector2(0f, y);
+        var face = SpaceTheme.Glass(row, 36f, SpaceTheme.GLASS, null, true);
+        SpaceTheme.Clickable(row.gameObject, face, () =>
+        {
+            if (_busy || _useSheet != null || _result != null || _closing) return;
+            if (CardDeck.MustDiscard)
+            {
+                SpaceNotice.CardDiscard();
+                return;
+            }
+            SpaceTheme.Toast(CardDeck.PokerUnlocked ? CardDeck.T_INFO + "\n" + CardDeck.T_POKER_HINT : CardDeck.T_INFO, _canvas);
+        });
+
+        SpaceTheme.Text(row, "Summary", CardDeck.Summary(state), 28, SpaceTheme.TEXT, new Vector2(0f, 1f),
+            new Vector2(PAD, -42f), new Vector2(620f, 40f), FontStyles.Bold, TextAlignmentOptions.Left, new Vector2(0f, 0.5f));
+        var reset = SpaceTheme.Text(row, "Reset", T_CARD_RESET, 22, SpaceTheme.TEXT_MUTED, new Vector2(1f, 1f),
+            new Vector2(-PAD, -42f), new Vector2(300f, 36f), FontStyles.Bold, TextAlignmentOptions.Right, new Vector2(1f, 0.5f));
+        reset.enableAutoSizing = true;
+        reset.fontSizeMin = 16f;
+        reset.fontSizeMax = 22f;
+
+        // 行の上辺のまん中を基準に並べる（端末の幅が広くても左右の余白が同じになる）
+        var topCenter = new Vector2(0.5f, 1f);
+        for (int i = 0; i < slots; i++)
+        {
+            var pos = new Vector2(-total * 0.5f + w * 0.5f + i * (w + GAP), -(TOP + h * 0.5f));
+            if (i < state.Hand.Count)
+            {
+                CardDeck.CreateCard(row, state.Hand[i], w, topCenter, pos);
+            }
+            else
+            {
+                var frame = SpaceTheme.Rect("Empty" + i, row, topCenter, pos, new Vector2(w, h));
+                SpaceTheme.RoundedStroke(frame, SpaceTheme.A(SpaceTheme.LINE, 0.22f), w * 0.11f);
+            }
+        }
+        return rowH;
     }
 
     /// <summary>
@@ -791,12 +893,12 @@ public class SpaceInventoryPanel : MonoBehaviour
     }
 
     /// <summary>コマの欄の1色分の中で、絵の右から右端までの幅に文字を置く（y は縦の中心からのずれ）</summary>
-    private static void FillCellRight(RectTransform r, float y, float h)
+    private static void FillCellRight(RectTransform r, float y, float h, float textX = MEEPLE_TEXT_X)
     {
         r.anchorMin = new Vector2(0f, 0.5f);
         r.anchorMax = new Vector2(1f, 0.5f);
         r.pivot = new Vector2(0f, 0.5f);
-        r.offsetMin = new Vector2(MEEPLE_TEXT_X, y - h * 0.5f);
+        r.offsetMin = new Vector2(textX, y - h * 0.5f);
         r.offsetMax = new Vector2(-10f, y + h * 0.5f);
     }
 
@@ -1022,6 +1124,19 @@ public class SpaceInventoryPanel : MonoBehaviour
     private void OnDestroy()
     {
         StorePasses.Changed -= OnPassesChanged;
+        JourneyService.Changed -= OnJourneyChanged;
+    }
+
+    /// <summary>表示しているトランプの手札（変わったかどうかを見る用）</summary>
+    private string _shownCards;
+
+    private static string CardsKey(CardState s) => s.Month + ":" + string.Join(",", s.Hand);
+
+    private void OnJourneyChanged()
+    {
+        if (this == null || _closing || _busy) return;
+        if (CardsKey(CardDeck.Current) == _shownCards) return;
+        BuildList();
     }
 
     private void BuildRow(RectTransform content, SpaceCouponDef def, float y)

@@ -14,7 +14,8 @@ using UnityEngine.UI;
 /// 「宇宙空間に配置」）。星座ごとに決まった場所に、レベルの明るさで薄く出る。新しく完成・レベルアップすると、
 /// お知らせが閉じてからその場所に光ってふくらんで現れる。
 /// 空の星座をタップするとその星座の詳細が開く。さいころ座は、いろいろなダイスを振れる画面（SpaceDiceRoller）、
-/// 金貨座は、アプリ内の通貨（G）で買い物をするショップ（SpaceShop。2026-11-12）が開く
+/// 金貨座は、アプリ内の通貨（G）で買い物をするショップ（SpaceShop。2026-11-12）、宝石座はポーカー（SpacePoker。同日）、
+/// 積み木座はコインプッシャー（CoinPusher。同日。別シーン）が開く
 /// （押せるものだと分かるよう後ろの光が明滅し、ホームの部品に隠れない場所に置いている。管理者には初めから出ている）。
 /// </summary>
 public class SpaceBackground : MonoBehaviour
@@ -74,8 +75,24 @@ public class SpaceBackground : MonoBehaviour
     private readonly Dictionary<string, int> _skyLevels = new Dictionary<string, int>(); // 星座ID → 空に出しているレベル
     private readonly Dictionary<string, RectTransform> _skyFigures = new Dictionary<string, RectTransform>();
 
-    /// <summary>押すと画面が開く星座（さいころ座＝ダイス、金貨座＝ショップ）。完成するまで出ない・管理者には初めから出ている</summary>
-    private static readonly string[] TAPPABLE = { SpaceDiceRoller.CONSTELLATION, IgCurrency.CONSTELLATION };
+    /// <summary>
+    /// 押すと画面が開く星座（さいころ座＝ダイス、金貨座＝ショップ、宝石座＝ポーカー、積み木座＝コインプッシャー）。
+    /// 完成するまで出ない・管理者には初めから出ている
+    /// </summary>
+    private static readonly string[] TAPPABLE =
+        { SpaceDiceRoller.CONSTELLATION, IgCurrency.CONSTELLATION, SpacePoker.CONSTELLATION, CoinPusher.CONSTELLATION };
+
+    /// <summary>
+    /// 押せる星座を置ける高さ（キャンバスの下端からの距離。NewHomeController が SetTapBand で渡す）。
+    /// ホームで押せる部品がないのは、お知らせ・料金表の小さな惑星（の名前）の下〜図鑑・履歴の小さな惑星の上の、左右の列だけ。
+    /// その高さは端末の縦横比や INTALES WORLD のボタンのあり・なしで変わり、決まった割合では3つを置き切れないので、
+    /// 押せる星座だけは計算で置く（2026-11-12 宝石座を足したとき）: 左の列の上に金貨座・下に宝石座、
+    /// 右の列の上にさいころ座・下に積み木座（同日、コインプッシャーを足したとき。それまでさいころ座は右の列のまん中）。
+    /// どの端末でもこの高さは 380（星座2つ分）以上ある
+    /// </summary>
+    private float _tapLo = -1f, _tapHi = -1f;
+    private const float TAP_LEFT_X = 0.12f, TAP_RIGHT_X = 0.885f; // 左右の列（キャンバスの幅に対する割合）
+    private const float TAP_SPREAD = 125f; // 左の列の2つの星座の、まん中からのずれの上限
 
     /// <summary>押せる星座の後ろの光（押せるものだと分かるよう、ゆっくり明滅させる）</summary>
     private class TapGlow
@@ -371,7 +388,7 @@ public class SpaceBackground : MonoBehaviour
 
             int slot = Array.IndexOf(all, p.Def);
             if (slot < 0 || slot >= SKY_SLOTS.Length) continue;
-            var pos = new Vector2(SKY_SLOTS[slot].x * _size.x, SKY_SLOTS[slot].y * _size.y);
+            var pos = SkyPos(p.Def.Id, slot);
             var fig = SpaceTheme.Rect("Sky_" + p.Def.Id, _skyLayer, Vector2.zero, pos, new Vector2(SKY_FIG, SKY_FIG));
             // 星座ごとに少しだけ傾ける（並べたときに単調にならないように）
             fig.localEulerAngles = new Vector3(0f, 0f, ((slot * 37) % 30) - 15f);
@@ -391,10 +408,16 @@ public class SpaceBackground : MonoBehaviour
                 {
                     Img = SpaceTheme.Img(glowRt, SpaceSprites.Glow, SpaceTheme.A(p.Def.Color, 0.2f)),
                     Color = p.Def.Color,
-                    Phase = dice ? 0f : Mathf.PI, // ふたつが同時に明滅しないよう、半周ずらす
+                    // 同時に明滅しないよう、星座ごとにずらす
+                    Phase = dice ? 0f : id == IgCurrency.CONSTELLATION ? Mathf.PI
+                        : id == SpacePoker.CONSTELLATION ? Mathf.PI * 0.5f : Mathf.PI * 1.5f,
                 };
                 if (dice) SpaceTheme.Clickable(fig.gameObject, SpaceTheme.HitArea(fig), () => SpaceDiceRoller.Open());
-                else SpaceTheme.Clickable(fig.gameObject, SpaceTheme.HitArea(fig), () => SpaceShop.Open());
+                else if (id == IgCurrency.CONSTELLATION)
+                    SpaceTheme.Clickable(fig.gameObject, SpaceTheme.HitArea(fig), () => SpaceShop.Open());
+                else if (id == CoinPusher.CONSTELLATION)
+                    SpaceTheme.Clickable(fig.gameObject, SpaceTheme.HitArea(fig), CoinPusher.Open);
+                else SpaceTheme.Clickable(fig.gameObject, SpaceTheme.HitArea(fig), () => SpacePoker.Open());
             }
             else
             {
@@ -419,6 +442,43 @@ public class SpaceBackground : MonoBehaviour
     }
 
     /// <summary>新しく完成・レベルアップした星座が空に現れる: 光がはじけ、ふくらんでから落ち着く</summary>
+    /// <summary>
+    /// 星座を空に置く場所（キャンバスの左下が 0,0）。押せる星座は、SetTapBand でもらった高さの中に計算で置く
+    /// </summary>
+    private Vector2 SkyPos(string id, int slot)
+    {
+        if (_tapHi > _tapLo && Array.IndexOf(TAPPABLE, id) >= 0)
+        {
+            float mid = (_tapLo + _tapHi) * 0.5f;
+            float d = Mathf.Min((_tapHi - _tapLo) * 0.25f, TAP_SPREAD);
+            if (id == SpaceDiceRoller.CONSTELLATION) return new Vector2(TAP_RIGHT_X * _size.x, mid + d);
+            if (id == CoinPusher.CONSTELLATION) return new Vector2(TAP_RIGHT_X * _size.x, mid - d);
+            return new Vector2(TAP_LEFT_X * _size.x, id == IgCurrency.CONSTELLATION ? mid + d : mid - d);
+        }
+        return new Vector2(SKY_SLOTS[slot].x * _size.x, SKY_SLOTS[slot].y * _size.y);
+    }
+
+    /// <summary>
+    /// 押せる星座を置ける高さを決める（お知らせ・料金表の名前の下端 hi 〜 図鑑・履歴の小さな惑星の上端 lo。
+    /// キャンバスの下端からの距離）。INTALES WORLD のボタンを出し入れしたときも呼ばれ、出ている星座はその場で動かす
+    /// </summary>
+    public void SetTapBand(float lo, float hi)
+    {
+        if (Mathf.Approximately(lo, _tapLo) && Mathf.Approximately(hi, _tapHi)) return;
+        _tapLo = lo;
+        _tapHi = hi;
+        var all = Constellations.All;
+        foreach (var id in TAPPABLE)
+        {
+            if (!_skyFigures.TryGetValue(id, out var fig) || fig == null) continue;
+            int slot = Array.FindIndex(all, d => d.Id == id);
+            if (slot < 0) continue;
+            var pos = SkyPos(id, slot);
+            fig.anchoredPosition = pos;
+            if (_tapGlows.TryGetValue(id, out var g) && g.Img != null) g.Img.rectTransform.anchoredPosition = pos;
+        }
+    }
+
     private System.Collections.IEnumerator SkyArrive(RectTransform fig, CanvasGroup group, Color color)
     {
         var flash = SpaceTheme.Rect("Arrive", _skyLayer, Vector2.zero, fig.anchoredPosition,

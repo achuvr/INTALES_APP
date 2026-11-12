@@ -17,6 +17,8 @@ using UnityEngine.UI;
 ///  ・左下の星くずの島だけは何色でも置ける保険の置き場（輪が赤・青・黄の3つの弧。2026-11-11）
 ///  ・1日1体まで／入店中だけ／置いたコマは戻らない（置けないときは、シートの下に理由を出す）
 ///  ・惑星の神殿（惑星を3つアクティブにする）は、力を失った惑星が4つ以上なら、置く前に戻す3つを選ぶ
+///  ・黒コマ（2026-11-12。何色にでもなるコマ）を持っているか、切り札座が完成していれば、色のカードの4枚目に黒コマを出す。
+///    色が決まった置き場ではその色として置き、まだ決まっていない置き場と星くずの島では、何色として置くかを選ぶ（OpenWildChooser）
 /// </summary>
 public class SpaceWorldMap : MonoBehaviour
 {
@@ -60,6 +62,14 @@ public class SpaceWorldMap : MonoBehaviour
     private const string T_HAVE = "持っている";
     private const string T_HAVE_SEP = "：";
     private const string T_WALLET = "所持金"; // 黄金の鉱山のシート（2026-11-12）
+    // 黒コマ（2026-11-12）
+    private const string T_WILD_TITLE = "黒コマを何色として置きますか？";
+    private const string T_WILD_SUB_EMPTY = "選んだ色が、今日のこの置き場の色になります";
+    private const string T_WILD_SUB_ANY = "選んだ色のコマとして数えます";
+    private const string T_WILD_AS_A = "黒コマ（";
+    private const string T_WILD_AS_B = "として）";
+    private const string T_WILD_BUTTON = "として置く";
+    private const string T_FOLLOW_BLACK = "（黒コマなら置けます）";
 
     /// <summary>この画面で出しうる文字（置き場の名前・効果は SpaceWorld.GlyphText、惑星の名前は SpacePlanets.GlyphText）</summary>
     public static string GlyphText => new StringBuilder()
@@ -73,6 +83,8 @@ public class SpaceWorldMap : MonoBehaviour
         .Append(T_CONFIRM_REVIVE).Append(T_OK).Append(T_PLACING).Append(T_CHOOSE_TITLE).Append(T_CHOOSE_OK)
         .Append(T_CANCEL).Append(T_ANY_EMPTY).Append(T_ANY_PLACED).Append(T_ANY_UNIT).Append(T_HAVE).Append(T_HAVE_SEP)
         .Append(T_WALLET).Append(IgCurrency.GlyphText)
+        .Append(T_WILD_TITLE).Append(T_WILD_SUB_EMPTY).Append(T_WILD_SUB_ANY).Append(T_WILD_AS_A).Append(T_WILD_AS_B)
+        .Append(T_WILD_BUTTON).Append(T_FOLLOW_BLACK)
         .Append(SpaceWorld.GlyphText).Append(SpaceMeeples.GlyphText)
         .Append("0123456789×/ ・").ToString();
 
@@ -99,6 +111,8 @@ public class SpaceWorldMap : MonoBehaviour
     private sealed class ColorCard
     {
         public PlanetColor Color;
+        public bool Wild;   // 黒コマのカード
+        public Color Tint;  // 選んだときの縁の色
         public CanvasGroup Group;
         public Image Stroke;
         public GameObject Glow;
@@ -112,7 +126,7 @@ public class SpaceWorldMap : MonoBehaviour
     private RectTransform _safe;
     private float _safeW, _safeH;
     private readonly List<Spot> _spots = new List<Spot>();
-    private readonly TextMeshProUGUI[] _mineCounts = new TextMeshProUGUI[3];
+    private readonly TextMeshProUGUI[] _mineCounts = new TextMeshProUGUI[4]; // 赤・青・黄・黒（黒は出すときだけ）
     private TextMeshProUGUI _status;
     private bool _closing, _busy;
     private float _nextTick;
@@ -126,6 +140,9 @@ public class SpaceWorldMap : MonoBehaviour
     private GameObject _placeWrap, _blockWrap;
     private CanvasGroup _placeGroup;
     private PlanetColor _selected = PlanetColor.None;
+    private bool _wild;                                  // 黒コマを選んでいる
+    private PlanetColor _wildColor = PlanetColor.None;   // 黒コマがなる色（色の決まっていない置き場で選んだ色）
+    private GameObject _wildChooser;                     // 黒コマを何色として置くか選ぶ画面
 
     // 惑星の神殿: 力を戻す惑星を選ぶ画面
     private GameObject _chooser;
@@ -154,7 +171,8 @@ public class SpaceWorldMap : MonoBehaviour
     public void HandleBack()
     {
         if (_busy) return;
-        if (_chooser != null) CloseChooser();
+        if (_wildChooser != null) CloseWildChooser();
+        else if (_chooser != null) CloseChooser();
         else if (_sheet != null) CloseSheet();
         else Close();
     }
@@ -432,17 +450,20 @@ public class SpaceWorldMap : MonoBehaviour
 
         SpaceTheme.Text(footer, "Mine", T_MINE, 24, SpaceTheme.TEXT_MUTED, new Vector2(0f, 1f), new Vector2(40f, -46f),
             new Vector2(260f, 36f), FontStyles.Bold, TextAlignmentOptions.Left, new Vector2(0f, 0.5f));
-        for (int i = 0; i < SpaceMeeples.All.Length; i++)
+        var defs = new List<SpaceMeepleDef>(SpaceMeeples.All);
+        if (SpaceMeeples.ShowBlack(Data)) defs.Add(SpaceMeeples.Black); // 黒コマ（2026-11-12）
+        float step = defs.Count > 3 ? 158f : 170f, chipW = defs.Count > 3 ? 140f : 150f;
+        for (int i = 0; i < defs.Count; i++)
         {
-            var m = SpaceMeeples.All[i];
-            float x = -40f - (SpaceMeeples.All.Length - 1 - i) * 170f;
-            var chip = SpaceTheme.Rect("Chip" + i, footer, new Vector2(1f, 1f), new Vector2(x, -46f), new Vector2(150f, 60f),
+            var m = defs[i];
+            float x = -40f - (defs.Count - 1 - i) * step;
+            var chip = SpaceTheme.Rect("Chip" + i, footer, new Vector2(1f, 1f), new Vector2(x, -46f), new Vector2(chipW, 60f),
                 new Vector2(1f, 0.5f));
             var icon = SpaceTheme.Rect("Icon", chip, new Vector2(0f, 0.5f), new Vector2(28f, 0f), new Vector2(56f, 56f));
             var img = SpaceTheme.Img(icon, m.Icon, Color.white);
             img.preserveAspect = true;
             img.enabled = m.Icon != null;
-            _mineCounts[i] = SpaceTheme.Text(chip, "Count", "", 36, SpaceTheme.GOLD, new Vector2(0f, 0.5f),
+            _mineCounts[m.Wild ? 3 : i] = SpaceTheme.Text(chip, "Count", "", 36, SpaceTheme.GOLD, new Vector2(0f, 0.5f),
                 new Vector2(64f, 0f), new Vector2(90f, 50f), FontStyles.Bold, TextAlignmentOptions.Left,
                 new Vector2(0f, 0.5f));
         }
@@ -494,7 +515,9 @@ public class SpaceWorldMap : MonoBehaviour
         var d = Data;
         for (int i = 0; i < _mineCounts.Length; i++)
         {
-            int n = d != null ? Mathf.Max(0, SpaceMeeples.All[i].Get(d)) : 0;
+            if (_mineCounts[i] == null) continue; // 黒コマは出していないとき
+            var md = i < SpaceMeeples.All.Length ? SpaceMeeples.All[i] : SpaceMeeples.Black;
+            int n = d != null ? Mathf.Max(0, md.Get(d)) : 0;
             _mineCounts[i].text = "×" + n;
             _mineCounts[i].color = n > 0 ? SpaceTheme.GOLD : SpaceTheme.TEXT_MUTED;
         }
@@ -565,6 +588,8 @@ public class SpaceWorldMap : MonoBehaviour
         if (_busy || _closing || _sheet != null) return;
         _sheetArea = area;
         _selected = PlanetColor.None;
+        _wild = false;
+        _wildColor = PlanetColor.None;
         _cards.Clear();
 
         var root = SpaceTheme.Rect("Sheet", transform);
@@ -616,13 +641,16 @@ public class SpaceWorldMap : MonoBehaviour
         _sheetState.fontSizeMin = 18f;
         _sheetState.fontSizeMax = 26f;
 
-        // 色を選ぶ（3枚のカード）
-        const float CW = 280f, CH = 250f, GAP = 22f;
-        for (int i = 0; i < SpaceMeeples.All.Length; i++)
+        // 色を選ぶ（3枚のカード。黒コマを持っているか、切り札座が完成していれば4枚目に黒コマ）
+        var defs = new List<SpaceMeepleDef>(SpaceMeeples.All);
+        if (SpaceMeeples.ShowBlack(Data)) defs.Add(SpaceMeeples.Black);
+        float cw = defs.Count > 3 ? 222f : 280f, gap = defs.Count > 3 ? 16f : 22f;
+        const float CH = 250f;
+        float total = defs.Count * cw + (defs.Count - 1) * gap;
+        for (int i = 0; i < defs.Count; i++)
         {
-            var m = SpaceMeeples.All[i];
-            float x = (i - 1) * (CW + GAP);
-            _cards.Add(BuildColorCard(panel, m, new Vector2(x, -(330f + extra + CH * 0.5f)), new Vector2(CW, CH)));
+            float x = -total * 0.5f + cw * 0.5f + i * (cw + gap);
+            _cards.Add(BuildColorCard(panel, defs[i], new Vector2(x, -(330f + extra + CH * 0.5f)), new Vector2(cw, CH)));
         }
 
         // 置くボタン／置けない理由
@@ -674,7 +702,7 @@ public class SpaceWorldMap : MonoBehaviour
 
     private ColorCard BuildColorCard(RectTransform parent, SpaceMeepleDef m, Vector2 pos, Vector2 size)
     {
-        var card = new ColorCard { Color = m.Color };
+        var card = new ColorCard { Color = m.Color, Wild = m.Wild, Tint = m.Tint };
         var rt = SpaceTheme.Rect("Color_" + m.Field, parent, new Vector2(0.5f, 1f), pos, size);
         card.Group = rt.gameObject.AddComponent<CanvasGroup>();
         var glow = SpaceTheme.Rect("Glow", rt, SpaceTheme.CENTER, Vector2.zero, size + new Vector2(110f, 110f));
@@ -725,7 +753,8 @@ public class SpaceWorldMap : MonoBehaviour
         {
             state = c == PlanetColor.None
                 ? T_EMPTY_AREA
-                : SpaceWorld.ColorName(c) + T_FOLLOW_A + n + T_FOLLOW_B + SpaceWorld.ColorName(c) + T_FOLLOW_C;
+                : SpaceWorld.ColorName(c) + T_FOLLOW_A + n + T_FOLLOW_B + SpaceWorld.ColorName(c) + T_FOLLOW_C
+                  + (SpaceMeeples.ShowBlack(Data) ? T_FOLLOW_BLACK : ""); // 黒コマは色が決まった置き場にも置ける
         }
         int exhausted = area.Effect == WorldEffect.Planets ? SpaceWorld.ExhaustedPlanets().Count : -1;
         if (exhausted >= 0) state += "\n" + T_EXHAUSTED_A + exhausted + T_EXHAUSTED_B;
@@ -746,18 +775,25 @@ public class SpaceWorldMap : MonoBehaviour
         ColorCard only = null;
         foreach (var card in _cards)
         {
-            var m = SpaceMeeples.Of(card.Color);
+            var m = card.Wild ? SpaceMeeples.Black : SpaceMeeples.Of(card.Color);
             int owned = d != null && m != null ? Mathf.Max(0, m.Get(d)) : 0;
-            card.Allowed = (area.AnyColor || c == PlanetColor.None || c == card.Color) && owned > 0;
+            // 黒コマはどの置き場にも置ける（色が決まっていればその色になる）
+            card.Allowed = (card.Wild || area.AnyColor || c == PlanetColor.None || c == card.Color) && owned > 0;
             card.Owned.text = T_OWNED + owned;
             if (card.Allowed)
             {
                 allowedCount++;
                 only = card;
             }
-            else if (_selected == card.Color) _selected = PlanetColor.None;
+            else if (card.Wild) _wild = false;
+            else if (!_wild && _selected == card.Color) _selected = PlanetColor.None;
         }
-        if (_selected == PlanetColor.None && allowedCount == 1) _selected = only.Color; // 1色しか置けないなら選んでおく
+        // 1つしか置けないなら選んでおく
+        if (!_wild && _selected == PlanetColor.None && allowedCount == 1)
+        {
+            if (only.Wild) _wild = true;
+            else _selected = only.Color;
+        }
 
         string blockMsg = !SpaceWorld.CanPlaceToday ? T_BLOCK_PLACED
             : !SpaceWorld.InStore ? T_BLOCK_NOT_IN
@@ -767,14 +803,14 @@ public class SpaceWorldMap : MonoBehaviour
         _placeWrap.SetActive(blockMsg == null);
         _blockWrap.SetActive(blockMsg != null);
         if (blockMsg != null) _blockText.text = blockMsg;
-        _placeGroup.alpha = _selected != PlanetColor.None ? 1f : 0.4f;
+        _placeGroup.alpha = _selected != PlanetColor.None || _wild ? 1f : 0.4f;
 
         foreach (var card in _cards)
         {
-            bool on = card.Color == _selected;
+            bool on = card.Wild ? _wild : !_wild && card.Color == _selected;
             card.Group.alpha = card.Allowed ? 1f : 0.3f;
             card.Glow.SetActive(on);
-            card.Stroke.color = on ? SpaceTheme.A(PlanetColors.Of(card.Color), 0.95f) : SpaceTheme.STROKE;
+            card.Stroke.color = on ? SpaceTheme.A(card.Tint, 0.95f) : SpaceTheme.STROKE;
         }
     }
 
@@ -785,32 +821,48 @@ public class SpaceWorldMap : MonoBehaviour
         {
             // 別の色が置かれている置き場（マストフォロー）か、その色を持っていないか
             var c = (SpaceWorld.Board ?? new SpaceWorld.WorldBoard()).Colors[_sheetArea.Index];
-            string msg = c != PlanetColor.None && c != card.Color
-                ? T_TODAY + SpaceWorld.ColorName(c) + T_FOLLOW_C
+            string msg = card.Wild ? SpaceWorld.T_ERR_NO_BLACK
+                : c != PlanetColor.None && c != card.Color ? T_TODAY + SpaceWorld.ColorName(c) + T_FOLLOW_C
                 : SpaceWorld.T_ERR_NO_MEEPLE;
             SpaceTheme.Toast(msg, _canvas);
             return;
         }
-        _selected = card.Color;
+        _wild = card.Wild;
+        _selected = card.Wild ? PlanetColor.None : card.Color;
+        _wildColor = PlanetColor.None;
         RefreshSheet();
     }
 
     private void CloseSheet()
     {
         if (_busy || _sheet == null) return;
+        CloseWildChooser();
         Destroy(_sheet);
         _sheet = null;
         _sheetArea = null;
+        _wild = false;
+        _wildColor = PlanetColor.None;
         _cards.Clear();
     }
 
     private void OnPlacePressed()
     {
         if (_busy || _sheetArea == null) return;
-        if (_selected == PlanetColor.None)
+        if (_selected == PlanetColor.None && !_wild)
         {
             SpaceTheme.Toast(T_PICK_COLOR, _canvas);
             return;
+        }
+        if (_wild)
+        {
+            // 黒コマ: 色が決まった置き場ならその色。まだ決まっていない置き場・星くずの島なら、何色として置くかを先に選ぶ
+            var placed = (SpaceWorld.Board ?? new SpaceWorld.WorldBoard()).Colors[_sheetArea.Index];
+            if (!_sheetArea.AnyColor && placed != PlanetColor.None) _wildColor = placed;
+            else if (_wildColor == PlanetColor.None)
+            {
+                OpenWildChooser();
+                return;
+            }
         }
         if (_sheetArea.Effect == WorldEffect.Planets)
         {
@@ -834,17 +886,118 @@ public class SpaceWorldMap : MonoBehaviour
     private void ConfirmPlace(List<string> revive)
     {
         var area = _sheetArea;
-        var color = _selected;
+        bool wild = _wild;
+        var color = wild ? _wildColor : _selected;
         var meeple = SpaceMeeples.Of(color);
         if (area == null || meeple == null) return;
         string body = area.Name + "：" + area.Text + "\n" + (SpaceWorld.Unlimited ? T_CONFIRM_NOTE_ADMIN : T_CONFIRM_NOTE);
         if (revive != null && revive.Count > 0)
             body += "\n" + T_CONFIRM_REVIVE + string.Join("・", revive.Select(id => SpacePlanets.Find(id)?.Name ?? id));
-        SpaceDialog.Confirm(_canvas, meeple.Name + T_CONFIRM_B, body, T_OK, false,
-            () => PlaceAsync(area, color, revive).Forget(), null, T_CANCEL);
+        // 黒コマは「黒コマ（赤として）を置きますか？」
+        string title = wild ? T_WILD_AS_A + SpaceWorld.ColorName(color) + T_WILD_AS_B + T_CONFIRM_B : meeple.Name + T_CONFIRM_B;
+        SpaceDialog.Confirm(_canvas, title, body, T_OK, false,
+            () => PlaceAsync(area, color, revive, wild).Forget(),
+            () => _wildColor = PlanetColor.None, T_CANCEL); // やめたら、次は色を選び直す
     }
 
-    private async UniTaskVoid PlaceAsync(SpaceWorldArea area, PlanetColor color, List<string> revive)
+    // ================================================================
+    // 黒コマを何色として置くか選ぶ（まだ色の決まっていない置き場・星くずの島。2026-11-12）
+    // ================================================================
+    private void OpenWildChooser()
+    {
+        if (_wildChooser != null || _sheetArea == null) return;
+        bool any = _sheetArea.AnyColor;
+        var root = SpaceTheme.Rect("WildChooser", transform);
+        SpaceTheme.Stretch(root);
+        root.SetAsLastSibling();
+        _wildChooser = root.gameObject;
+        var group = _wildChooser.AddComponent<CanvasGroup>();
+        var dim = SpaceTheme.Rect("Dim", root);
+        SpaceTheme.Stretch(dim);
+        var dimImg = SpaceTheme.Img(dim, null, new Color(0f, 0f, 0.02f, 0.72f), true);
+        SpaceTheme.Clickable(dim.gameObject, dimImg, CloseWildChooser, false);
+
+        const float BW = 250f, BH = 220f, GAP = 24f, H = 760f;
+        var black = SpaceMeeples.Black;
+        var panel = SpaceTheme.Rect("Panel", root, SpaceTheme.CENTER, Vector2.zero, new Vector2(Mathf.Min(_safeW - 64f, 960f), H));
+        SpaceTheme.Glass(panel, 52f, SpaceTheme.GLASS_DEEP, SpaceTheme.A(black.Tint, 0.6f), true);
+        var top = new Vector2(0.5f, 1f);
+        var iconGlow = SpaceTheme.Rect("IconGlow", panel, top, new Vector2(0f, -104f), new Vector2(220f, 220f));
+        SpaceTheme.Img(iconGlow, SpaceSprites.Glow, SpaceTheme.A(black.Tint, 0.3f));
+        var icon = SpaceTheme.Rect("Icon", panel, top, new Vector2(0f, -104f), new Vector2(120f, 120f));
+        var iconImg = SpaceTheme.Img(icon, black.Icon, Color.white);
+        iconImg.preserveAspect = true;
+        iconImg.enabled = black.Icon != null;
+        var title = SpaceTheme.Text(panel, "Title", T_WILD_TITLE, 40, SpaceTheme.TEXT, top, new Vector2(0f, -212f),
+            new Vector2(Mathf.Min(_safeW - 140f, 880f), 56f), FontStyles.Bold);
+        title.enableAutoSizing = true;
+        title.fontSizeMin = 26f;
+        title.fontSizeMax = 40f;
+        var sub = SpaceTheme.Text(panel, "Sub", any ? T_WILD_SUB_ANY : T_WILD_SUB_EMPTY, 26, SpaceTheme.TEXT_SUB, top,
+            new Vector2(0f, -268f), new Vector2(Mathf.Min(_safeW - 140f, 880f), 40f), FontStyles.Bold);
+        sub.enableAutoSizing = true;
+        sub.fontSizeMin = 18f;
+        sub.fontSizeMax = 26f;
+
+        // 赤・青・黄（押したら、その色として置く流れへ進む）
+        var colors = PlanetColorOrder.All;
+        float total = colors.Length * BW + (colors.Length - 1) * GAP;
+        for (int i = 0; i < colors.Length; i++)
+        {
+            var color = colors[i];
+            var m = SpaceMeeples.Of(color);
+            if (m == null) continue;
+            var rt = SpaceTheme.Rect("As_" + m.Field, panel, top,
+                new Vector2(-total * 0.5f + BW * 0.5f + i * (BW + GAP), -(320f + BH * 0.5f)), new Vector2(BW, BH));
+            var glow = SpaceTheme.Rect("Glow", rt, SpaceTheme.CENTER, Vector2.zero, new Vector2(BW + 90f, BH + 90f));
+            SpaceTheme.Img(glow, SpaceSprites.Glow, SpaceTheme.A(m.Tint, 0.25f));
+            var faceRt = SpaceTheme.Rect("Face", rt);
+            SpaceTheme.Stretch(faceRt);
+            var face = SpaceTheme.Rounded(faceRt, new Color(0.07f, 0.09f, 0.24f, 0.88f), 36f, true);
+            SpaceTheme.Clickable(rt.gameObject, face, () =>
+            {
+                CloseWildChooser();
+                _wildColor = color;
+                OnPlacePressed(); // 惑星の神殿なら力を戻す惑星を選ぶ → 確認 → 置く
+            });
+            var stroke = SpaceTheme.Rect("Stroke", rt);
+            SpaceTheme.Stretch(stroke);
+            SpaceTheme.RoundedStroke(stroke, SpaceTheme.A(m.Tint, 0.8f), 36f);
+            var mIcon = SpaceTheme.Rect("Icon", rt, top, new Vector2(0f, -78f), new Vector2(104f, 104f));
+            var mImg = SpaceTheme.Img(mIcon, m.Icon, Color.white);
+            mImg.preserveAspect = true;
+            mImg.enabled = m.Icon != null;
+            var label = SpaceTheme.Text(rt, "Label", SpaceWorld.ColorName(color) + T_WILD_BUTTON, 32, SpaceTheme.TEXT,
+                new Vector2(0.5f, 0f), new Vector2(0f, 46f), new Vector2(BW - 20f, 44f), FontStyles.Bold);
+            label.enableAutoSizing = true;
+            label.fontSizeMin = 22f;
+            label.fontSizeMax = 32f;
+        }
+
+        // キャンセル
+        var cancel = SpaceTheme.Rect("Cancel", panel, new Vector2(0.5f, 0f), new Vector2(0f, 48f), new Vector2(380f, 112f),
+            new Vector2(0.5f, 0f));
+        var cancelFace = SpaceTheme.Glass(cancel, 46f, new Color(0.05f, 0.07f, 0.19f, 0.85f), null, true);
+        SpaceTheme.Clickable(cancel.gameObject, cancelFace, CloseWildChooser);
+        var cancelLabel = SpaceTheme.Text(cancel, "Label", T_CANCEL, 36, SpaceTheme.TEXT_SUB, FontStyles.Bold);
+        SpaceTheme.Stretch(cancelLabel.rectTransform);
+
+        group.alpha = 0f;
+        StartCoroutine(SpaceTheme.Tween(0.2f, 0f, k =>
+        {
+            if (group == null) return;
+            group.alpha = k;
+            panel.localScale = Vector3.one * Mathf.Lerp(0.95f, 1f, k);
+        }));
+    }
+
+    private void CloseWildChooser()
+    {
+        if (_wildChooser != null) Destroy(_wildChooser);
+        _wildChooser = null;
+    }
+
+    private async UniTaskVoid PlaceAsync(SpaceWorldArea area, PlanetColor color, List<string> revive, bool wild)
     {
         if (_busy) return;
         _busy = true;
@@ -852,7 +1005,7 @@ public class SpaceWorldMap : MonoBehaviour
         SpaceWorld.PlaceResult r;
         try
         {
-            r = await SpaceWorld.PlaceAsync(area, color, revive);
+            r = await SpaceWorld.PlaceAsync(area, color, revive, wild);
         }
         finally
         {

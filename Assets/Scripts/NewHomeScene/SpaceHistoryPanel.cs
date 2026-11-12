@@ -67,6 +67,8 @@ public class SpaceHistoryPanel : MonoBehaviour
         new Kind { Key = "certify", Label = "アチーブメント", Color = SpaceTheme.Hex(0xFFE7A8) }, // ボードゲームの公認・星座の完成
         new Kind { Key = DiceChallenge.HISTORY, Label = "ダイス", Color = SpaceTheme.Hex(0xDDE6FF) }, // ダイスチャレンジ（2026-11-11）
         new Kind { Key = IgCurrency.HISTORY, Label = "通貨", Color = SpaceTheme.Hex(0xFFC94D) }, // アプリ内の通貨（単位 G。2026-11-12）
+        new Kind { Key = CardDeck.HISTORY, Label = "トランプ", Color = SpaceTheme.Hex(0xB89BFF) }, // 引いた・捨てた・ポーカー（2026-11-12）
+        new Kind { Key = CoinPusher.HISTORY, Label = "ミニゲーム", Color = SpaceTheme.Hex(0x7FE7FF) }, // コインプッシャー（2026-11-12）
     };
     private static readonly Kind OTHER = new Kind { Key = "", Label = "その他", Color = SpaceTheme.TEXT_SUB };
 

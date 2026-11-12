@@ -163,6 +163,8 @@ public class NewHomeController : MonoBehaviour
     private TextMeshProUGUI _worldSub;
     // ボタンの高さは所持品ボタン（176）と同じ（2026-11-10 ユーザー指定「大きさを一緒に」）
     private const float WORLD_H = 176f, WORLD_GAP = 20f, BAG_Y = 64f, CAMERA_BOTTOM = 260f;
+    private const float CAMERA_TOP = 524f; // 中央の惑星の領域の上（セーフエリアの上端からの距離。カードの下）
+    private const float ORB_Y = 48f;       // 中央の惑星の、領域のまん中からのずれ
     private const string T_WORLD_PLACED = "今日はコマを置きました";
     private const string T_WORLD_READY = "今日のコマを1体置けます";
     private const string T_WORLD_NOT_IN = "入店中にコマを置けます";
@@ -247,6 +249,8 @@ public class NewHomeController : MonoBehaviour
         var size = SpaceTheme.CanvasSize(_canvas);
         var insets = SpaceTheme.SafeInsets(size);
         _background = SpaceBackground.Create(canvasRt, size, insets.top);
+        // 押せる星座（さいころ座・金貨座・宝石座）の置き場を、星座を並べる前に渡す（あとで決まった場所から跳ばないように）
+        UpdateTapBand(SpaceWorld.Installed ? WORLD_H + WORLD_GAP : 0f);
         _background.EnableConstellations(); // 完成した星座を空に並べる
 
         // 中央の惑星の表面テクスチャは裏のスレッドで作るので、文字の登録・UIの組み立てと並行して先に始めておく
@@ -267,6 +271,8 @@ public class NewHomeController : MonoBehaviour
         BuildBagButton();
         BuildWorldButton();
         LayoutWorld();
+        // コインプッシャーの、前に送れなかった増減（遊んでいる途中でアプリを閉じたなど）を送る（2026-11-12）
+        CoinPusher.FlushAsync().Forget();
         BuildPlanetButton();
         BuildPriceMoon(); // 中央の惑星の輪より手前に描く（輪の上でも押せるように）
         _accountMenu = SpaceAccountMenu.Create(_canvas); // ホームの上に重ねる（右上の歯車）
@@ -320,7 +326,8 @@ public class NewHomeController : MonoBehaviour
           .Append(SpaceNotice.CertifyGlyphText).Append(BoardGameCertify.GlyphText).Append(SpaceNotice.ConstellationGlyphText)
           .Append(T_ORBIT).Append(T_STREAK_UNIT).Append(PlanetPowers.GlyphText).Append(SpaceNotice.JourneyGlyphText)
           .Append(SpaceOrbitPanel.GlyphText).Append(SpaceDiceRoller.GlyphText).Append(DiceChallenge.GlyphText)
-          .Append(IgCurrency.GlyphText).Append(SpaceShop.GlyphText);
+          .Append(IgCurrency.GlyphText).Append(SpaceShop.GlyphText).Append(SpaceNotice.CardGlyphText)
+          .Append(SpacePoker.GlyphText).Append(CoinPusher.GlyphText);
         var d = Data;
         if (d != null && !string.IsNullOrEmpty(d.Username)) sb.Append(d.Username);
         return sb.ToString();
@@ -449,10 +456,10 @@ public class NewHomeController : MonoBehaviour
     {
         // カードの下〜所持品ボタンの上の空き領域の中央に置く（INTALES WORLD のボタンがあるときは LayoutWorld が上へ縮める）
         var area = SpaceTheme.Rect("CameraArea", _content);
-        SpaceTheme.Stretch(area, 0f, CAMERA_BOTTOM, 0f, 524f);
+        SpaceTheme.Stretch(area, 0f, CAMERA_BOTTOM, 0f, CAMERA_TOP);
         _cameraArea = area;
 
-        _orbRt = SpaceTheme.Rect("CameraOrb", area, SpaceTheme.CENTER, new Vector2(0f, 48f), new Vector2(760f, 760f));
+        _orbRt = SpaceTheme.Rect("CameraOrb", area, SpaceTheme.CENTER, new Vector2(0f, ORB_Y), new Vector2(760f, 760f));
         _orbGroup = _orbRt.gameObject.AddComponent<CanvasGroup>();
         SpaceTheme.SubCanvas(_orbRt.gameObject, true);
 
@@ -789,7 +796,7 @@ public class NewHomeController : MonoBehaviour
     private void OpenQrList()
     {
         if (PanelOpen || _landing) return;
-        _qrList = SpaceAdminQrList.Open(_canvas, () => _qrList = null);
+        _qrList = SpaceAdminQrList.Open(_canvas, () => _qrList = null, ToggleVisitAsAdmin);
     }
 
     /// <summary>傾いた楕円軌道（リングを縦につぶしてから傾ける）</summary>
@@ -887,6 +894,27 @@ public class NewHomeController : MonoBehaviour
         float lift = on ? WORLD_H + WORLD_GAP : 0f;
         _bagRt.anchoredPosition = new Vector2(0f, BAG_Y + lift);
         if (_cameraArea != null) _cameraArea.offsetMin = new Vector2(_cameraArea.offsetMin.x, CAMERA_BOTTOM + lift);
+        UpdateTapBand(lift);
+    }
+
+    /// <summary>お知らせ・料金表の小さな惑星の名前の下端（小さな惑星の中心からの距離。文字の大きさの設定で少しのびる分も含む）</summary>
+    private const float MOON_LABEL_BELOW = 100f;
+
+    /// <summary>
+    /// 空の押せる星座（さいころ座・金貨座・宝石座）を置ける高さを背景に渡す（2026-11-12）:
+    /// 図鑑・履歴の小さな惑星の上端 〜 お知らせ・料金表の小さな惑星の名前の下端（キャンバスの下端からの距離）
+    /// </summary>
+    private void UpdateTapBand(float lift)
+    {
+        if (_background == null || _canvas == null) return;
+        var size = SpaceTheme.CanvasSize(_canvas);
+        var insets = SpaceTheme.SafeInsets(size);
+        float top = size.y - insets.top;
+        float areaLo = insets.bottom + CAMERA_BOTTOM + lift, areaHi = top - CAMERA_TOP;
+        float orb = (areaLo + areaHi) * 0.5f + ORB_Y;                    // 中央の惑星の中心
+        float lo = orb + HISTORY_POS.y + HISTORY_HIT * 0.5f;              // 図鑑・履歴の小さな惑星の上端
+        float hi = top + PRICE_POS.y - MOON_LABEL_BELOW;                  // お知らせ・料金表の名前の下端
+        _background.SetTapBand(lo, hi);
     }
 
     /// <summary>ボタンの下の一言（今日もう置いたか・入店中か）</summary>
@@ -982,6 +1010,18 @@ public class NewHomeController : MonoBehaviour
     }
 
     /// <summary>来店記録（端末ローカル）から来店回数と入店状況を表示する</summary>
+    /// <summary>
+    /// 今日の入店QRを読んだのと同じ入店・退店をする（管理者のQRコード画面の「ログイン」ボタン。2026-11-12 ユーザー指定。
+    /// エディタの N キーも同じ）。入店中なら退店、入店の記録はあるのに公転に数えていなければ公転の記録だけやり直す
+    /// </summary>
+    private void ToggleVisitAsAdmin()
+    {
+        var caller = GetComponent<CallMethodFromQR>();
+        if (caller == null) caller = gameObject.AddComponent<CallMethodFromQR>();
+        caller.ToggleVisitSigned(StoreCheckinQr.Payload(StoreCheckinQr.Today));
+        RefreshVisit();
+    }
+
     private void RefreshVisit()
     {
         var log = LocalVisitLog.Load();
@@ -1055,6 +1095,7 @@ public class NewHomeController : MonoBehaviour
         RefreshBagSub();
         if (announce) CheckStarter(); // 贈りものの知らせより先に（選ぶ画面が開いている間は贈りものを待たせる）
         if (announce) CheckMeeplePick();
+        if (announce) CheckCardDiscard();
         if (announce) CheckLegacyGift();
         if (announce && !_giftBusy) UpdateGifts();
     }
@@ -1070,6 +1111,18 @@ public class NewHomeController : MonoBehaviour
         if (pick == PlanetColor.None) return;
         if (PanelOpen || _landing || SpaceNoticeQueue.Running || SpaceNotice.AnyOpen) return;
         SpaceNotice.MeeplePick(pick);
+    }
+
+    /// <summary>
+    /// トランプの手札が8枚のまま（捨てるカードを選ぶ前にアプリを閉じたなど）: 捨てるカードを選ぶ画面をもう一度出す
+    /// （選ぶまで閉じない。2026-11-12）
+    /// </summary>
+    private void CheckCardDiscard()
+    {
+        if (!_built || _starter != null) return;
+        if (_landing || SpaceNoticeQueue.Running || SpaceNotice.AnyOpen) return;
+        if (!CardDeck.MustDiscard) return;
+        SpaceNotice.CardDiscard();
     }
 
     /// <summary>
@@ -1237,7 +1290,7 @@ public class NewHomeController : MonoBehaviour
                               || _starter != null || _world != null || _zukan != null
                               || _prices != null || _orbitPanel != null || _accountMenu.IsOpen
                               || SpaceConstellationPage.Instance != null || SpaceDiceRoller.Instance != null
-                              || SpaceShop.Instance != null;
+                              || SpaceShop.Instance != null || SpacePoker.Instance != null || CoinPusher.Active;
 
     /// <summary>公転の画面（ユーザーカードの公転・来店回数・入店状況を押す）</summary>
     private void OpenOrbit()
@@ -1954,7 +2007,8 @@ public class NewHomeController : MonoBehaviour
         if (_planetView != null)
             _planetView.Animate = !qrOpen && _news == null && _zukan == null && _prices == null
                                   && SpaceConstellationPage.Instance == null && SpaceDiceRoller.Instance == null
-                                  && SpaceShop.Instance == null && (_picker == null || _landing);
+                                  && SpaceShop.Instance == null && SpacePoker.Instance == null && !CoinPusher.Active
+                                  && (_picker == null || _landing);
 
         // 惑星を解放したお知らせで「この惑星にする」が押されたら、中央の惑星を入れ替える
         // （選ぶ画面からの決定は OnPlanetChosen が先に _planet を変えるので、ここでは何もしない）
@@ -1982,9 +2036,11 @@ public class NewHomeController : MonoBehaviour
             // → お知らせページ → 設定メニュー
             if (SpaceNotice.CloseTop()) { }
             else if (_starter != null) _starter.HandleBack(); // 最初の惑星を選ぶまでは閉じない
+            else if (CoinPusherController.Instance != null) CoinPusherController.Instance.HandleBack(); // コインプッシャー（全画面）
             else if (SpaceConstellationPage.Instance != null) SpaceConstellationPage.Instance.HandleBack();
             else if (SpaceDiceRoller.Instance != null) SpaceDiceRoller.Instance.HandleBack();
             else if (SpaceShop.Instance != null) SpaceShop.Instance.HandleBack();
+            else if (SpacePoker.Instance != null) SpacePoker.Instance.HandleBack();
             else if (_zukan != null) _zukan.HandleBack();
             else if (_prices != null) _prices.HandleBack();
             else if (_qrList != null) _qrList.HandleBack();
@@ -2003,15 +2059,14 @@ public class NewHomeController : MonoBehaviour
         if (DebugTogglePressed())
         {
             // エディタ専用: N キーで入退店（お店の画面の入店QRを読んだときと同じ処理）
-            var caller = GetComponent<CallMethodFromQR>();
-            if (caller == null) caller = gameObject.AddComponent<CallMethodFromQR>();
-            caller.ToggleVisitSigned(StoreCheckinQr.Payload(StoreCheckinQr.Today));
-            RefreshVisit();
+            ToggleVisitAsAdmin();
         }
         // エディタ専用: R キーで流れ星を1回引く（当たりはログイン中のアカウントに本当に足す）
         if (DebugStarPressed() && !SpaceNoticeQueue.Running && !_debugDrawing) DebugDrawAsync().Forget();
         // エディタ専用: G キーでログイン中のアカウントに 10G を足す（ショップを試すため。本当に足す。2026-11-12）
         if (DebugGoldPressed() && !_debugGold) DebugGoldAsync().Forget();
+        // エディタ専用: T キーでトランプを1枚引く（1日1回の決まりを使わない。ポーカーを試すため。本当に書き込む。2026-11-12）
+        if (DebugCardPressed() && !_debugCard && !SpaceNoticeQueue.Running) DebugCardAsync().Forget();
 #endif
     }
 
@@ -2164,6 +2219,54 @@ public class NewHomeController : MonoBehaviour
         {
             _debugGold = false;
         }
+    }
+
+    private bool _debugCard;
+
+    /// <summary>エディタ専用: T キーでトランプを1枚引く（CardDeck.DebugDrawAsync）→ めくって見せる → 8枚なら捨てる</summary>
+    private async UniTaskVoid DebugCardAsync()
+    {
+        _debugCard = true;
+        try
+        {
+            if (CardDeck.MustDiscard)
+            {
+                SpaceNotice.CardDiscard();
+                return;
+            }
+            var (card, overflow) = await CardDeck.DebugDrawAsync();
+            if (this == null) return;
+            if (card < 0)
+            {
+                SpaceTheme.Toast("ログインしていません", _canvas);
+                return;
+            }
+            var steps = new List<Func<GameObject>> { () => SpaceNotice.CardDrawn(new List<int> { card }, "DEBUG", overflow) };
+            if (overflow) steps.Add(() => CardDeck.MustDiscard ? SpaceNotice.CardDiscard() : null);
+            SpaceNoticeQueue.Run(steps, null);
+        }
+        catch (Exception ex)
+        {
+            Debug.LogError($"[Debug] トランプの書き込みに失敗: {ex.Message}");
+        }
+        finally
+        {
+            _debugCard = false;
+        }
+    }
+
+    /// <summary>エディタ専用: T キー（トランプを1枚引く）</summary>
+    private static bool DebugCardPressed()
+    {
+        bool pressed = false;
+#if ENABLE_INPUT_SYSTEM
+        var kb = UnityEngine.InputSystem.Keyboard.current;
+        if (kb != null && kb.tKey.wasPressedThisFrame) pressed = true;
+#endif
+#if ENABLE_LEGACY_INPUT_MANAGER
+        if (Input.GetKeyDown(KeyCode.T)) pressed = true;
+#endif
+        return pressed;
     }
 
     /// <summary>エディタ専用: G キー（10G を足す）</summary>

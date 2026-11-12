@@ -80,6 +80,14 @@ public static partial class SpaceNotice
                 var pick = r.MeeplePick;
                 steps.Add(() => JourneyService.PendingPick != PlanetColor.None ? MeeplePick(pick) : null);
             }
+            // トランプを1枚引いた（宝石座か切り札座を完成させた人。2026-11-12）: めくって見せる → 手札が8枚なら捨てるカードを選ぶ
+            if (r.Card >= 0)
+            {
+                var drawn = new List<int> { r.Card };
+                bool over = r.CardOverflow;
+                steps.Add(() => CardDrawn(drawn, null, over));
+                if (over) steps.Add(() => CardDeck.MustDiscard ? CardDiscard() : null);
+            }
             var faded = FadedAtCheckOut(r);
             if (faded != null) steps.Add(() => PlanetFaded(faded));
             foreach (var p in r.Prizes)

@@ -151,6 +151,8 @@ public static class JourneyService
             Meeples = SpaceWorld.Installed, // コマを配るのは INTALES WORLD をダウンロードした人だけ
             Debug = AdminClaim.IsAdmin,     // 管理者はデバッグ用に、入店するたびにコマをもらえる（2026-11-10）
             Ig = IgCurrency.Unlocked,       // 金貨座を完成させた人は 1G（その営業日の最初の入店のとき。2026-11-12）
+            Cards = CardDeck.Unlocked,      // 宝石座か切り札座を完成させた人はトランプを1枚（同上。2026-11-12）
+            CardMonth = CardRules.MonthKey(day),
             InAt = new DateTimeOffset(visitUtc.ToUniversalTime()).ToUnixTimeSeconds(),
             SeedDays = LocalDistinctDays(),
         };
@@ -169,6 +171,7 @@ public static class JourneyService
             var j = JourneyData.From(map.TryGetValue("journey", out var raw) ? raw : null);
             var r = new JourneyResult();
             j = JourneyRules.ApplyVisit(j, ctx, r, owned, rng);
+            JourneyRules.DrawCardOnVisit(map.TryGetValue(CardDeck.FIELD, out var cards) ? cards : null, ctx, r, rng);
             tx.Update(doc, BuildUpdates(j, r));
             journey = j;
             return r;
@@ -577,6 +580,7 @@ public static class JourneyService
             if (meeple != null) updates[meeple.Field] = FieldValue.Increment(g.Count());
         }
         if (r.Ig > 0) updates[IgCurrency.FIELD] = FieldValue.Increment(r.Ig);
+        if (r.CardsMap != null) updates[CardDeck.FIELD] = r.CardsMap;
         if (r.Unlocked.Count > 0) updates["planets"] = FieldValue.ArrayUnion(r.Unlocked.Cast<object>().ToArray());
         return updates;
     }
@@ -594,6 +598,7 @@ public static class JourneyService
             foreach (var m in r.Meeples)
                 SpaceMeeples.Of(m)?.Add(d, 1);
             if (r.Ig > 0) d.Ig += r.Ig;
+            if (r.CardsMap != null) d.CardsMap = r.CardsMap;
             foreach (var id in r.Unlocked)
                 if (!d.Planets.Contains(id)) d.Planets.Add(id);
             if (r.Unlocked.Count > 0) SpacePlanets.MarkNews();
@@ -611,6 +616,7 @@ public static class JourneyService
                 ? $"入店で {SpaceMeeples.Names(r.Meeples)} を1個 入手"
                 : $"入店で {SpaceMeeples.Names(r.Meeples)} を1個ずつ 入手");
         if (r.Ig > 0) LocalHistoryLog.Add(IgCurrency.HISTORY, $"入店で {IgCurrency.Format(r.Ig)} を入手");
+        if (r.Card >= 0) LocalHistoryLog.Add(CardDeck.HISTORY, $"入店で トランプの {CardRules.Name(r.Card)} を引いた");
         if (!string.IsNullOrEmpty(r.Exhausted))
         {
             var used = SpacePlanets.Find(r.Exhausted);

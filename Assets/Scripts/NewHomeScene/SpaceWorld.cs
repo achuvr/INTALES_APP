@@ -55,6 +55,8 @@ public sealed class SpaceWorldArea
 /// 6か所目の黄金の鉱山（3G をもらう）は 2026-11-12 追加。
 ///  ・その日まだ誰も置いていない置き場には、好きな色を置ける。1体でも置かれたら、その日は同じ色しか置けない（マストフォロー）
 ///  ・ただし左下の「星くずの島」だけは、何色でも置ける保険の置き場（2026-11-11 ユーザー指定。星のカケラ5個で流れ星1回）
+///  ・黒コマ（2026-11-12。切り札座の完成でショップに並ぶ）は何色にでもなるコマで、色が決まった置き場にも置ける。
+///    置き場の色のコマとして数える（まだ決まっていない置き場・星くずの島では、何色として置くかを選ぶ）
 ///  ・1人が置けるのは1日1体だけ（どこか1か所）／置いたコマは使い切り（戻らない）／置けるのは入店中だけ
 ///    （以上 2026-11-10 ユーザーの回答）
 ///  ・置き場ごとの色と数は全員で共有して、リアルタイムに同期する（world/{営業日}。毎朝4時の営業日の変わり目でリセット）
@@ -70,6 +72,8 @@ public static class SpaceWorld
     public const string T_ERR_NOT_IN_STORE = "コマを置けるのは入店中だけです";
     public const string T_ERR_PLACED = "今日はもうコマを置きました（1日1体まで）";
     public const string T_ERR_NO_MEEPLE = "その色のコマを持っていません";
+    public const string T_ERR_NO_BLACK = "黒コマを持っていません";
+    public const string T_ERR_PICK_WILD = "黒コマを何色として置くか選んでください";
     public const string T_ERR_COLOR = "ほかの人が先に別の色のコマを置きました。もう一度選んでください";
     public const string T_ERR_NO_EXHAUSTED = "力を失った惑星がありません";
     public const string T_ERR_PICK = "力を戻す惑星を選んでください";
@@ -408,6 +412,7 @@ public static class SpaceWorld
         public bool CouponCompleted;                          // 商人の港: カケラがそろって5%OFFチケットになった
         public int StarFragments;                             // 星くずの島: もらったあとの星のカケラの数（そろったら0）
         public bool StarCompleted;                            // 星くずの島: 星のカケラがそろって流れ星を見られる（当たりは Star）
+        public bool Wild;                                     // 黒コマを置いた（Color は黒コマがなった色）
         public int Gold;                                      // 黄金の鉱山: もらった G
         public int GoldBalance;                               // 黄金の鉱山: もらったあとの所持金
         internal JourneyData Journey;                         // 力を戻したあとの来店の記録
@@ -416,11 +421,14 @@ public static class SpaceWorld
 
     /// <summary>
     /// 置き場 area に color のコマを1体置く。revive は「惑星を3つアクティブにする」で力を戻す惑星
-    /// （力を失った惑星が3つ以下なら null でよい＝全部戻す）。結果を返す（失敗なら Ok=false と Error）
+    /// （力を失った惑星が3つ以下なら null でよい＝全部戻す）。結果を返す（失敗なら Ok=false と Error）。
+    /// wild なら黒コマを置く: color は黒コマがなる色（色が決まっている置き場では、その色に合わせる。
+    /// 選んでいる間にほかの人が先に別の色を置いても、黒コマならその色として置ける）
     /// </summary>
-    public static async UniTask<PlaceResult> PlaceAsync(SpaceWorldArea area, PlanetColor color, IList<string> revive)
+    public static async UniTask<PlaceResult> PlaceAsync(SpaceWorldArea area, PlanetColor color, IList<string> revive,
+        bool wild = false)
     {
-        var fail = new PlaceResult { Area = area, Color = color };
+        var fail = new PlaceResult { Area = area, Color = color, Wild = wild };
         var m = UserDataManager.instance;
         if (area == null || m == null || string.IsNullOrEmpty(m.UID) || m.UserData == null)
         {
@@ -449,7 +457,7 @@ public static class SpaceWorld
         {
             res = await db.RunTransactionAsync(tx => tx.GetSnapshotAsync(boardRef).ContinueWith(tb =>
                 tx.GetSnapshotAsync(userRef).ContinueWith(tu =>
-                    Apply(tx, boardRef, userRef, tb.Result, tu.Result, area, color, revive, day, rng, centerId,
+                    Apply(tx, boardRef, userRef, tb.Result, tu.Result, area, color, wild, revive, day, rng, centerId,
                         weekday, season, unlimited))).Unwrap()).AsUniTask();
         }
         catch (Exception ex)
@@ -466,21 +474,21 @@ public static class SpaceWorld
 
     /// <summary>トランザクションの中身（何度呼ばれてもよいように、外の状態は変えない）</summary>
     private static PlaceResult Apply(Transaction tx, DocumentReference boardRef, DocumentReference userRef,
-        DocumentSnapshot boardSnap, DocumentSnapshot userSnap, SpaceWorldArea area, PlanetColor color,
+        DocumentSnapshot boardSnap, DocumentSnapshot userSnap, SpaceWorldArea area, PlanetColor color, bool wild,
         IList<string> revive, string day, System.Random rng, string centerId, DayOfWeek weekday,
         StoreCalendar.Season season, bool unlimited)
     {
-        var r = new PlaceResult { Area = area, Color = color };
+        var r = new PlaceResult { Area = area, Color = color, Wild = wild };
         var u = userSnap != null && userSnap.Exists ? userSnap.ToDictionary() : new Dictionary<string, object>();
         if (!unlimited && Str(u, "world_day") == day)
         {
             r.Error = T_ERR_PLACED;
             return r;
         }
-        var meeple = SpaceMeeples.Of(color);
+        var meeple = wild ? SpaceMeeples.Black : SpaceMeeples.Of(color);
         if (meeple == null || Long(u, meeple.Field) < 1)
         {
-            r.Error = T_ERR_NO_MEEPLE;
+            r.Error = wild ? T_ERR_NO_BLACK : T_ERR_NO_MEEPLE;
             return r;
         }
 
@@ -489,6 +497,19 @@ public static class SpaceWorld
         var b = boardSnap != null && boardSnap.Exists ? boardSnap.ToDictionary() : null;
         string placed = "";
         long count, colorCount;
+        if (wild && !area.AnyColor)
+        {
+            // 黒コマ: 色が決まっている置き場では、その色になる（マストフォローに合う）
+            string now = b != null ? Str(b, cKey) ?? "" : "";
+            if (now.Length > 0) color = ColorOf(now);
+            r.Color = color;
+        }
+        if (SpaceMeeples.Of(color) == null)
+        {
+            // 黒コマで、まだ色の決まっていない置き場・星くずの島なのに、何色として置くかが決まっていない
+            r.Error = T_ERR_PICK_WILD;
+            return r;
+        }
         if (area.AnyColor)
         {
             // 保険の置き場: 何色でも置ける（マストフォローなし）。色ごとに数える
@@ -580,7 +601,7 @@ public static class SpaceWorld
             if (kv.Value != 0) updates[kv.Key] = FieldValue.Increment(kv.Value);
         updates["world_day"] = day;
         updates["world_area"] = a;
-        updates["world_color"] = ColorKey(color);
+        updates["world_color"] = ColorKey(color); // 黒コマは、なった色
 
         if (b == null)
         {
@@ -647,7 +668,7 @@ public static class SpaceWorld
                     d.Ig = r.GoldBalance; // 黄金の鉱山（トランザクションで読んだ値＋もらった分）
                     continue;
                 }
-                var mm = SpaceMeeples.All.FirstOrDefault(x => x.Field == kv.Key);
+                var mm = SpaceMeeples.ByField(kv.Key); // 黒コマも
                 if (mm != null) mm.Add(d, n);
                 else SpaceCoupons.ByField(kv.Key)?.Add(d, n);
             }
@@ -683,7 +704,9 @@ public static class SpaceWorld
         }
 
         var meeple = SpaceMeeples.Of(r.Color);
-        LocalHistoryLog.Add("meeple", $"{T_TITLE} の{r.Area.Name}に {meeple?.Name} を置いた");
+        LocalHistoryLog.Add("meeple", r.Wild
+            ? $"{T_TITLE} の{r.Area.Name}に {SpaceMeeples.Black.Name}（{ColorName(r.Color)}として）を置いた"
+            : $"{T_TITLE} の{r.Area.Name}に {meeple?.Name} を置いた");
         switch (r.Area.Effect)
         {
             case WorldEffect.Star:
@@ -744,7 +767,8 @@ public static class SpaceWorld
         {
             var sb = new StringBuilder(T_TITLE).Append(T_ERR_USER).Append(T_ERR_NOT_IN_STORE).Append(T_ERR_PLACED)
                 .Append(T_ERR_NO_MEEPLE).Append(T_ERR_COLOR).Append(T_ERR_NO_EXHAUSTED).Append(T_ERR_PICK)
-                .Append(T_ERR_NETWORK).Append(T_ERR_DENIED).Append("赤青黄").Append(FRAGMENT_NAME).Append(STAR_FRAGMENT_NAME);
+                .Append(T_ERR_NETWORK).Append(T_ERR_DENIED).Append("赤青黄").Append(FRAGMENT_NAME).Append(STAR_FRAGMENT_NAME)
+                .Append(T_ERR_NO_BLACK).Append(T_ERR_PICK_WILD).Append("（）として");
             foreach (var a in Areas) sb.Append(a.Name).Append(a.En).Append(a.Text).Append(a.Note).Append(a.Detail);
             return sb.ToString();
         }

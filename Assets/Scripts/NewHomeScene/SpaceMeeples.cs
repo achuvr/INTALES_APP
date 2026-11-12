@@ -12,14 +12,18 @@ public sealed class SpaceMeepleDef
     public string IconPath; // Resources の絵（背景は透明）
     public Func<UserData, int> Get;
     public Action<UserData, int> Add;
+    /// <summary>何色にでもなるコマ（黒コマ。Color は None。2026-11-12）</summary>
+    public bool Wild;
+    /// <summary>光・縁の色（色のないコマ用。なければ惑星の色）</summary>
+    public Color? TintOverride;
 
     private Sprite _icon;
 
     /// <summary>コマの絵（1回だけ読む。見つからなければ null）</summary>
     public Sprite Icon => _icon != null ? _icon : (_icon = Resources.Load<Sprite>(IconPath));
 
-    /// <summary>コマの色（惑星の色の丸・3Dの駒と同じ）</summary>
-    public Color Tint => PlanetColors.Of(Color);
+    /// <summary>コマの色（惑星の色の丸・3Dの駒と同じ。黒コマは銀色がかった淡いすみれ色）</summary>
+    public Color Tint => TintOverride ?? PlanetColors.Of(Color);
 }
 
 /// <summary>
@@ -52,6 +56,48 @@ public static class SpaceMeeples
         },
     };
 
+    /// <summary>
+    /// 黒コマ（2026-11-12 ユーザー指定「切り札座が完成するとショップに黒コマが並ぶ。黒コマは何色にでもなるコマで、
+    /// 既に色が決まっているエリアにも置くことが出来る。7Gで購入できる」）。
+    /// All（赤・青・黄）には入れない（入店で配る・コマの工房の「各色1個ずつ」・ショップの3色の並びは今までどおり3色のまま）。
+    /// INTALES WORLD では、置いた置き場の色のコマとして数える（色が決まっていれば自動でその色。まだ決まっていない置き場と
+    /// 星くずの島では、何色として置くかを選ぶ）。置き場の文書は赤・青・黄のどれかで書くので、Firestore のルールは変えていない
+    /// </summary>
+    public static readonly SpaceMeepleDef Black = new SpaceMeepleDef
+    {
+        Color = PlanetColor.None, Field = "black_meeple", Name = "黒コマ", IconPath = "ItemIcon/MeepleBlack",
+        Get = d => d.BlackMeeple, Add = (d, n) => d.BlackMeeple += n, Wild = true,
+        TintOverride = new Color(0.85f, 0.82f, 0.95f),
+    };
+
+    /// <summary>黒コマがショップに並ぶ星座（切り札座＝トリックテイキング）</summary>
+    public const string BLACK_CONSTELLATION = "trump";
+
+    /// <summary>黒コマの値段（G。2026-11-12 ユーザー指定）</summary>
+    public const int BLACK_PRICE = 7;
+
+    /// <summary>黒コマが使えるようになったか（切り札座が完成。管理者は初めから）</summary>
+    public static bool BlackUnlocked
+    {
+        get
+        {
+            if (AdminClaim.IsAdmin) return true;
+            var p = Constellations.Progress().Find(x => x.Def.Id == BLACK_CONSTELLATION);
+            return p != null && p.Complete;
+        }
+    }
+
+    /// <summary>黒コマを出すか（使えるようになった・または持っている）</summary>
+    public static bool ShowBlack(UserData d) => BlackUnlocked || (d != null && d.BlackMeeple > 0);
+
+    /// <summary>フィールド名からコマの定義を探す（黒コマも。なければ null）</summary>
+    public static SpaceMeepleDef ByField(string field)
+    {
+        foreach (var m in All)
+            if (m.Field == field) return m;
+        return Black.Field == field ? Black : null;
+    }
+
     /// <summary>色からコマの定義を探す（1色だけの値で。なければ null）</summary>
     public static SpaceMeepleDef Of(PlanetColor color)
     {
@@ -81,6 +127,7 @@ public static class SpaceMeeples
         {
             var sb = new StringBuilder(T_UNIT + "・+");
             foreach (var m in All) sb.Append(m.Name);
+            sb.Append(Black.Name);
             return sb.ToString();
         }
     }

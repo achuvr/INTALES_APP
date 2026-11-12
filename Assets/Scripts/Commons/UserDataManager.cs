@@ -191,6 +191,10 @@ public class UserData
     [FirestoreProperty("yellow_meeple")]
     public int YellowMeeple { get; set; }
 
+    /// <summary>黒コマ（2026-11-12。何色にでもなるコマ。切り札座の完成でショップに並ぶ。SpaceMeeples.Black）</summary>
+    [FirestoreProperty("black_meeple")]
+    public int BlackMeeple { get; set; }
+
     // INTALES WORLD で今日コマを置いた記録（2026-11-10。1日1体まで。SpaceWorld）
     /// <summary>コマを置いた営業日 "yyyy-MM-dd"</summary>
     [FirestoreProperty("world_day")]
@@ -224,6 +228,12 @@ public class UserData
     /// </summary>
     [FirestoreProperty("gold_claims")]
     public Dictionary<string, object> GoldClaims { get; set; }
+
+    /// <summary>
+    /// トランプの手札と山札（2026-11-12。{ month, hand, deck, day }。読むときは CardState.From、表示は CardDeck.Current）
+    /// </summary>
+    [FirestoreProperty("cards")]
+    public Dictionary<string, object> CardsMap { get; set; }
 
     // ダイスチャレンジ（2026-11-11。さいころ座が完成すると1日1回 1D100 を振ってランキングに載る。DiceChallenge）
     /// <summary>ダイスチャレンジを振った営業日 "yyyy-MM-dd"</summary>

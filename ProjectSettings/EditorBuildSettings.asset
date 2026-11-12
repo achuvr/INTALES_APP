@@ -20,6 +20,9 @@ EditorBuildSettings:
   - enabled: 0
     path: Assets/Scenes/New.unity
     guid: 6465567628601ac4b97179013a97c1af
+  - enabled: 1
+    path: Assets/Scenes/CoinPusher.unity
+    guid: b5c2f5f564fc4c37b903a8400e3a716e
   - enabled: 0
     path: Assets/Scenes/Zukan.unity
     guid: c4d8e2f1a9b6470e8d3c5a7b1e9f4d20

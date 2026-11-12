@@ -34,6 +34,10 @@ public static partial class SpaceNotice
         .Append(T_REVEAL_PLACED).Append(T_REVEAL_SHINE).Append(T_REVEAL_NEXT).Append(SpaceNoticeTexts.DiceUnlocked)
         .Append(SpaceNoticeTexts.IgUnlocked).Append(SpaceNoticeTexts.IgUnlockedSubA).Append(SpaceNoticeTexts.IgUnlockedSubB)
         .Append(SpaceNoticeTexts.IgUnlockedShop)
+        .Append(SpaceNoticeTexts.CardsUnlocked).Append(SpaceNoticeTexts.CardsUnlockedSub).Append(SpaceNoticeTexts.PokerUnlocked)
+        .Append(SpaceNoticeTexts.PokerUnlockedSub).Append(SpaceNoticeTexts.PokerUnlockedTap)
+        .Append(SpaceNoticeTexts.BlackUnlockedShop).Append(SpaceNoticeTexts.BlackUnlocked).Append(SpaceNoticeTexts.BlackUnlockedSub)
+        .Append(SpaceNoticeTexts.PusherUnlocked).Append(SpaceNoticeTexts.PusherUnlockedSub).Append(SpaceNoticeTexts.PusherUnlockedTap)
         .Append(IgCurrency.GlyphText)
         .Append("Lv.0123456789/ →（）枚").ToString();
 
@@ -318,6 +322,11 @@ public class SpaceConstellationReveal : MonoBehaviour
         }
         if (first && def.Id == IgCurrency.CONSTELLATION)
             IgUnlockedLine(safe, textGroup, textY - 250f); // 金貨座の完成でアプリ内の通貨（G）とショップが使えるようになる（2026-11-12）
+        if (first && (def.Id == CardDeck.GEM || def.Id == CardDeck.TRUMP))
+            CardsUnlockedLine(safe, textGroup, textY - 250f, def.Id); // 宝石座・切り札座の完成でトランプ（宝石座はポーカーも）
+        if (first && def.Id == CoinPusher.CONSTELLATION) // 積み木座の完成でコインプッシャー（2026-11-12）
+            UnlockedLines(safe, textGroup, textY - 250f, "Pusher", IgCurrency.Icon, SpaceNoticeTexts.PusherUnlocked,
+                SpaceNoticeTexts.PusherUnlockedSub, SpaceNoticeTexts.PusherUnlockedTap, SpaceTheme.Hex(0x7FE7FF));
         var tg = textGroup.gameObject.AddComponent<CanvasGroup>();
         tg.alpha = 0f;
         yield return SpaceTheme.Tween(0.5f, 0f, k =>
@@ -352,25 +361,66 @@ public class SpaceConstellationReveal : MonoBehaviour
     /// </summary>
     private static void IgUnlockedLine(RectTransform safe, RectTransform textGroup, float cy)
     {
-        const float ICON = 96f, GAP = 20f, MAX_W = 1000f;
         string sub = SpaceNoticeTexts.IgUnlockedSubA + IgCurrency.Format(IgCurrency.PerVisit) + SpaceNoticeTexts.IgUnlockedSubB;
-        var main = SpaceTheme.Text(safe, "Ig", SpaceNoticeTexts.IgUnlocked, 30, SpaceTheme.TEXT, FontStyles.Bold);
-        var note = SpaceTheme.Text(safe, "IgSub", sub, 24, SpaceTheme.TEXT_SUB, FontStyles.Bold);
-        var shop = SpaceTheme.Text(safe, "IgShop", SpaceNoticeTexts.IgUnlockedShop, 24, SpaceTheme.Hex(0x8CF7C8), FontStyles.Bold);
-        float textW = Mathf.Max(main.GetPreferredValues(main.text).x,
-            Mathf.Max(note.GetPreferredValues(sub).x, shop.GetPreferredValues(shop.text).x));
+        UnlockedLines(safe, textGroup, cy, "Ig", IgCurrency.Icon, SpaceNoticeTexts.IgUnlocked, sub,
+            SpaceNoticeTexts.IgUnlockedShop, SpaceTheme.Hex(0x8CF7C8));
+    }
+
+    /// <summary>
+    /// 宝石座・切り札座が完成したときだけ添える一言（2026-11-12）: 「トランプのカードを持てるようになりました」
+    /// 「来店するたびに山札から1枚引けます。手札は所持品で見られます」、宝石座なら「ホームの空の宝石座をタップすると、ポーカーができます」、
+    /// 切り札座なら「金貨座のショップに黒コマが並びます」（同日追加の黒コマ）。
+    /// もう片方の星座でトランプが使えるようになっていたら、宝石座は「ポーカーができるようになりました」、
+    /// 切り札座は「ショップに黒コマが並ぶようになりました」だけにする
+    /// </summary>
+    private static void CardsUnlockedLine(RectTransform safe, RectTransform textGroup, float cy, string id)
+    {
+        bool gem = id == CardDeck.GEM;
+        string other = gem ? CardDeck.TRUMP : CardDeck.GEM;
+        var op = Constellations.Progress().Find(x => x.Def.Id == other);
+        bool already = op != null && op.Complete; // もう片方の完成で、トランプはもう持てていた
+        if (!gem)
+        {
+            // 切り札座: トランプ（まだなら）と黒コマ
+            if (already)
+                UnlockedLines(safe, textGroup, cy, "Black", SpaceMeeples.Black.Icon, SpaceNoticeTexts.BlackUnlocked,
+                    SpaceNoticeTexts.BlackUnlockedSub, null, SpaceMeeples.Black.Tint);
+            else
+                UnlockedLines(safe, textGroup, cy, "Cards", CardDeck.DrawIcon, SpaceNoticeTexts.CardsUnlocked,
+                    SpaceNoticeTexts.CardsUnlockedSub, SpaceNoticeTexts.BlackUnlockedShop, SpaceMeeples.Black.Tint);
+            return;
+        }
+        string main = already ? SpaceNoticeTexts.PokerUnlocked : SpaceNoticeTexts.CardsUnlocked;
+        string sub = already ? SpaceNoticeTexts.PokerUnlockedSub : SpaceNoticeTexts.CardsUnlockedSub;
+        UnlockedLines(safe, textGroup, cy, "Cards", CardDeck.DrawIcon, main, sub, SpaceNoticeTexts.PokerUnlockedTap,
+            SpacePoker.PINK);
+    }
+
+    /// <summary>絵と3行の文字（1行目は白、2行目は淡い色、3行目は extraColor）をひとまとまりにして真ん中にそろえる</summary>
+    private static void UnlockedLines(RectTransform safe, RectTransform textGroup, float cy, string id, Sprite sprite,
+        string mainText, string subText, string extraText, Color extraColor)
+    {
+        const float ICON = 96f, GAP = 20f, MAX_W = 1000f;
+        var main = SpaceTheme.Text(safe, id, mainText, 30, SpaceTheme.TEXT, FontStyles.Bold);
+        var note = SpaceTheme.Text(safe, id + "Sub", subText, 24, SpaceTheme.TEXT_SUB, FontStyles.Bold);
+        var extra = string.IsNullOrEmpty(extraText) ? null
+            : SpaceTheme.Text(safe, id + "Extra", extraText, 24, extraColor, FontStyles.Bold);
+        float textW = Mathf.Max(main.GetPreferredValues(main.text).x, note.GetPreferredValues(subText).x);
+        if (extra != null) textW = Mathf.Max(textW, extra.GetPreferredValues(extraText).x);
         textW = Mathf.Min(MAX_W - ICON - GAP, textW * Mathf.Max(1f, SpaceTheme.TextScale) + 8f);
         float left = -(ICON + GAP + textW) * 0.5f;
 
-        var icon = SpaceTheme.Rect("IgCoin", safe, SpaceTheme.CENTER, new Vector2(left + ICON * 0.5f, cy),
+        var icon = SpaceTheme.Rect(id + "Icon", safe, SpaceTheme.CENTER, new Vector2(left + ICON * 0.5f, cy),
             new Vector2(ICON, ICON));
-        var sprite = IgCurrency.Icon;
         var img = SpaceTheme.Img(icon, sprite, Color.white);
         img.preserveAspect = true;
         img.enabled = sprite != null;
         icon.SetParent(textGroup, true);
 
-        foreach (var (t, dy, h) in new[] { (main, 40f, 46f), (note, -2f, 36f), (shop, -42f, 36f) })
+        var lines = extra != null
+            ? new[] { (main, 40f, 46f), (note, -2f, 36f), (extra, -42f, 36f) }
+            : new[] { (main, 22f, 46f), (note, -20f, 36f) };
+        foreach (var (t, dy, h) in lines)
         {
             var rt = t.rectTransform;
             rt.anchorMin = rt.anchorMax = SpaceTheme.CENTER;
@@ -398,6 +448,20 @@ internal static class SpaceNoticeTexts
     /// <summary>金貨座が完成したときだけ添える一言（2026-11-12。アプリ内の通貨＝単位 G が使えるようになる）</summary>
     public const string IgUnlocked = "アプリ内の通貨（" + IgCurrency.UNIT + "）が使えるようになりました";
     public const string IgUnlockedSubA = "来店するたびに ";
+    /// <summary>宝石座・切り札座が完成したときだけ添える一言（2026-11-12。トランプ・ポーカー）</summary>
+    public const string CardsUnlocked = "トランプのカードを持てるようになりました";
+    public const string CardsUnlockedSub = "来店するたびに山札から1枚引けます。手札は所持品で見られます";
+    public const string PokerUnlocked = "ポーカーができるようになりました";
+    public const string PokerUnlockedSub = "手札から5枚選んで勝負すると、役に応じて報酬がもらえます";
+    public const string PokerUnlockedTap = "ホームの空の宝石座をタップすると、ポーカーができます";
+    /// <summary>切り札座が完成したときだけ添える一言（2026-11-12。黒コマ＝何色にでもなるコマがショップに並ぶ）</summary>
+    public const string BlackUnlockedShop = "金貨座のショップに、何色にでもなる黒コマが並びます";
+    public const string BlackUnlocked = "ショップに黒コマが並ぶようになりました";
+    public const string BlackUnlockedSub = "黒コマは何色にでもなるコマです。色が決まった置き場にも置けます";
+    /// <summary>積み木座が完成したときだけ添える一言（2026-11-12。ミニゲームのコインプッシャー）</summary>
+    public const string PusherUnlocked = "ミニゲーム「コインプッシャー」で遊べるようになりました";
+    public const string PusherUnlockedSub = "G を入れて、G・コマ・星のカケラを手前に押し出そう";
+    public const string PusherUnlockedTap = "ホームの空の積み木座をタップすると遊べます";
     public const string IgUnlockedSubB = " もらえます。所持金は所持品で見られます";
     public const string IgUnlockedShop = "ホームの空の金貨座をタップすると、ショップが開きます";
 }

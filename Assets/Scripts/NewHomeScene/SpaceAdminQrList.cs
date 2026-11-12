@@ -11,6 +11,8 @@ using UnityEngine.UI;
 /// <summary>
 /// 管理者用: お客様に見せるQRコードの一覧（新ホームで管理者アカウントにだけ出る QR ボタンから開く全画面）。
 /// 上のタブで種類を切り替え、マスを選ぶとそのQRを白地で大きく表示する。お客様のアプリのカメラで読み取ってもらう。
+///  ・入店       … 1日1回変わる入店・退店のQR。下に管理者の「ログイン」ボタン（2026-11-12。ログイン＝入店。
+///                 このQRを自分では読めないので、読んだのと同じ入店をする。入店中は「ログアウト」＝退店）
 ///  ・クーポン   … 店頭クーポン4種（所持品と同じ並び）。中身は従来の店頭QRと同じ文字（CallMethodFromQR.QR_*_COUPON）。
 ///                 読み取るたびに1枚もらえ、受け取った側の新ホームが「○○を1枚入手しました」と知らせる。
 ///                 最後のマス「G を渡す」（2026-11-12）は金額を決めて G のQR（GoldQr。その日だけ・1人1回）を出す
@@ -56,6 +58,12 @@ public class SpaceAdminQrList : MonoBehaviour
     private const string T_CHECKIN_SCAN = "このQRコードを読み取ると、入店（入店中なら退店）になります";
     private const string T_CHECKIN_SUB = "毎日、朝4時に変わります。表示中は画面が消えません";
     private const string T_CHECKIN_DAY_B = " の入店QRコードです";
+    // 管理者の「ログイン」ボタン（2026-11-12 ユーザー指定「管理者はQRコードを表示する画面の下に『ログイン』するボタンを」
+    // 「入店のことです」）。この画面の「ログイン」は入店（アプリのアカウントのログインではない）
+    public const string T_LOGIN = "ログイン";
+    public const string T_LOGOUT = "ログアウト";
+    public const string T_LOGIN_NOTE = "このQRコードを読み取ったときと同じく、入店します";
+    public const string T_LOGOUT_NOTE = "入店中です。押すと退店します（このQRコードを読み取ったときと同じ）";
     private const string T_GAME_SEARCH = "遊んだゲームを検索…";
     private const string T_GAME_EN = "ACHIEVEMENT";
     private const string T_GAME_SCAN = "このQRコードを読み取ると、このゲームのアチーブメントを達成します";
@@ -86,6 +94,7 @@ public class SpaceAdminQrList : MonoBehaviour
               .Append(T_PASS_WAITING).Append(T_PASS_DONE).Append(T_PASS_GONE).Append("（）さん")
               .Append(T_CHECKIN_EN).Append(T_CHECKIN_NAME).Append(T_CHECKIN_CELL).Append(T_CHECKIN_CELL_SUB)
               .Append(T_CHECKIN_SCAN).Append(T_CHECKIN_SUB).Append(T_CHECKIN_DAY_B).Append(StoreCalendar.GlyphText)
+              .Append(T_LOGIN).Append(T_LOGOUT).Append(T_LOGIN_NOTE).Append(T_LOGOUT_NOTE)
               .Append(T_GAME_SEARCH).Append(T_GAME_EN).Append(T_GAME_SCAN).Append(T_GAME_SUB)
               .Append(T_GOLD_CELL).Append(T_GOLD_CELL_SUB).Append(T_GOLD_EN).Append(T_GOLD_PICK).Append(T_GOLD_RANGE_A)
               .Append(T_GOLD_RANGE_B).Append(T_GOLD_SHOW).Append(T_GOLD_SCAN_B).Append(T_GOLD_SUB)
@@ -121,6 +130,7 @@ public class SpaceAdminQrList : MonoBehaviour
     private GameObject _detail;
     private Texture2D _qrTex;
     private Action _onClosed;
+    private Action _onLogin; // 管理者の「ログイン」（今日の入店QRを読んだのと同じ入店・退店。NewHomeController が渡す）
     private bool _closing;
 
     // 1か月パスの受け取りQR（表示中のもの）
@@ -130,7 +140,8 @@ public class SpaceAdminQrList : MonoBehaviour
     private TextMeshProUGUI _passStatus;
     private int _detailSerial;        // QRの表示を開け閉めするたびに増やす（発行している間に閉じられたかの判定）
 
-    public static SpaceAdminQrList Open(Canvas canvas, Action onClosed)
+    /// <param name="onLogin">入店タブの「ログイン」ボタンで呼ぶ（今日の入店QRを読んだのと同じ入店・退店。null ならボタンを出さない）</param>
+    public static SpaceAdminQrList Open(Canvas canvas, Action onClosed, Action onLogin = null)
     {
         var root = SpaceTheme.Rect("__AdminQrList", canvas.transform);
         SpaceTheme.Stretch(root);
@@ -138,6 +149,7 @@ public class SpaceAdminQrList : MonoBehaviour
         SpaceTheme.SubCanvas(root.gameObject, true);
         var list = root.gameObject.AddComponent<SpaceAdminQrList>();
         list._onClosed = onClosed;
+        list._onLogin = onLogin;
         list.Build();
         return list;
     }
@@ -297,6 +309,27 @@ public class SpaceAdminQrList : MonoBehaviour
         sub.enableAutoSizing = true;
         sub.fontSizeMin = 18f;
         sub.fontSizeMax = 24f;
+
+        // 管理者の「ログイン」（＝入店）。お店の端末に出しているこのQRコードを、管理者は自分では読めないので、
+        // 読んだのと同じ入店をする。入店中は「ログアウト」（＝退店。QRコードをもう一度読んだときと同じ）
+        if (_onLogin != null)
+        {
+            float by = y + 104f + 18f + 46f; // 説明の下
+            var btn = SpaceTheme.Rect("Login", page, new Vector2(0.5f, 1f), new Vector2(0f, -(by + 60f)),
+                new Vector2(520f, 120f));
+            var face = SpaceTheme.GradientFace(btn, SpaceTheme.Hex(0x9BF2FF), SpaceTheme.Hex(0x4C7DFF), SpaceTheme.CYAN);
+            var label = SpaceTheme.Text(btn, "Label", T_LOGIN, 42, SpaceTheme.TEXT_DARK, FontStyles.Bold);
+            SpaceTheme.Stretch(label.rectTransform);
+            var group = btn.gameObject.AddComponent<CanvasGroup>();
+            var note = SpaceTheme.Text(page, "LoginNote", T_LOGIN_NOTE, 22, SpaceTheme.TEXT_MUTED, new Vector2(0.5f, 1f),
+                new Vector2(0f, -(by + 120f + 32f)), new Vector2(960f, 34f), FontStyles.Bold);
+            note.enableAutoSizing = true;
+            note.fontSizeMin = 16f;
+            note.fontSizeMax = 22f;
+            var login = btn.gameObject.AddComponent<AdminLoginButton>();
+            login.Init(label, note, group, _onLogin);
+            SpaceTheme.Clickable(btn.gameObject, face, login.Press);
+        }
 
         var updater = page.gameObject.AddComponent<CheckinQrUpdater>();
         updater.Init(raw, dayLabel, day, T_CHECKIN_DAY_B, tex);
@@ -989,5 +1022,56 @@ public class CheckinQrUpdater : MonoBehaviour
     private void OnDestroy()
     {
         if (_tex != null) Destroy(_tex);
+    }
+}
+
+/// <summary>
+/// 管理者の「ログイン」ボタン（入店QRの画面の下。2026-11-12）。入店中かどうかを見て「ログイン」「ログアウト」を切り替える。
+/// 押したら、入店の記録が届くまで（または3秒）続けて押せないようにする（2回押して入店と退店が続かないように）
+/// </summary>
+public class AdminLoginButton : MonoBehaviour
+{
+    private TextMeshProUGUI _label, _note;
+    private CanvasGroup _group;
+    private Action _onPress;
+    private float _busyUntil, _nextCheck;
+    private bool _shownIn;
+
+    public void Init(TextMeshProUGUI label, TextMeshProUGUI note, CanvasGroup group, Action onPress)
+    {
+        _label = label;
+        _note = note;
+        _group = group;
+        _onPress = onPress;
+        _shownIn = JourneyService.InStoreToday;
+        Apply();
+    }
+
+    public void Press()
+    {
+        if (Time.unscaledTime < _busyUntil || _onPress == null) return;
+        _busyUntil = Time.unscaledTime + 3f;
+        if (_group != null) _group.alpha = 0.5f;
+        _onPress();
+    }
+
+    private void Update()
+    {
+        if (Time.unscaledTime < _nextCheck) return;
+        _nextCheck = Time.unscaledTime + 0.3f;
+        bool inStore = JourneyService.InStoreToday;
+        if (inStore != _shownIn)
+        {
+            _shownIn = inStore;
+            _busyUntil = 0f; // 入店（退店）できたら、すぐまた押せる
+            Apply();
+        }
+        if (_group != null) _group.alpha = Time.unscaledTime < _busyUntil ? 0.5f : 1f;
+    }
+
+    private void Apply()
+    {
+        if (_label != null) _label.text = _shownIn ? SpaceAdminQrList.T_LOGOUT : SpaceAdminQrList.T_LOGIN;
+        if (_note != null) _note.text = _shownIn ? SpaceAdminQrList.T_LOGOUT_NOTE : SpaceAdminQrList.T_LOGIN_NOTE;
     }
 }
