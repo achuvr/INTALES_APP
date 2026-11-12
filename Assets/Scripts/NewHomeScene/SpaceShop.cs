@@ -99,7 +99,7 @@ public class SpaceShop : MonoBehaviour
     private const string T_HISTORY_B = "個 購入（";
     private const string T_HISTORY_STAR = "個そろって 流れ星を見た";
     private const string T_CARD_NAME = "トランプを引く";
-    private const string T_CARD_DESC = "山札から1枚引きます"; // 3列のカードで1行に収まる長さ
+    private const string T_CARD_DESC = "山札から1枚引きます（1日1回）"; // 3列のカード（文字は枠に合わせて縮む）
     private const string T_CARD_UNIT = "枚";
     private const string T_CARD_LOCKED = "宝石座か切り札座を完成させると、トランプが引けます";
     private const string T_CARD_HISTORY_A = "ショップで トランプを ";
@@ -147,15 +147,19 @@ public class SpaceShop : MonoBehaviour
             Icon = () => SpacePlanetPotion.Icon, Owned = d => d.PlanetPotion, Add = (d, n) => d.PlanetPotion += n,
         });
         // トランプを引く（2026-11-12 ユーザー指定「切り札座か宝石座が完成していたら、山札からカードを引くのを購入できるように。3Gで」）。
-        // 来店のときと同じ山札から引く（同じカードは2枚持てない・引き切るまで同じカードは出ない）。手札が8枚になったら1枚捨てる
+        // 来店のときと同じ山札から引く（同じカードは2枚持てない・引き切るまで同じカードは出ない）。手札が8枚になったら1枚捨てる。
+        // 引けるのは1日1回・1枚まで（同日ユーザー指定「ショップでカードを購入できるのは1日1回まで」。cards.shop_day）
         list.Add(new SpaceShopItem
         {
             Id = "card_draw", Field = CardDeck.FIELD, Name = T_CARD_NAME, Desc = T_CARD_DESC, Price = CardDeck.SHOP_PRICE,
             Tint = CardDeck.ACCENT, Icon = () => CardDeck.DrawIcon, Owned = d => CardDeck.Current.Hand.Count,
             Add = (d, n) => { }, Card = true, Unit = T_CARD_UNIT, Visible = () => CardDeck.Unlocked,
-            OwnedText = d => CardDeck.T_HAND_A + CardDeck.Current.Hand.Count + " / " + CardRules.HAND_MAX,
-            Limit = () => Mathf.Max(0, CardRules.HAND_MAX + 1 - CardDeck.Current.Hand.Count),
-            Blocked = () => CardDeck.MustDiscard ? CardDeck.T_ERR_DISCARD_FIRST : null,
+            OwnedText = d => CardDeck.ShopDrawnToday
+                ? CardDeck.T_SHOP_DONE_SHORT
+                : CardDeck.T_HAND_A + CardDeck.Current.Hand.Count + " / " + CardRules.HAND_MAX,
+            Limit = () => CardDeck.ShopDrawnToday ? 0 : Mathf.Clamp(CardRules.HAND_MAX + 1 - CardDeck.Current.Hand.Count, 0, 1),
+            Blocked = () => CardDeck.ShopDrawnToday ? CardDeck.T_SHOP_DONE
+                : CardDeck.MustDiscard ? CardDeck.T_ERR_DISCARD_FIRST : null,
         });
         return list.ToArray();
     }
@@ -191,8 +195,8 @@ public class SpaceShop : MonoBehaviour
         public int Balance;        // 買ったあとの所持金
         public int OwnedAfter;     // 買ったあとのその品物の数（星のカケラはそろった分を引いたあと）
         public int Stars;          // 星のカケラがそろって見る流れ星の数
-        public readonly JourneyResult Star = new JourneyResult(); // 流れ星の当たり（Prizes）・ノワール（Unlocked）
-        internal readonly Dictionary<string, long> Coupons = new Dictionary<string, long>(); // 流れ星で増えたクーポン
+        // 流れ星の当たり（Prizes）・ノワール（Unlocked）・当たりで増えた物（Rewards。クーポン・持ち物）
+        public readonly JourneyResult Star = new JourneyResult();
         public readonly List<int> Cards = new List<int>(); // 引いたトランプ（引いた順）
         public bool CardOverflow;                          // 引いて手札が8枚になった（このあと1枚捨てる）
         internal Dictionary<string, object> CardsMap;      // 書き込んだ手札と山札
@@ -230,6 +234,7 @@ public class SpaceShop : MonoBehaviour
         var weekday = StoreCalendar.TodayBusiness.DayOfWeek;
         var season = StoreCalendar.CurrentSeason;
         string cardMonth = CardDeck.MonthKey;
+        string today = StoreCalendar.TodayKey; // トランプはショップで1日1回まで
         var rng = new System.Random(unchecked(Environment.TickCount * 7 + uid.GetHashCode()));
         var db = FirebaseFirestore.DefaultInstance;
         var userRef = db.Collection("users").Document(uid);
@@ -238,7 +243,7 @@ public class SpaceShop : MonoBehaviour
         try
         {
             res = await db.RunTransactionAsync(tx => tx.GetSnapshotAsync(userRef).ContinueWith(t =>
-                Apply(tx, userRef, t.Result, item, count, rng, centerId, weekday, season, cardMonth))).AsUniTask();
+                Apply(tx, userRef, t.Result, item, count, rng, centerId, weekday, season, cardMonth, today))).AsUniTask();
         }
         catch (Exception ex)
         {
@@ -250,6 +255,9 @@ public class SpaceShop : MonoBehaviour
         {
             // 所持金が足りなかった（ほかの端末で使っていた）ときは、手元の所持金をサーバーの値にそろえる
             if (res != null && res.Error == T_SHORT && Data != null) Data.Ig = res.Balance;
+            // トランプをほかの端末で今日もう引いていたときは、手元の手札と山札もサーバーの値にそろえる（「今日はもう引きました」と出る）
+            if (res != null && res.Error == CardDeck.T_SHOP_DONE && res.CardsMap != null && Data != null)
+                Data.CardsMap = res.CardsMap;
             return res ?? fail;
         }
         ApplyLocal(res);
@@ -258,7 +266,8 @@ public class SpaceShop : MonoBehaviour
 
     /// <summary>トランザクションの中身（何度呼ばれてもよいように、外の状態は変えない）</summary>
     private static Purchase Apply(Transaction tx, DocumentReference userRef, DocumentSnapshot snap, SpaceShopItem item,
-        int count, System.Random rng, string centerId, DayOfWeek weekday, StoreCalendar.Season season, string cardMonth)
+        int count, System.Random rng, string centerId, DayOfWeek weekday, StoreCalendar.Season season, string cardMonth,
+        string today)
     {
         var r = new Purchase { Item = item, Count = count };
         var u = snap != null && snap.Exists ? snap.ToDictionary() : null;
@@ -280,9 +289,24 @@ public class SpaceShop : MonoBehaviour
         if (item.Card)
         {
             // トランプ: 来店のときと同じ山札から count 枚引く。手札が8枚（捨てる前）なら引かない。
-            // 手札は8枚までしか増やさない（あふれた1枚は、このあと捨てるカードを選ぶ）
+            // 手札は8枚までしか増やさない（あふれた1枚は、このあと捨てるカードを選ぶ）。
+            // ショップで引けるのは1日1回・1枚まで（2026-11-12 ユーザー指定。引いた営業日を cards.shop_day に書く）
             var s = CardState.From(u.TryGetValue(CardDeck.FIELD, out var cardsRaw) ? cardsRaw : null);
             CardRules.Normalize(s, cardMonth);
+            if (s.ShopDay == today)
+            {
+                r.Error = CardDeck.T_SHOP_DONE;
+                r.Balance = (int)balance;
+                r.CardsMap = s.ToMap();
+                return r;
+            }
+            if (count != 1)
+            {
+                r.Error = CardDeck.T_ERR_CHANGED;
+                r.Balance = (int)balance;
+                return r;
+            }
+            s.ShopDay = today;
             if (CardRules.Overflow(s) || s.Hand.Count + count > CardRules.HAND_MAX + 1)
             {
                 r.Error = CardRules.Overflow(s) ? CardDeck.T_ERR_DISCARD_FIRST : CardDeck.T_ERR_CHANGED;
@@ -305,9 +329,10 @@ public class SpaceShop : MonoBehaviour
             return r;
         }
         long after = Math.Max(0, Long(u, item.Field)) + count;
+        long gold = 0; // 流れ星で当たった G（所持金は数そのものを書くので、そこに足す）
         if (item.StarFragment)
         {
-            // 5個ごとに流れ星を1回（入店のときと同じ当たりやすさ＝公転の数）。クーポンは数を増やし、ノワールは惑星に足す
+            // 5個ごとに流れ星を1回（入店のときと同じ当たりやすさ＝公転の数）。クーポン・持ち物は数を増やし、ノワールは惑星に足す
             r.Stars = (int)(after / SpaceWorld.STAR_FRAGMENTS_PER_STAR);
             after %= SpaceWorld.STAR_FRAGMENTS_PER_STAR;
             if (r.Stars > 0)
@@ -315,25 +340,21 @@ public class SpaceShop : MonoBehaviour
                 var j = JourneyData.From(u.TryGetValue("journey", out var raw) ? raw : null);
                 var owned = JourneyService.OwnedPlanetsOf(u);
                 for (int i = 0; i < r.Stars; i++)
-                {
-                    int before = r.Star.Prizes.Count;
                     JourneyRules.AddPrize(JourneyRules.Roll(rng, j?.Streak ?? 0, centerId, weekday, season), owned, r.Star);
-                    for (int k = before; k < r.Star.Prizes.Count; k++)
-                    {
-                        var coupon = JourneyService.CouponOf(r.Star.Prizes[k]);
-                        if (coupon == null) continue;
-                        r.Coupons[coupon.Field] = (r.Coupons.TryGetValue(coupon.Field, out var n) ? n : 0) + 1;
-                    }
-                }
-                foreach (var kv in r.Coupons) updates[kv.Key] = FieldValue.Increment(kv.Value);
+                var rewards = JourneyService.StarRewardsOf(r.Star.Prizes, u);
+                r.Star.Rewards = rewards;
+                if (rewards.Inc.TryGetValue(IgCurrency.FIELD, out gold)) rewards.Inc.Remove(IgCurrency.FIELD);
+                JourneyService.WriteStarRewards(updates, rewards);
+                if (gold != 0) rewards.Inc[IgCurrency.FIELD] = gold; // 手元の数・履歴のために戻す（書き込みは下の所持金で）
                 if (r.Star.Unlocked.Count > 0)
                     updates["planets"] = FieldValue.ArrayUnion(r.Star.Unlocked.Cast<object>().ToArray());
             }
         }
         updates[item.Field] = after;
+        updates[IgCurrency.FIELD] = balance - cost + gold;
         tx.Update(userRef, updates);
         r.Cost = (int)cost;
-        r.Balance = (int)(balance - cost);
+        r.Balance = (int)(balance - cost + gold);
         r.OwnedAfter = (int)after;
         r.Ok = true;
         return r;
@@ -345,10 +366,10 @@ public class SpaceShop : MonoBehaviour
         var d = Data;
         if (d != null)
         {
-            d.Ig = r.Balance;
+            JourneyService.ApplyStarRewardsLocal(d, r.Star.Rewards); // 流れ星の当たり（クーポン・持ち物）
+            d.Ig = r.Balance; // 流れ星の G も入った、トランザクションで書いた所持金（上で足した分はここで正しい値になる）
             if (r.Item.Card) d.CardsMap = r.CardsMap;
             else r.Item.Add(d, r.OwnedAfter - r.Item.Owned(d));
-            foreach (var kv in r.Coupons) SpaceCoupons.ByField(kv.Key)?.Add(d, (int)kv.Value);
             foreach (var id in r.Star.Unlocked)
                 if (!d.Planets.Contains(id)) d.Planets.Add(id);
             if (r.Star.Unlocked.Count > 0) SpacePlanets.MarkNews();
@@ -370,11 +391,7 @@ public class SpaceShop : MonoBehaviour
             LocalHistoryLog.Add("fragment",
                 $"{SpaceWorld.STAR_FRAGMENT_NAME}が{SpaceWorld.STAR_FRAGMENTS_PER_STAR}{T_HISTORY_STAR}"
                 + (r.Stars > 1 ? $"（{r.Stars}回）" : ""));
-            foreach (var p in r.Star.Prizes)
-            {
-                var c = JourneyService.CouponOf(p);
-                if (c != null) LocalHistoryLog.Add("coupon", $"流れ星で {c.Name} を1枚 入手");
-            }
+            JourneyService.LogStarPrizes(r.Star.Prizes, r.Star.Rewards);
             foreach (var id in r.Star.Unlocked)
             {
                 var def = SpacePlanets.Find(id);
@@ -719,9 +736,9 @@ public class SpaceShop : MonoBehaviour
         string blocked = item.Blocked?.Invoke();
         if (blocked != null)
         {
-            // 手札が8枚: 先に捨てるカードを選ぶ画面を出す
+            // 手札が8枚: 先に捨てるカードを選ぶ画面を出す（今日もう引いたときは知らせるだけ）
             SpaceTheme.Toast(blocked, _canvas);
-            if (item.Card) SpaceNotice.CardDiscard();
+            if (item.Card && blocked == CardDeck.T_ERR_DISCARD_FIRST) SpaceNotice.CardDiscard();
             return;
         }
         OpenSheet(item);

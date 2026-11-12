@@ -11,7 +11,8 @@ using UnityEngine.UI;
 ///     良い当たり（SUPER RARE 以上）のときは、流星群に金色の筋が混じる（予兆）
 ///  4. 光がはじけて白く飛び、当たりのカード（SpaceNotice.StarPrizeNotice）が出る
 /// タップで先へ進む（流星群 → 大きな流れ星、昇格の途中 → 結果）。戻るボタンは結果まで飛ばす。
-/// 当たりの格: 5%引き=NORMAL / ドリンク・コーヒー=RARE / 7%引き=SUPER RARE / ノワール=SECRET
+/// 当たりの格: 5%引き=NORMAL / ドリンク・コーヒー=RARE / 7%引き=SUPER RARE / ノワール・5時間無料・フリータイム=SECRET。
+/// 持ち物の当たり（2026-11-12〜）は、赤・青・黄コマ・惑星回復薬・5%OFFチケットのカケラ=NORMAL / 黒コマ・7G=RARE
 /// </summary>
 public class SpaceGachaMeteor : MonoBehaviour
 {
@@ -39,9 +40,16 @@ public class SpaceGachaMeteor : MonoBehaviour
     {
         switch (p)
         {
-            case StarPrize.Five: return 0;
+            case StarPrize.Five:
+            case StarPrize.MeepleRed:
+            case StarPrize.MeepleBlue:
+            case StarPrize.MeepleYellow:
+            case StarPrize.PlanetPotion:
+            case StarPrize.FiveFragment: return 0;
             case StarPrize.Drink:
-            case StarPrize.Coffee: return 1;
+            case StarPrize.Coffee:
+            case StarPrize.MeepleBlack:
+            case StarPrize.Gold: return 1;
             case StarPrize.Seven: return 2;
             default: return 3; // ノワール・5時間無料・フリータイム（SECRET）
         }

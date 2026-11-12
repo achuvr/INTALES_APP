@@ -90,6 +90,15 @@ public static class SpaceMeeples
     /// <summary>黒コマを出すか（使えるようになった・または持っている）</summary>
     public static bool ShowBlack(UserData d) => BlackUnlocked || (d != null && d.BlackMeeple > 0);
 
+    /// <summary>コマ（黒も）を1つでも持っているか（流れ星で当たった人にも所持品のコマの欄を出す。2026-11-12）</summary>
+    public static bool OwnsAny(UserData d)
+    {
+        if (d == null) return false;
+        foreach (var m in All)
+            if (m.Get(d) > 0) return true;
+        return Black.Get(d) > 0;
+    }
+
     /// <summary>フィールド名からコマの定義を探す（黒コマも。なければ null）</summary>
     public static SpaceMeepleDef ByField(string field)
     {

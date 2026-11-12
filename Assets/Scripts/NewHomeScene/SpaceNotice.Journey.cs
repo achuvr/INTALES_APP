@@ -33,6 +33,14 @@ public static partial class SpaceNotice
     private const string T_STAR_HINT = "所持品に入りました";
     private const string T_STAR_NOIR = "ひみつの惑星";
     private const string T_STAR_NOIR_HINT = "めったに出会えない惑星です";
+    // 流れ星で5%OFFチケットのカケラが当たったとき（2026-11-12）:「カケラが2枚そろって 5%OFFチケット になりました」
+    // 「あと1枚で 5%OFFチケット になります」
+    private const string T_STAR_PIECE_DONE_A = "カケラが";
+    private const string T_STAR_PIECE_DONE_B = "枚そろって ";
+    private const string T_STAR_PIECE_DONE_C = " になりました";
+    private const string T_STAR_PIECE_LEFT_A = "あと";
+    private const string T_STAR_PIECE_LEFT_B = "枚で ";
+    private const string T_STAR_PIECE_LEFT_C = " になります";
     private const string T_TOGETHER = "さんと一緒に来店しました！";
     private const string T_MEEPLE_GOT = "コマをもらいました"; // 入店した日に、中央の惑星の色のコマ（2026-11-10）
     private const string T_MEEPLE_NONE = " は力を失っているので、コマはもらえませんでした";
@@ -52,6 +60,8 @@ public static partial class SpaceNotice
         .Append(T_ORBIT_BROKEN).Append(T_ORBIT_INSURANCE).Append(T_ORBIT_NEXT_A).Append(T_ORBIT_NEXT_B)
         .Append(T_ORBIT_FIRST).Append(T_VISITS_A).Append(T_VISITS_B).Append(T_STAR_CAPTION).Append(T_STAR_TITLE)
         .Append(T_STAR_GOT).Append(T_STAR_HINT).Append(T_STAR_NOIR).Append(T_STAR_NOIR_HINT).Append(T_TOGETHER)
+        .Append(T_STAR_PIECE_DONE_A).Append(T_STAR_PIECE_DONE_B).Append(T_STAR_PIECE_DONE_C).Append(T_STAR_PIECE_LEFT_A)
+        .Append(T_STAR_PIECE_LEFT_B).Append(T_STAR_PIECE_LEFT_C).Append(SpacePlanetPotion.NAME)
         .Append(T_MEEPLE_GOT).Append(SpaceMeeples.GlyphText).Append(T_MEEPLE_NONE).Append(T_FADED_CAPTION)
         .Append(T_IG_GOT).Append(T_IG_TOTAL).Append(IgCurrency.GlyphText).Append(T_GOLD_CAPTION).Append(T_GOLD_GOT)
         .Append(GoldQr.GlyphText)
@@ -735,7 +745,11 @@ public static partial class SpaceNotice
         var coupon = JourneyService.CouponOf(prize);
         bool noir = prize == StarPrize.Noir;
         var noirDef = SpacePlanets.Find("noir");
-        Color accent = noir && noirDef != null ? noirDef.Accent : coupon != null ? coupon.Accent : SpaceTheme.GOLD;
+        string itemName = JourneyService.ItemName(prize); // 持ち物の当たり（コマ・7G・惑星回復薬・カケラ。2026-11-12〜）
+        Color accent = noir && noirDef != null ? noirDef.Accent
+            : coupon != null ? coupon.Accent
+            : itemName != null ? JourneyService.ItemAccent(prize)
+            : SpaceTheme.GOLD;
         var card = Overlay("__StarPrizeModal", out var root, SpaceTheme.A(accent, 0.5f));
         if (card == null) return null;
         SpaceTheme.SubCanvas(root, true);
@@ -764,22 +778,46 @@ public static partial class SpaceNotice
             SpacePlanetView.Create(prizeHolder, noirDef, 240f, SpacePlanetView.Quality.Large, true);
         else if (coupon != null)
             SpaceInventoryPanel.RoundedIcon(prizeHolder, coupon.Icon(), SpaceTheme.CENTER, Vector2.zero, 200f, 40f);
+        else if (itemName != null)
+        {
+            // 持ち物の絵（背景が透明なので、そのまま大きく）
+            var icon = JourneyService.ItemIcon(prize);
+            var img = SpaceTheme.Img(prizeHolder, icon, Color.white);
+            img.preserveAspect = true;
+            img.enabled = icon != null;
+        }
         var meteor = stage.gameObject.AddComponent<SpaceMeteorShow>();
         meteor.Prize = prizeHolder;
         meteor.Color = Color.Lerp(accent, Color.white, 0.5f);
 
-        string name = noir ? T_STAR_NOIR + "「" + (noirDef?.Name ?? "") + "」" : coupon?.Name ?? "";
+        string name = noir ? T_STAR_NOIR + "「" + (noirDef?.Name ?? "") + "」" : coupon?.Name ?? itemName ?? "";
         var strong = SpaceTheme.Text(card, "Strong",
             $"<color=#{ColorUtility.ToHtmlStringRGB(SpaceTheme.GOLD)}>{name}</color>{T_STAR_GOT}", 42,
             SpaceTheme.TEXT, FontStyles.Bold);
         Wrap(strong);
         Stack(strong.rectTransform, ref y, Measure(strong, 60f), 20f);
-        var hint = SpaceTheme.Text(card, "Hint", noir ? T_STAR_NOIR_HINT : T_STAR_HINT, 28, SpaceTheme.TEXT_SUB,
-            FontStyles.Bold);
-        Stack(hint.rectTransform, ref y, 40f, 6f);
+        string hintText = noir ? T_STAR_NOIR_HINT : prize == StarPrize.FiveFragment ? StarPieceHint() : T_STAR_HINT;
+        var hint = SpaceTheme.Text(card, "Hint", hintText, 28, SpaceTheme.TEXT_SUB, FontStyles.Bold);
+        Wrap(hint);
+        Stack(hint.rectTransform, ref y, Measure(hint, 40f), 6f);
 
         Finish(card, root, ref y);
         return root;
+    }
+
+    /// <summary>
+    /// 流れ星で5%OFFチケットのカケラが当たったときの一言: そろってチケットになった（手元のカケラが0）か、あと何枚か。
+    /// 当たりのカードは、書き込んで手元の数にも反映したあとに出すので、手元の数で分かる
+    /// </summary>
+    private static string StarPieceHint()
+    {
+        var d = UserDataManager.instance != null ? UserDataManager.instance.UserData : null;
+        int have = d != null ? Mathf.Max(0, d.FiveFragment) : 0;
+        string five = JourneyService.CouponOf(StarPrize.Five)?.Name ?? "";
+        return have == 0
+            ? T_STAR_PIECE_DONE_A + SpaceWorld.FRAGMENTS_PER_COUPON + T_STAR_PIECE_DONE_B + five + T_STAR_PIECE_DONE_C
+            : T_STAR_PIECE_LEFT_A + Mathf.Max(1, SpaceWorld.FRAGMENTS_PER_COUPON - have) + T_STAR_PIECE_LEFT_B + five
+              + T_STAR_PIECE_LEFT_C;
     }
 
     /// <summary>

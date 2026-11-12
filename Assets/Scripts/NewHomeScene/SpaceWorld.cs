@@ -414,7 +414,7 @@ public static class SpaceWorld
         public bool StarCompleted;                            // 星くずの島: 星のカケラがそろって流れ星を見られる（当たりは Star）
         public bool Wild;                                     // 黒コマを置いた（Color は黒コマがなった色）
         public int Gold;                                      // 黄金の鉱山: もらった G
-        public int GoldBalance;                               // 黄金の鉱山: もらったあとの所持金
+        public int GoldBalance;                               // G が増えたとき（黄金の鉱山・流れ星の 7G）の、増えたあとの所持金
         internal JourneyData Journey;                         // 力を戻したあとの来店の記録
         internal readonly Dictionary<string, long> Delta = new Dictionary<string, long>(); // 増減した数（フィールドごと）
     }
@@ -594,9 +594,11 @@ public static class SpaceWorld
                 // G を3（2026-11-12）。金貨座が完成していない人も、持っておける（所持品に出る）
                 Add(r.Delta, IgCurrency.FIELD, GOLD_PER_PLACE);
                 r.Gold = GOLD_PER_PLACE;
-                r.GoldBalance = (int)(Math.Max(0, Long(u, IgCurrency.FIELD)) + GOLD_PER_PLACE);
                 break;
         }
+        // G が増えたとき（黄金の鉱山・流れ星の 7G）は、増えたあとの所持金を覚えておく（手元の数をこれにそろえる）
+        if (r.Delta.TryGetValue(IgCurrency.FIELD, out var goldDelta) && goldDelta != 0)
+            r.GoldBalance = (int)(Math.Max(0, Long(u, IgCurrency.FIELD)) + goldDelta);
         foreach (var kv in r.Delta)
             if (kv.Value != 0) updates[kv.Key] = FieldValue.Increment(kv.Value);
         updates["world_day"] = day;
@@ -637,7 +639,8 @@ public static class SpaceWorld
 
     /// <summary>
     /// 流れ星を1回引いて結果（r.Star）に足す。星見の丘と、星のカケラが5個そろったとき。
-    /// 当たりやすさは入店のときと同じ（公転の数）。クーポンは数を増やし、ノワールは惑星に足す
+    /// 当たりやすさは入店のときと同じ（公転の数）。クーポン・持ち物（2026-11-12〜）は数を増やし（r.Delta に合わせる。
+    /// 5%OFFチケットのカケラはそろったらチケットにして、カケラの数そのものを書く）、ノワールは惑星に足す
     /// </summary>
     private static void RollStar(Dictionary<string, object> u, PlaceResult r, Dictionary<string, object> updates,
         System.Random rng, string centerId, DayOfWeek weekday, StoreCalendar.Season season)
@@ -645,11 +648,10 @@ public static class SpaceWorld
         var j = JourneyData.From(u.TryGetValue("journey", out var raw) ? raw : null);
         var owned = JourneyService.OwnedPlanetsOf(u);
         JourneyRules.AddPrize(JourneyRules.Roll(rng, j?.Streak ?? 0, centerId, weekday, season), owned, r.Star);
-        foreach (var p in r.Star.Prizes)
-        {
-            var coupon = JourneyService.CouponOf(p);
-            if (coupon != null) Add(r.Delta, coupon.Field, 1);
-        }
+        var rewards = JourneyService.StarRewardsOf(r.Star.Prizes, u);
+        r.Star.Rewards = rewards;
+        foreach (var kv in rewards.Inc) Add(r.Delta, kv.Key, kv.Value);
+        if (rewards.Fragments >= 0) updates[FRAGMENT_FIELD] = rewards.Fragments;
         if (r.Star.Unlocked.Count > 0)
             updates["planets"] = FieldValue.ArrayUnion(r.Star.Unlocked.Cast<object>().ToArray());
     }
@@ -662,20 +664,18 @@ public static class SpaceWorld
         {
             foreach (var kv in r.Delta)
             {
-                int n = (int)kv.Value;
                 if (kv.Key == IgCurrency.FIELD)
                 {
-                    d.Ig = r.GoldBalance; // 黄金の鉱山（トランザクションで読んだ値＋もらった分）
+                    d.Ig = r.GoldBalance; // 黄金の鉱山・流れ星の 7G（トランザクションで読んだ値＋もらった分）
                     continue;
                 }
-                var mm = SpaceMeeples.ByField(kv.Key); // 黒コマも
-                if (mm != null) mm.Add(d, n);
-                else SpaceCoupons.ByField(kv.Key)?.Add(d, n);
+                JourneyService.ApplyFieldLocal(d, kv.Key, (int)kv.Value); // コマ（黒も）・クーポン・惑星回復薬
             }
             d.WorldDay = day;
             d.WorldArea = r.Area.Index;
             d.WorldColor = ColorKey(r.Color);
             if (r.Area.Effect == WorldEffect.Coupon) d.FiveFragment = r.Fragments;
+            if (r.Star.Rewards != null && r.Star.Rewards.Fragments >= 0) d.FiveFragment = (int)r.Star.Rewards.Fragments; // 流れ星のカケラ
             if (r.Area.Effect == WorldEffect.StarFragment) d.StarFragment = r.StarFragments;
             if (r.Journey != null) d.Journey = r.Journey;
             foreach (var id in r.Star.Unlocked)
@@ -742,14 +742,10 @@ public static class SpaceWorld
         JourneyService.NotifyChanged(); // ホームの惑星（力を戻した惑星の色）・所持品の数を更新
     }
 
-    /// <summary>流れ星の当たり（クーポン・ノワール）を履歴に残す</summary>
+    /// <summary>流れ星の当たり（クーポン・持ち物・ノワール）を履歴に残す</summary>
     private static void LogStar(PlaceResult r)
     {
-        foreach (var p in r.Star.Prizes)
-        {
-            var c = JourneyService.CouponOf(p);
-            if (c != null) LocalHistoryLog.Add("coupon", $"流れ星で {c.Name} を1枚 入手");
-        }
+        JourneyService.LogStarPrizes(r.Star.Prizes, r.Star.Rewards);
         foreach (var id in r.Star.Unlocked)
         {
             var def = SpacePlanets.Find(id);

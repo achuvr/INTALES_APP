@@ -14,7 +14,9 @@ public enum PerkState { NotPerk, Ok, NotInStore, Used, WrongDay, WrongTime, Wron
 ///  ・公転: 全員共通の2週間（木曜はじまり。StoreCalendar）の中で1回でも来店すると1公転。続いた数を数える。
 ///    休んだ公転は「軌道修正」（6公転に1回まで。セレスタを中央に置いていれば2回）→「休みの保険」（オルビス）の順で埋め、
 ///    埋められなければ公転の数を半分に戻す
-///  ・流れ星: 公転の最初の来店で1回（テンペスタは2回）。当たりはいまあるクーポンかノワール。公転が続くほど当たりやすい
+///  ・流れ星: 公転の最初の来店で1回（テンペスタは2回）。当たりはクーポンかノワール。公転が続くほど当たりやすい。
+///    2026-11-12 から持ち物の当たり（赤・青・黄・黒コマ・7G・惑星回復薬・5%OFFチケットのカケラ）も（ItemOf・StarRewardsOf）。
+///    当たりの書き込み・手元の数・履歴は、ショップ・INTALES WORLD・コインプッシャーの流れ星もここの関数を使う
 ///  ・惑星の解放: PlanetPowers の条件（曜日・来店回数・公転・季節・満月・滞在時間・フレンドと一緒・相席募集・流れ星）
 ///  ・★お店の特典: 中央の惑星の特典を1公転に1回（全部の惑星で合わせて1回）
 /// 状態は users/{uid}.journey（JourneyData）に持ち、入店などのたびに users を1回読む トランザクションで書き直す。
@@ -78,7 +80,8 @@ public static class JourneyService
 
     /// <summary>
     /// デバッグ用（エディタの R キー。2026-11-06 ユーザー指定で本当に増やす）: 流れ星を1回引き、当たりをログイン中の
-    /// アカウントに足す（クーポン＋1。ノワールは解放、持っていれば7%引き）。公転ごとの流れ星の回数（journey）は使わない
+    /// アカウントに足す（クーポン・持ち物は＋1〔7G は＋7〕。ノワールは解放、持っていれば7%引き）。
+    /// 公転ごとの流れ星の回数（journey）は使わない
     /// </summary>
     public static async UniTask<JourneyResult> DebugDrawAsync()
     {
@@ -86,22 +89,17 @@ public static class JourneyService
         if (mgr == null || string.IsNullOrEmpty(mgr.UID) || Data == null) return null;
         var r = new JourneyResult();
         JourneyRules.AddPrize(DebugRoll(), new HashSet<string>(Data.Planets), r);
+        // 5%OFFチケットのカケラがそろうかは、手元の数で数える（デバッグなのでトランザクションは使わない）
+        r.Rewards = StarRewardsOf(r.Prizes,
+            new Dictionary<string, object> { { SpaceWorld.FRAGMENT_FIELD, (long)Data.FiveFragment } });
 
         var updates = new Dictionary<string, object> { { "lastDate", Timestamp.GetCurrentTimestamp() } };
-        foreach (var p in r.Prizes)
-        {
-            var coupon = CouponOf(p);
-            if (coupon != null) updates[coupon.Field] = FieldValue.Increment(1);
-        }
+        WriteStarRewards(updates, r.Rewards);
         if (r.Unlocked.Count > 0) updates["planets"] = FieldValue.ArrayUnion(r.Unlocked.Cast<object>().ToArray());
         await FirebaseFirestore.DefaultInstance.Collection("users").Document(mgr.UID).UpdateAsync(updates).AsUniTask();
 
         ApplyLocal(null, r);
-        foreach (var p in r.Prizes)
-        {
-            var coupon = CouponOf(p);
-            if (coupon != null) LocalHistoryLog.Add("coupon", $"流れ星で {coupon.Name} を1枚 入手（デバッグ）");
-        }
+        LogStarPrizes(r.Prizes, r.Rewards, "（デバッグ）");
         foreach (var id in r.Unlocked)
         {
             var def = SpacePlanets.Find(id);
@@ -172,7 +170,7 @@ public static class JourneyService
             var r = new JourneyResult();
             j = JourneyRules.ApplyVisit(j, ctx, r, owned, rng);
             JourneyRules.DrawCardOnVisit(map.TryGetValue(CardDeck.FIELD, out var cards) ? cards : null, ctx, r, rng);
-            tx.Update(doc, BuildUpdates(j, r));
+            tx.Update(doc, BuildUpdates(j, r, map));
             journey = j;
             return r;
         })).AsUniTask();
@@ -221,7 +219,7 @@ public static class JourneyService
                 j.Extra.Add(JourneyRules.EXTRA_RUBRA);
                 JourneyRules.AddPrize(JourneyRules.Roll(rng, j.Streak, center, weekday, season), owned, r);
             }
-            tx.Update(doc, BuildUpdates(j, r));
+            tx.Update(doc, BuildUpdates(j, r, map));
             journey = j;
             return r;
         })).AsUniTask();
@@ -388,7 +386,7 @@ public static class JourneyService
             }
             if (!changed) return null;
             if (names.Count > 0) r.Together = string.Join("・", names);
-            tx.Update(doc, BuildUpdates(j, r));
+            tx.Update(doc, BuildUpdates(j, r, map));
             journey = j;
             return r;
         })).AsUniTask();
@@ -562,24 +560,204 @@ public static class JourneyService
         return null;
     }
 
-    private static Dictionary<string, object> BuildUpdates(JourneyData j, JourneyResult r)
+    // ---- 持ち物の当たり（2026-11-12 ユーザー指定「流れ星から出てくるものに、各色のミープル（黒も）・7G・惑星回復ポーション・
+    //      5%OFFチケットのカケラを追加」） ----
+
+    /// <summary>コマの当たりのコマ（赤・青・黄・黒。ほかは null）</summary>
+    public static SpaceMeepleDef MeepleOf(StarPrize p) => p switch
+    {
+        StarPrize.MeepleRed => SpaceMeeples.Of(PlanetColor.Red),
+        StarPrize.MeepleBlue => SpaceMeeples.Of(PlanetColor.Blue),
+        StarPrize.MeepleYellow => SpaceMeeples.Of(PlanetColor.Yellow),
+        StarPrize.MeepleBlack => SpaceMeeples.Black,
+        _ => null,
+    };
+
+    /// <summary>
+    /// 持ち物の当たりで増える users のフィールドと数（クーポン・ノワールは null）。
+    /// トランザクションの中（裏のスレッド）でも呼ぶので、Unity の API は使わない（フィールド名は定数と静的な表から）
+    /// </summary>
+    public static (string Field, int Amount)? ItemOf(StarPrize p)
+    {
+        var meeple = MeepleOf(p);
+        if (meeple != null) return (meeple.Field, 1);
+        switch (p)
+        {
+            case StarPrize.Gold: return (IgCurrency.FIELD, JourneyRules.STAR_GOLD);
+            case StarPrize.PlanetPotion: return (SpacePlanetPotion.FIELD, 1);
+            case StarPrize.FiveFragment: return (SpaceWorld.FRAGMENT_FIELD, 1);
+            default: return null;
+        }
+    }
+
+    /// <summary>持ち物の当たりの名前（「赤コマ」「7G」「惑星回復薬」「5%OFFチケットのカケラ」。クーポン・ノワールは null）</summary>
+    public static string ItemName(StarPrize p)
+    {
+        switch (p)
+        {
+            case StarPrize.Gold: return IgCurrency.Format(JourneyRules.STAR_GOLD);
+            case StarPrize.PlanetPotion: return SpacePlanetPotion.NAME;
+            case StarPrize.FiveFragment: return SpaceWorld.FRAGMENT_NAME;
+            default: return MeepleOf(p)?.Name;
+        }
+    }
+
+    /// <summary>持ち物の当たりの絵（クーポン・ノワールは null）</summary>
+    public static Sprite ItemIcon(StarPrize p)
+    {
+        switch (p)
+        {
+            case StarPrize.Gold: return IgCurrency.Icon;
+            case StarPrize.PlanetPotion: return SpacePlanetPotion.Icon;
+            case StarPrize.FiveFragment: return SpaceWorld.FragmentIcon;
+            default: return MeepleOf(p)?.Icon;
+        }
+    }
+
+    /// <summary>持ち物の当たりの光の色（当たりのカード）</summary>
+    public static Color ItemAccent(StarPrize p)
+    {
+        switch (p)
+        {
+            case StarPrize.Gold: return SpaceTheme.GOLD;
+            case StarPrize.PlanetPotion: return SpacePlanetPotion.TINT;
+            case StarPrize.FiveFragment: return CouponOf(StarPrize.Five)?.Accent ?? SpaceTheme.CYAN;
+            default: return MeepleOf(p)?.Tint ?? SpaceTheme.GOLD;
+        }
+    }
+
+    /// <summary>
+    /// 流れ星の当たり prizes で増える物を数える（トランザクションの中で呼ぶ。u は読んだ users の中身）。
+    /// 5%OFFチケットのカケラは、INTALES WORLD の商人の港と同じく、2枚そろったら5%OFFチケット1枚にしてカケラは0から
+    /// </summary>
+    public static StarRewards StarRewardsOf(IEnumerable<StarPrize> prizes, Dictionary<string, object> u)
+    {
+        var s = new StarRewards();
+        foreach (var p in prizes)
+        {
+            var coupon = CouponOf(p);
+            if (coupon != null)
+            {
+                AddTo(s.Inc, coupon.Field, 1);
+                continue;
+            }
+            var item = ItemOf(p);
+            if (item == null) continue; // ノワール（惑星の解放は AddPrize が Unlocked に入れる）
+            if (item.Value.Field != SpaceWorld.FRAGMENT_FIELD)
+            {
+                AddTo(s.Inc, item.Value.Field, item.Value.Amount);
+                continue;
+            }
+            if (s.Fragments < 0) s.Fragments = Math.Max(0, LongOf(u, SpaceWorld.FRAGMENT_FIELD));
+            s.Fragments += item.Value.Amount;
+            while (s.Fragments >= SpaceWorld.FRAGMENTS_PER_COUPON)
+            {
+                s.Fragments -= SpaceWorld.FRAGMENTS_PER_COUPON;
+                s.Completed++;
+                var five = CouponOf(StarPrize.Five);
+                if (five != null) AddTo(s.Inc, five.Field, 1);
+            }
+        }
+        return s;
+    }
+
+    /// <summary>
+    /// StarRewardsOf で数えた物を users の書き込みに足す（増える数は FieldValue.Increment、カケラは数そのもの）。
+    /// 同じフィールドをほかの理由でも増やすときは、先に数を合わせてから書くこと（同じキーは1つしか書けない）
+    /// </summary>
+    public static void WriteStarRewards(Dictionary<string, object> updates, StarRewards s)
+    {
+        if (updates == null || s == null) return;
+        foreach (var kv in s.Inc)
+            if (kv.Value != 0) updates[kv.Key] = FieldValue.Increment(kv.Value);
+        if (s.Fragments >= 0) updates[SpaceWorld.FRAGMENT_FIELD] = s.Fragments;
+    }
+
+    /// <summary>StarRewardsOf で数えた物を、手元の UserData にも反映する</summary>
+    public static void ApplyStarRewardsLocal(UserData d, StarRewards s)
+    {
+        if (d == null || s == null) return;
+        foreach (var kv in s.Inc) ApplyFieldLocal(d, kv.Key, (int)kv.Value);
+        if (s.Fragments >= 0) d.FiveFragment = (int)s.Fragments;
+    }
+
+    /// <summary>users のフィールド field の数を、手元の UserData でも n 増やす（クーポン・コマ〔黒も〕・G・惑星回復薬）</summary>
+    public static void ApplyFieldLocal(UserData d, string field, int n)
+    {
+        if (d == null || n == 0 || string.IsNullOrEmpty(field)) return;
+        if (field == IgCurrency.FIELD) d.Ig += n;
+        else if (field == SpacePlanetPotion.FIELD) d.PlanetPotion += n;
+        else if (SpaceMeeples.ByField(field) is SpaceMeepleDef meeple) meeple.Add(d, n);
+        else SpaceCoupons.ByField(field)?.Add(d, n);
+    }
+
+    /// <summary>
+    /// 流れ星の当たり（クーポン・持ち物）と、カケラがそろってできた5%OFFチケットを履歴に残す。
+    /// ノワールなどの惑星の解放は呼んだ側で。note は末尾に足す一言（「（デバッグ）」など）
+    /// </summary>
+    public static void LogStarPrizes(IEnumerable<StarPrize> prizes, StarRewards s, string note = "")
+    {
+        foreach (var p in prizes)
+        {
+            var coupon = CouponOf(p);
+            if (coupon != null)
+            {
+                LocalHistoryLog.Add("coupon", $"流れ星で {coupon.Name} を1枚 入手{note}");
+                continue;
+            }
+            switch (p)
+            {
+                case StarPrize.Gold:
+                    LocalHistoryLog.Add(IgCurrency.HISTORY, $"流れ星で {ItemName(p)} を入手{note}");
+                    break;
+                case StarPrize.PlanetPotion:
+                    LocalHistoryLog.Add("planet", $"流れ星で {ItemName(p)} を1個 入手{note}");
+                    break;
+                case StarPrize.FiveFragment:
+                    LocalHistoryLog.Add("coupon", $"流れ星で {ItemName(p)} を1枚 入手{note}");
+                    break;
+                default:
+                    if (MeepleOf(p) != null) LocalHistoryLog.Add("meeple", $"流れ星で {ItemName(p)} を1個 入手{note}");
+                    break;
+            }
+        }
+        if (s != null && s.Completed > 0)
+            LocalHistoryLog.Add("coupon", $"カケラが{SpaceWorld.FRAGMENTS_PER_COUPON}枚そろって {CouponOf(StarPrize.Five)?.Name} が完成"
+                + (s.Completed > 1 ? $"（{s.Completed}枚）" : "") + note);
+    }
+
+    private static void AddTo(Dictionary<string, long> d, string key, long n) =>
+        d[key] = (d.TryGetValue(key, out var v) ? v : 0) + n;
+
+    private static long LongOf(Dictionary<string, object> m, string k)
+    {
+        if (m == null || !m.TryGetValue(k, out var v) || v == null) return 0;
+        try { return Convert.ToInt64(v); }
+        catch { return 0; }
+    }
+
+    /// <summary>
+    /// 入店などの書き込み。流れ星の当たり（クーポン・持ち物。数えた結果は r.Rewards に入れる）と、入店でもらったコマ・G は、
+    /// 同じフィールドを合わせてから書く（流れ星で赤コマ・入店でも赤コマ、のように重なることがある）。map は読んだ users の中身
+    /// </summary>
+    private static Dictionary<string, object> BuildUpdates(JourneyData j, JourneyResult r, Dictionary<string, object> map)
     {
         var updates = new Dictionary<string, object>
         {
             { "journey", j.ToMap() },
             { "lastDate", Timestamp.GetCurrentTimestamp() },
         };
-        foreach (var g in r.Prizes.GroupBy(p => p))
+        r.Rewards = StarRewardsOf(r.Prizes, map);
+        var inc = new Dictionary<string, long>(r.Rewards.Inc);
+        foreach (var m in r.Meeples)
         {
-            var coupon = CouponOf(g.Key);
-            if (coupon != null) updates[coupon.Field] = FieldValue.Increment(g.Count());
+            var meeple = SpaceMeeples.Of(m);
+            if (meeple != null) AddTo(inc, meeple.Field, 1);
         }
-        foreach (var g in r.Meeples.GroupBy(m => m))
-        {
-            var meeple = SpaceMeeples.Of(g.Key);
-            if (meeple != null) updates[meeple.Field] = FieldValue.Increment(g.Count());
-        }
-        if (r.Ig > 0) updates[IgCurrency.FIELD] = FieldValue.Increment(r.Ig);
+        if (r.Ig > 0) AddTo(inc, IgCurrency.FIELD, r.Ig);
+        foreach (var kv in inc)
+            if (kv.Value != 0) updates[kv.Key] = FieldValue.Increment(kv.Value);
+        if (r.Rewards.Fragments >= 0) updates[SpaceWorld.FRAGMENT_FIELD] = r.Rewards.Fragments;
         if (r.CardsMap != null) updates[CardDeck.FIELD] = r.CardsMap;
         if (r.Unlocked.Count > 0) updates["planets"] = FieldValue.ArrayUnion(r.Unlocked.Cast<object>().ToArray());
         return updates;
@@ -593,8 +771,7 @@ public static class JourneyService
         if (j != null) d.Journey = j;
         if (r != null)
         {
-            foreach (var p in r.Prizes)
-                CouponOf(p)?.Add(d, 1);
+            ApplyStarRewardsLocal(d, r.Rewards); // 流れ星の当たり（クーポン・持ち物）
             foreach (var m in r.Meeples)
                 SpaceMeeples.Of(m)?.Add(d, 1);
             if (r.Ig > 0) d.Ig += r.Ig;
@@ -622,12 +799,7 @@ public static class JourneyService
             var used = SpacePlanets.Find(r.Exhausted);
             if (used != null) LocalHistoryLog.Add("planet", $"惑星「{used.Name}」が力を失った");
         }
-        foreach (var p in r.Prizes)
-        {
-            if (p == StarPrize.Noir) continue;
-            var c = CouponOf(p);
-            if (c != null) LocalHistoryLog.Add("coupon", $"流れ星で {c.Name} を1枚 入手");
-        }
+        LogStarPrizes(r.Prizes, r.Rewards);
         foreach (var id in r.Unlocked)
         {
             var def = SpacePlanets.Find(id);

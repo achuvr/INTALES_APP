@@ -21,11 +21,13 @@ public sealed class PokerReward
 }
 
 /// <summary>
-/// 手札と山札（users/{uid}.cards = { month, hand, deck, day }）。2026-11-12。
+/// 手札と山札（users/{uid}.cards = { month, hand, deck, day, shop_day }）。2026-11-12。
 ///  ・month: 営業日の月 "yyyy-MM"。月が変わると手札も山札もリセット（CardRules.Normalize）
 ///  ・hand: 手札のカード（番号 0〜51。引いた順）。上限は7枚で、8枚になったら1枚捨てるまで遊べない
 ///  ・deck: 山札に残っているカード（引いたカードは山札に戻らない。捨てたカード・ポーカーで使ったカードも戻らない）
 ///  ・day: 来店で最後に引いた営業日 "yyyy-MM-dd"
+///  ・shop_day: ショップで最後に引いた営業日 "yyyy-MM-dd"（2026-11-12 ユーザー指定「ショップでカードを購入できるのは
+///    1日1回まで」。前の版で書いた記録にはない＝まだ引いていない）
 /// </summary>
 public sealed class CardState
 {
@@ -33,6 +35,7 @@ public sealed class CardState
     public List<int> Hand = new List<int>();
     public List<int> Deck = new List<int>();
     public string Day = "";
+    public string ShopDay = "";
 
     public static CardState From(object raw)
     {
@@ -40,6 +43,7 @@ public sealed class CardState
         if (!(raw is Dictionary<string, object> m)) return s;
         s.Month = Str(m, "month");
         s.Day = Str(m, "day");
+        s.ShopDay = Str(m, "shop_day");
         s.Hand = Ints(m, "hand");
         s.Deck = Ints(m, "deck");
         return s;
@@ -51,11 +55,12 @@ public sealed class CardState
         { "hand", Hand.Select(x => (object)(long)x).ToList() },
         { "deck", Deck.Select(x => (object)(long)x).ToList() },
         { "day", Day ?? "" },
+        { "shop_day", ShopDay ?? "" },
     };
 
     public CardState Clone() => new CardState
     {
-        Month = Month, Day = Day, Hand = new List<int>(Hand), Deck = new List<int>(Deck),
+        Month = Month, Day = Day, ShopDay = ShopDay, Hand = new List<int>(Hand), Deck = new List<int>(Deck),
     };
 
     private static string Str(Dictionary<string, object> m, string k) =>
@@ -121,6 +126,7 @@ public static class CardRules
         s.Hand.Clear();
         s.Deck = FullDeck();
         s.Day = "";
+        s.ShopDay = ""; // 月が変わったら前の営業日なので、その日のショップの分もまだ（同じ営業日の中で月は変わらない）
         return true;
     }
 

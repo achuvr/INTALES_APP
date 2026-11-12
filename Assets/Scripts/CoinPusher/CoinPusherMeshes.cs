@@ -2,10 +2,13 @@ using System.Collections.Generic;
 using UnityEngine;
 
 /// <summary>
-/// コインプッシャー（2026-11-12）の 3D の形（すべてコードで作る）。台に乗る景品は3種類:
+/// コインプッシャー（2026-11-12）の 3D の形（すべてコードで作る）。台に乗る物:
 ///  ・コイン（G）… 円柱。上下の面に金貨の絵（Resources/CoinPusher/CoinFace。tools/coin/make_coin_face.py）、ふちは金色
 ///  ・コマ … ミープルの輪郭（tools/meeple/meeple_outline.py で取り出した64点）に厚みをつけた板。台の上に寝かせて置く
+///  ・黒コマ … コマと同じ形で、黒い面・虹色に光るふち・胸の白い星（所持品の絵 ItemIcon/MeepleBlack と同じ見た目）
 ///  ・星のカケラ … 星の5つの先のうちの1つ（中心・内側の2点・先端の4点の凧形）に厚みをつけた板
+///  ・惑星回復薬 … 丸いフラスコの形の板。ガラス・栓と、面に描いた水色〜すみれ色の薬と輪のある惑星（絵 ItemIcon/PlanetPotion と同じ）
+/// 光る部分（黒コマのふち・薬）は頂点の色で塗り、光らない材質（Sprites/Default）のサブメッシュにする。
 /// 形はアプリを起動しているあいだ使い回す（台を閉じても消さない。材質は CoinPusherWorld が作って片づける）
 /// </summary>
 public static class CoinPusherMeshes
@@ -17,6 +20,8 @@ public static class CoinPusherMeshes
     public const float MEEPLE_T = 0.4f;  // コマの厚み（寝かせるので、台の上では高さ）
     public const float STAR_L = 1.05f;   // 星のカケラの長さ（星の中心から先端まで）
     public const float STAR_T = 0.22f;   // 星のカケラの厚み
+    public const float POTION_L = 0.98f; // 惑星回復薬の長さ（瓶の底から栓の上まで。寝かせるので、台の上では奥行き）
+    public const float POTION_T = 0.34f; // 惑星回復薬の厚み（寝かせるので、台の上では高さ）
 
     // ミープルの輪郭（高さ1・足もとが0・左右の中心が0・反時計回り。tools/meeple/meeple_outline.py tools/meeple out.json 64）
     private static readonly float[] MEEPLE_OUTLINE =
@@ -34,7 +39,7 @@ public static class CoinPusherMeshes
         0.1494f, 0.9000f, 0.1126f, 0.9541f, 0.0577f, 0.9893f, -0.0081f, 0.9999f,
     };
 
-    private static Mesh _coin, _coinCollider, _meeple, _star;
+    private static Mesh _coin, _coinCollider, _meeple, _star, _meepleBlack, _potion, _potionCollider;
 
     /// <summary>コインの見た目（サブメッシュ0＝上下の面・1＝ふち）</summary>
     public static Mesh Coin => _coin != null ? _coin : (_coin = BuildCoin(32));
@@ -51,6 +56,21 @@ public static class CoinPusherMeshes
 
     /// <summary>星のカケラ（凧形の板。中心が原点）</summary>
     public static Mesh Star => _star != null ? _star : (_star = BuildStar());
+
+    /// <summary>
+    /// 寝かせた黒コマ（2026-11-12 追加。コインタワーのボーナス）。形は Meeple と同じで、サブメッシュ0＝上下の面（黒い材質）・
+    /// 1＝虹色のふちと胸の白い星（頂点の色。光らない材質）。当たり判定は Meeple を使う
+    /// </summary>
+    public static Mesh MeepleBlack => _meepleBlack != null ? _meepleBlack : (_meepleBlack = BuildMeepleBlack());
+
+    /// <summary>
+    /// 寝かせた惑星回復薬（2026-11-12 追加。ボーナスの景品）。サブメッシュ0＝ガラスの瓶・1＝栓・
+    /// 2＝面に描いた薬と惑星（頂点の色。光らない材質）。瓶の底が -z・栓が +z、中心（長さのまん中）が原点
+    /// </summary>
+    public static Mesh Potion => _potion != null ? _potion : (_potion = BuildPotion(true));
+
+    /// <summary>惑星回復薬の当たり判定（ガラスと栓だけ。凸の MeshCollider に使う）</summary>
+    public static Mesh PotionCollider => _potionCollider != null ? _potionCollider : (_potionCollider = BuildPotion(false));
 
     // ================================================================
     // コイン
@@ -157,13 +177,288 @@ public static class CoinPusherMeshes
     // ================================================================
     // コマ（寝かせたミープル）
     // ================================================================
-    private static Mesh BuildMeeple()
+    /// <summary>ミープルの輪郭（x＝左右・y＝台の上での奥行き。頭が +・足が -、背の高さのまん中が 0）</summary>
+    private static Vector2[] MeeplePoints()
     {
         int count = MEEPLE_OUTLINE.Length / 2;
         var pts = new Vector2[count];
         for (int i = 0; i < count; i++)
             pts[i] = new Vector2(MEEPLE_OUTLINE[i * 2] * MEEPLE_H, (MEEPLE_OUTLINE[i * 2 + 1] - 0.5f) * MEEPLE_H);
-        return Extrude(pts, MEEPLE_T, true, "PusherMeeple");
+        return pts;
+    }
+
+    private static Mesh BuildMeeple() => Extrude(MeeplePoints(), MEEPLE_T, true, "PusherMeeple");
+
+    // ================================================================
+    // 黒コマ（2026-11-12）
+    // ================================================================
+    // ふちの虹色: 頭のてっぺんから時計回りの角度（度）と色相の組。絵（ItemIcon/MeepleBlack）のふちと同じく
+    // 頭が青 → 右上が紫 → 右腕が赤 → 右足が橙 → 左足が黄 → 左腕が緑 → 頭の青へ戻る
+    private static readonly float[] RIM_HUES = { 0f, 0.62f, 45f, 0.75f, 90f, 0.97f, 150f, 1.07f, 210f, 1.14f, 270f, 1.32f, 360f, 1.62f };
+
+    private static Color RimColor(Vector2 p)
+    {
+        float deg = Mathf.Atan2(p.x, p.y) * Mathf.Rad2Deg; // 頭（+y）が 0・右（+x）が 90
+        if (deg < 0f) deg += 360f;
+        float hue = RIM_HUES[1];
+        for (int i = 0; i + 3 < RIM_HUES.Length; i += 2)
+        {
+            if (deg > RIM_HUES[i + 2]) continue;
+            hue = Mathf.Lerp(RIM_HUES[i + 1], RIM_HUES[i + 3], Mathf.InverseLerp(RIM_HUES[i], RIM_HUES[i + 2], deg));
+            break;
+        }
+        return Color.HSVToRGB(Mathf.Repeat(hue, 1f), 0.72f, 1f);
+    }
+
+    /// <summary>
+    /// 黒コマ: コマの形に厚みをつけ、上下の面（サブメッシュ0。黒い材質）と、虹色の側面・面のふちの虹色の帯・胸の白い星
+    /// （サブメッシュ1。頂点の色で光らない材質）。帯と星は面から少し浮かせて、どちらの面が上になっても見えるよう両面に
+    /// </summary>
+    private static Mesh BuildMeepleBlack()
+    {
+        var pts = MeeplePoints();
+        var v = new List<Vector3>();
+        var n = new List<Vector3>();
+        var faces = new List<int>();
+        var glow = new List<int>();
+        int sideStart = ExtrudeInto(v, n, faces, glow, pts, MEEPLE_T, true);
+        var c = new List<Color>();
+        for (int i = 0; i < sideStart; i++) c.Add(Color.white);
+        for (int i = 0; i < pts.Length; i++) // 側面の頂点は、輪郭の点ごとに上・下の2つ
+        {
+            var col = RimColor(pts[i]);
+            c.Add(col);
+            c.Add(col);
+        }
+        var outward = VertexNormals(pts);
+        float h = MEEPLE_T * 0.5f;
+        foreach (float side in new[] { 1f, -1f })
+        {
+            RimBand(v, n, c, glow, pts, outward, 0.07f, side * (h + 0.003f), side);
+            Sparkle(v, n, c, glow, new Vector2(0f, -0.07f * MEEPLE_H), 0.12f, 0.028f, side * (h + 0.004f), side);
+        }
+        var mesh = new Mesh { name = "PusherMeepleBlack" };
+        mesh.SetVertices(v);
+        mesh.SetNormals(n);
+        mesh.SetColors(c);
+        mesh.subMeshCount = 2;
+        mesh.SetTriangles(faces, 0);
+        mesh.SetTriangles(glow, 1);
+        mesh.RecalculateBounds();
+        return mesh;
+    }
+
+    /// <summary>輪郭に沿って内側へ width の帯（面の高さ y）。外のふちは虹色、内のふちは透明（光がにじんで消えるように）</summary>
+    private static void RimBand(List<Vector3> v, List<Vector3> n, List<Color> c, List<int> t, Vector2[] pts, Vector2[] outward,
+        float width, float y, float side)
+    {
+        var normal = new Vector3(0f, side, 0f);
+        int count = pts.Length, start = v.Count;
+        for (int i = 0; i < count; i++)
+        {
+            var col = RimColor(pts[i]);
+            var inner = pts[i] - outward[i] * width;
+            v.Add(new Vector3(pts[i].x, y, pts[i].y));
+            v.Add(new Vector3(inner.x, y, inner.y));
+            n.Add(normal);
+            n.Add(normal);
+            c.Add(col);
+            c.Add(new Color(col.r, col.g, col.b, 0f));
+        }
+        for (int i = 0; i < count; i++)
+        {
+            int o0 = start + i * 2, i0 = o0 + 1, o1 = start + (i + 1) % count * 2, i1 = o1 + 1;
+            Tri(t, v, o0, o1, i1, normal);
+            Tri(t, v, o0, i1, i0, normal);
+        }
+    }
+
+    /// <summary>4つの先の白い星（✦）。中心 center・先までの長さ outer・くびれ inner（面の高さ y）</summary>
+    private static void Sparkle(List<Vector3> v, List<Vector3> n, List<Color> c, List<int> t, Vector2 center, float outer,
+        float inner, float y, float side)
+    {
+        var normal = new Vector3(0f, side, 0f);
+        int start = v.Count;
+        v.Add(new Vector3(center.x, y, center.y));
+        n.Add(normal);
+        c.Add(Color.white);
+        for (int i = 0; i < 8; i++)
+        {
+            float a = i * Mathf.PI * 0.25f, r = i % 2 == 0 ? outer : inner;
+            v.Add(new Vector3(center.x + Mathf.Sin(a) * r, y, center.y + Mathf.Cos(a) * r));
+            n.Add(normal);
+            c.Add(Color.white);
+        }
+        for (int i = 0; i < 8; i++) Tri(t, v, start, start + 1 + i, start + 1 + (i + 1) % 8, normal);
+    }
+
+    // ================================================================
+    // 惑星回復薬（2026-11-12）
+    // ================================================================
+    private static readonly Color LIQUID_TOP = SpaceTheme.Hex(0x67D5FF);    // 薬の水面（明るい水色）
+    private static readonly Color LIQUID_BOTTOM = SpaceTheme.Hex(0x7A52F0); // 薬の底（すみれ色）
+    private static readonly Color PLANET_LIGHT = SpaceTheme.Hex(0xFFA27A);  // 惑星の明るい側（左上）
+    private static readonly Color PLANET_DARK = SpaceTheme.Hex(0xE2566E);   // 惑星の暗い側（右下）
+    private static readonly Color PLANET_RING = SpaceTheme.Hex(0xFFE9C4);   // 惑星の輪
+
+    /// <summary>
+    /// 惑星回復薬: 丸い胴・細い首・口のふちのガラス（サブメッシュ0）と、口にさした栓（1。ガラスより薄い）。
+    /// decorate なら、上下の面に薬（胴を水面で切った形）・惑星と輪・ガラスの光（2。頂点の色）を描く。
+    /// 描く物は重なる順（奥の輪 → 惑星 → 手前の輪）に並べる（光らない材質は奥行きを書かないので、並べた順に重なる）
+    /// </summary>
+    private static Mesh BuildPotion(bool decorate)
+    {
+        float bottom = -POTION_L * 0.5f, top = POTION_L * 0.5f;
+        const float R = 0.33f;                         // 丸い胴の半径
+        float cz = bottom + R;                         // 胴の中心
+        const float NECK = 0.11f, LIP = 0.135f;        // 首・口のふちの半分の幅
+        float lipZ0 = top - 0.24f, lipZ1 = top - 0.19f; // 口のふちの下・上
+        const float CORK = 0.10f;                      // 栓の半分の幅
+        // 瓶の輪郭: 右の首のつけ根から時計回りに 胴の右 → 底 → 胴の左 → 左の首 → 口のふち → 右の首へ戻る
+        var glass = new List<Vector2>();
+        float a0 = Mathf.Asin(NECK / R); // 首のつけ根の、真上から測った胴の角度
+        const int SEG = 28;
+        for (int i = 0; i <= SEG; i++)
+        {
+            float a = a0 + (Mathf.PI * 2f - a0 * 2f) * i / SEG;
+            glass.Add(new Vector2(R * Mathf.Sin(a), cz + R * Mathf.Cos(a)));
+        }
+        glass.Add(new Vector2(-NECK, lipZ0));
+        glass.Add(new Vector2(-LIP, lipZ0));
+        glass.Add(new Vector2(-LIP, lipZ1));
+        glass.Add(new Vector2(LIP, lipZ1));
+        glass.Add(new Vector2(LIP, lipZ0));
+        glass.Add(new Vector2(NECK, lipZ0));
+        var cork = new[]
+        {
+            new Vector2(-CORK, lipZ1 - 0.02f), new Vector2(CORK, lipZ1 - 0.02f), new Vector2(CORK, top - 0.03f),
+            new Vector2(CORK - 0.025f, top), new Vector2(-CORK + 0.025f, top), new Vector2(-CORK, top - 0.03f),
+        };
+
+        var v = new List<Vector3>();
+        var n = new List<Vector3>();
+        var tGlass = new List<int>();
+        var tCork = new List<int>();
+        var tPaint = new List<int>();
+        ExtrudeInto(v, n, tGlass, tGlass, glass.ToArray(), POTION_T, true);
+        ExtrudeInto(v, n, tCork, tCork, cork, POTION_T * 0.7f, false);
+        var mesh = new Mesh { name = decorate ? "PusherPotion" : "PusherPotionCollider" };
+        if (!decorate)
+        {
+            tGlass.AddRange(tCork);
+            mesh.SetVertices(v);
+            mesh.SetTriangles(tGlass, 0);
+            mesh.RecalculateNormals();
+            mesh.RecalculateBounds();
+            return mesh;
+        }
+
+        var c = new List<Color>();
+        for (int i = 0; i < v.Count; i++) c.Add(Color.white);
+        const float WALL = 0.035f, LEVEL = 0.45f; // ガラスの厚み・水面の高さ（胴の中心から、内側の半径の何倍上か）
+        var body = new Vector2(0f, cz);
+        var planet = new Vector2(0.012f, cz - 0.04f);
+        const float PLANET_R = 0.085f, TILT = -12f * Mathf.Deg2Rad;
+        var ringOut = new Vector2(0.165f, 0.05f);
+        var ringIn = new Vector2(0.14f, 0.032f);
+        foreach (float side in new[] { 1f, -1f })
+        {
+            float y = side * (POTION_T * 0.5f + 0.003f);
+            Liquid(v, n, c, tPaint, body, R - WALL, LEVEL, y, side);
+            Arc(v, n, c, tPaint, planet, ringOut, ringIn, TILT, 0f, Mathf.PI, y, side, PLANET_RING);              // 奥の輪
+            Disc(v, n, c, tPaint, planet, PLANET_R, y, side);                                                     // 惑星
+            Arc(v, n, c, tPaint, planet, ringOut, ringIn, TILT, Mathf.PI, Mathf.PI * 2f, y, side, PLANET_RING);   // 手前の輪
+            // ガラスの光（胴の左上、薬より上の空いた所）
+            Arc(v, n, c, tPaint, body, new Vector2(R - 0.05f, R - 0.05f), new Vector2(R - 0.075f, R - 0.075f), 0f,
+                118f * Mathf.Deg2Rad, 148f * Mathf.Deg2Rad, y, side, new Color(1f, 1f, 1f, 0.8f));
+        }
+        mesh.SetVertices(v);
+        mesh.SetNormals(n);
+        mesh.SetColors(c);
+        mesh.subMeshCount = 3;
+        mesh.SetTriangles(tGlass, 0);
+        mesh.SetTriangles(tCork, 1);
+        mesh.SetTriangles(tPaint, 2);
+        mesh.RecalculateBounds();
+        return mesh;
+    }
+
+    /// <summary>丸い胴の中の薬: 円（中心 center・半径 radius）を水面（中心から半径×level 上）で切った形。水面が明るい水色・底がすみれ色</summary>
+    private static void Liquid(List<Vector3> v, List<Vector3> n, List<Color> c, List<int> t, Vector2 center, float radius,
+        float level, float y, float side)
+    {
+        var normal = new Vector3(0f, side, 0f);
+        float b0 = Mathf.Acos(Mathf.Clamp(level, -1f, 1f)); // 水面の両はしの、真上から測った角度
+        float zTop = center.y + radius * level, zBottom = center.y - radius;
+        int start = v.Count;
+        // 扇の要（水面と底のまん中。切った形は凸なので、ここから扇に分けられる）
+        v.Add(new Vector3(center.x, y, (zTop + zBottom) * 0.5f));
+        n.Add(normal);
+        c.Add(Color.Lerp(LIQUID_BOTTOM, LIQUID_TOP, 0.5f));
+        const int SEG = 24;
+        for (int i = 0; i <= SEG; i++)
+        {
+            float a = b0 + (Mathf.PI * 2f - b0 * 2f) * i / SEG;
+            var p = new Vector2(center.x + radius * Mathf.Sin(a), center.y + radius * Mathf.Cos(a));
+            v.Add(new Vector3(p.x, y, p.y));
+            n.Add(normal);
+            c.Add(Color.Lerp(LIQUID_BOTTOM, LIQUID_TOP, Mathf.InverseLerp(zBottom, zTop, p.y)));
+        }
+        for (int i = 0; i < SEG; i++) Tri(t, v, start, start + 1 + i, start + 2 + i, normal);
+        Tri(t, v, start, start + 1 + SEG, start + 1, normal); // 水面の下（弦と要の三角形）
+    }
+
+    /// <summary>惑星の円（中心 center・半径 radius）。左上が明るく、右下が暗い</summary>
+    private static void Disc(List<Vector3> v, List<Vector3> n, List<Color> c, List<int> t, Vector2 center, float radius, float y,
+        float side)
+    {
+        var normal = new Vector3(0f, side, 0f);
+        var light = new Vector2(-0.7071f, 0.7071f);
+        int start = v.Count;
+        v.Add(new Vector3(center.x, y, center.y));
+        n.Add(normal);
+        c.Add(Color.Lerp(PLANET_DARK, PLANET_LIGHT, 0.5f));
+        const int SEG = 20;
+        for (int i = 0; i < SEG; i++)
+        {
+            float a = i * Mathf.PI * 2f / SEG;
+            var d = new Vector2(Mathf.Sin(a), Mathf.Cos(a));
+            v.Add(new Vector3(center.x + d.x * radius, y, center.y + d.y * radius));
+            n.Add(normal);
+            c.Add(Color.Lerp(PLANET_DARK, PLANET_LIGHT, (Vector2.Dot(d, light) + 1f) * 0.5f));
+        }
+        for (int i = 0; i < SEG; i++) Tri(t, v, start, start + 1 + i, start + 1 + (i + 1) % SEG, normal);
+    }
+
+    /// <summary>
+    /// だ円の帯の一部（外の半径 outer・内の半径 inner をそれぞれ x・y に。tilt だけ回す）。角度 from〜to はラジアンで、
+    /// 0 が右・π/2 が上（瓶の口の向き）。惑星の輪（奥の半分と手前の半分）とガラスの光に使う
+    /// </summary>
+    private static void Arc(List<Vector3> v, List<Vector3> n, List<Color> c, List<int> t, Vector2 center, Vector2 outer,
+        Vector2 inner, float tilt, float from, float to, float y, float side, Color color)
+    {
+        var normal = new Vector3(0f, side, 0f);
+        float cs = Mathf.Cos(tilt), sn = Mathf.Sin(tilt);
+        const int SEG = 14;
+        int start = v.Count;
+        for (int i = 0; i <= SEG; i++)
+        {
+            float a = Mathf.Lerp(from, to, i / (float)SEG);
+            for (int k = 0; k < 2; k++)
+            {
+                var r = k == 0 ? outer : inner;
+                float px = Mathf.Cos(a) * r.x, py = Mathf.Sin(a) * r.y;
+                v.Add(new Vector3(center.x + px * cs - py * sn, y, center.y + px * sn + py * cs));
+                n.Add(normal);
+                c.Add(color);
+            }
+        }
+        for (int i = 0; i < SEG; i++)
+        {
+            int o0 = start + i * 2, i0 = o0 + 1, o1 = o0 + 2, i1 = o0 + 3;
+            Tri(t, v, o0, o1, i1, normal);
+            Tri(t, v, o0, i1, i0, normal);
+        }
     }
 
     // ================================================================
@@ -195,13 +490,29 @@ public static class CoinPusherMeshes
     /// </summary>
     private static Mesh Extrude(Vector2[] pts, float thick, bool smoothSides, string name)
     {
+        var v = new List<Vector3>();
+        var n = new List<Vector3>();
+        var t = new List<int>();
+        ExtrudeInto(v, n, t, t, pts, thick, smoothSides);
+        var mesh = new Mesh { name = name };
+        mesh.SetVertices(v);
+        mesh.SetNormals(n);
+        mesh.SetTriangles(t, 0);
+        mesh.RecalculateBounds();
+        return mesh;
+    }
+
+    /// <summary>
+    /// Extrude の中身: 頂点と三角形をリストに足す。上下の面の三角形は faces、側面は sides へ（同じリストでもよい）。
+    /// 側面の最初の頂点の番号を返す（smoothSides なら、そこから輪郭の点ごとに上・下の2つずつ並ぶ）
+    /// </summary>
+    private static int ExtrudeInto(List<Vector3> v, List<Vector3> n, List<int> faces, List<int> sides, Vector2[] pts, float thick,
+        bool smoothSides)
+    {
         int count = pts.Length;
         float h = thick * 0.5f;
         float area = SignedArea(pts);
         var tris2 = EarClip(pts);
-        var v = new List<Vector3>();
-        var n = new List<Vector3>();
-        var t = new List<int>();
 
         // 上下の面
         foreach (float side in new[] { 1f, -1f })
@@ -214,8 +525,9 @@ public static class CoinPusherMeshes
                 n.Add(normal);
             }
             for (int k = 0; k < tris2.Count; k += 3)
-                Tri(t, v, start + tris2[k], start + tris2[k + 1], start + tris2[k + 2], normal);
+                Tri(faces, v, start + tris2[k], start + tris2[k + 1], start + tris2[k + 2], normal);
         }
+        int sideStart = v.Count;
 
         // 側面（外向きの法線: 反時計回りなら辺の右手側）
         var edgeN = new Vector3[count];
@@ -240,8 +552,8 @@ public static class CoinPusherMeshes
             for (int i = 0; i < count; i++)
             {
                 int a0 = start + i * 2, b0 = a0 + 1, a1 = start + (i + 1) % count * 2, b1 = a1 + 1;
-                Tri(t, v, a0, a1, b1, edgeN[i]);
-                Tri(t, v, a0, b1, b0, edgeN[i]);
+                Tri(sides, v, a0, a1, b1, edgeN[i]);
+                Tri(sides, v, a0, b1, b0, edgeN[i]);
             }
         }
         else
@@ -256,17 +568,27 @@ public static class CoinPusherMeshes
                 v.Add(new Vector3(p1.x, -h, p1.y));
                 v.Add(new Vector3(p0.x, -h, p0.y));
                 for (int k = 0; k < 4; k++) n.Add(edgeN[i]);
-                Tri(t, v, s, s + 1, s + 2, edgeN[i]);
-                Tri(t, v, s, s + 2, s + 3, edgeN[i]);
+                Tri(sides, v, s, s + 1, s + 2, edgeN[i]);
+                Tri(sides, v, s, s + 2, s + 3, edgeN[i]);
             }
         }
+        return sideStart;
+    }
 
-        var mesh = new Mesh { name = name };
-        mesh.SetVertices(v);
-        mesh.SetNormals(n);
-        mesh.SetTriangles(t, 0);
-        mesh.RecalculateBounds();
-        return mesh;
+    /// <summary>多角形の各頂点の外向きの向き（両どなりの辺の外向きの平均）</summary>
+    private static Vector2[] VertexNormals(Vector2[] pts)
+    {
+        int count = pts.Length;
+        float sign = SignedArea(pts) >= 0f ? 1f : -1f;
+        var edge = new Vector2[count];
+        for (int i = 0; i < count; i++)
+        {
+            var d = pts[(i + 1) % count] - pts[i];
+            edge[i] = new Vector2(d.y, -d.x).normalized * sign;
+        }
+        var res = new Vector2[count];
+        for (int i = 0; i < count; i++) res[i] = (edge[(i - 1 + count) % count] + edge[i]).normalized;
+        return res;
     }
 
     /// <summary>

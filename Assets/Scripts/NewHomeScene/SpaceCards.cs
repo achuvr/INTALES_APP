@@ -12,7 +12,8 @@ using UnityEngine.UI;
 /// トランプ（2026-11-12 ユーザー指定）。宝石座か切り札座を完成させると（管理者は初めから）、トランプのようなカードを持てる。
 ///  ・カードは 赤・青・黄・黒 × 1〜13 の52枚（決まりは Commons/PlayingCards.cs の CardRules）
 ///  ・来店した日（その営業日の最初の入店）に山札から1枚引く（JourneyRules.DrawCardOnVisit。入店のお知らせのあとにめくって見せる）。
-///    ショップでも 3G で1枚引ける（宝石座か切り札座が完成していたら並ぶ。同日ユーザー指定）
+///    ショップでも 3G で1枚引ける（宝石座か切り札座が完成していたら並ぶ。同日ユーザー指定）。ショップで引けるのは
+///    1日1回・1枚まで（同日ユーザー指定。cards.shop_day に引いた営業日を書く。来店の1枚とは別に数える）
 ///  ・手札は7枚まで。8枚目を引いたら、好きなカードを1枚捨てる（SpaceNotice.CardDiscard。選ぶまで閉じない）
 ///  ・山札は全部引き切るまで同じカードは出ない／同じ色と数字のカードは2枚持てない（引けるのが手札のカードだけなら山札をリセット）
 ///  ・月が変わると、手札も山札もリセット（表示も書き込みも、月が違えばリセットしたものとして扱う）
@@ -36,7 +37,10 @@ public static class CardDeck
     public const string T_DECK_B = "枚";
     public const string T_RESET = "毎月1日に手札と山札がリセットされます";
     public const string T_INFO =
-        "来店するたびに山札から1枚引けます（ショップでも引けます）。手札は7枚まで。同じカードは2枚持てません。\n毎月1日に手札と山札がリセットされます";
+        "来店するたびに山札から1枚引けます（ショップでも1日1回引けます）。手札は7枚まで。同じカードは2枚持てません。\n毎月1日に手札と山札がリセットされます";
+    /// <summary>ショップで今日もう引いた（1日1回まで。2026-11-12 ユーザー指定）</summary>
+    public const string T_SHOP_DONE = "ショップで引けるのは1日1回までです。また明日引けます";
+    public const string T_SHOP_DONE_SHORT = "今日はもう引きました";
     public const string T_POKER_HINT = "ホームの空の宝石座をタップすると、ポーカーができます";
     public const string T_ERR_USER = "ユーザー情報を読み込めませんでした";
     public const string T_ERR_NETWORK = "通信に失敗しました。もう一度お試しください";
@@ -51,6 +55,7 @@ public static class CardDeck
             var sb = new StringBuilder()
                 .Append(T_TITLE).Append(T_HAND_A).Append(T_DECK_A).Append(T_DECK_B).Append(T_RESET).Append(T_INFO)
                 .Append(T_POKER_HINT).Append(T_ERR_USER).Append(T_ERR_NETWORK).Append(T_ERR_DISCARD_FIRST).Append(T_ERR_CHANGED)
+                .Append(T_SHOP_DONE).Append(T_SHOP_DONE_SHORT)
                 .Append("0123456789/の・＋+GOLD");
             foreach (var n in CardRules.COLOR_NAMES) sb.Append(n);
             foreach (var r in CardRules.Rewards)
@@ -92,6 +97,9 @@ public static class CardDeck
 
     /// <summary>手札が8枚以上（1枚捨てるまで、引くこともポーカーもできない）</summary>
     public static bool MustDiscard => CardRules.Overflow(Current);
+
+    /// <summary>今日（今の営業日）はもうショップで引いた（ショップで引けるのは1日1回まで。2026-11-12）</summary>
+    public static bool ShopDrawnToday => Current.ShopDay == StoreCalendar.TodayKey;
 
     /// <summary>手札と山札の一言（「手札 5 / 7 ・ 山札 41枚」）</summary>
     public static string Summary(CardState s) =>

@@ -2,9 +2,29 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 
-/// <summary>流れ星の当たり（いまあるクーポン4種と、ひみつの惑星ノワール）</summary>
-/// <summary>流れ星の当たり。ODDS の列と同じ並び（新しい当たりは必ず末尾に足す）</summary>
-public enum StarPrize { Five, Drink, Coffee, Seven, Noir, FiveHour, FreeTime }
+/// <summary>
+/// 流れ星の当たり。ODDS の列と同じ並び（新しい当たりは必ず末尾に足す）。クーポン（5%・ドリンク・コーヒー・7%・5時間無料・
+/// フリータイム）と、ひみつの惑星ノワール。2026-11-12 から持ち物の当たり（赤・青・黄・黒コマ・7G・惑星回復薬・
+/// 5%OFFチケットのカケラ。中身は JourneyService.ItemOf）も
+/// </summary>
+public enum StarPrize
+{
+    Five, Drink, Coffee, Seven, Noir, FiveHour, FreeTime,
+    MeepleRed, MeepleBlue, MeepleYellow, MeepleBlack, Gold, PlanetPotion, FiveFragment,
+}
+
+/// <summary>
+/// 流れ星の当たりで増える物（トランザクションの中で JourneyService.StarRewardsOf が数える。書き込みと手元の数・履歴に使う）
+/// </summary>
+public sealed class StarRewards
+{
+    /// <summary>増える数（users のフィールドごと。クーポン・コマ・G・惑星回復薬と、カケラがそろってできた5%OFFチケット）</summary>
+    public readonly Dictionary<string, long> Inc = new Dictionary<string, long>();
+    /// <summary>5%OFFチケットのカケラが当たったときの、そろった分を引いたあとのカケラの数（当たらなければ -1。数そのものを書く）</summary>
+    public long Fragments = -1;
+    /// <summary>カケラがそろってできた5%OFFチケットの枚数</summary>
+    public int Completed;
+}
 
 /// <summary>入店・退店・フレンドと一緒に来店したときの結果（お知らせに出す内容）</summary>
 public sealed class JourneyResult
@@ -21,6 +41,8 @@ public sealed class JourneyResult
     public int Period;
     public string Together;       // 一緒に来店したフレンドの名前（フレンドのQRを読んだとき）
     public readonly List<StarPrize> Prizes = new List<StarPrize>();
+    /// <summary>流れ星の当たり（Prizes）で増えた物（書き込むときに数える。手元の数・履歴に使う。当たりがなければ null のことも）</summary>
+    public StarRewards Rewards;
     public readonly List<string> Unlocked = new List<string>(); // 解放した惑星のID
     /// <summary>もらったコマの色（1色1個。赤・青・黄の順。入店した日の最初の入店のときだけ）</summary>
     public readonly List<PlanetColor> Meeples = new List<PlanetColor>();
@@ -77,6 +99,8 @@ public static class JourneyRules
     public const int RUBRA_STAY_MINUTES = 4 * 60;
     /// <summary>来店1回（1営業日）でもらえるアプリ内の通貨（2026-11-12 ユーザー指定「来店時に1」。単位は G。IgCurrency）</summary>
     public const int IG_PER_VISIT = 1;
+    /// <summary>流れ星の当たりの G の額（2026-11-12 ユーザー指定「7G」。StarPrize.Gold）</summary>
+    public const int STAR_GOLD = 7;
 
     // 惑星のパワー（同じ公転にもう一度来ると中央の惑星にたまり、MAX で流れ星の7%オフが出やすい）は
     // 2026-11-10 にやめた（ユーザー指定「お客様に説明が難しい」）。たまっていた値は JourneyData.Power にそのまま残る
@@ -88,17 +112,36 @@ public static class JourneyRules
     public const string EXTRA_RUBRA = "rubra";       // ルブラ: 秋に4時間以上の滞在
 
     /// <summary>
+    /// 持ち物の当たりの重み（%。公転の数に関係なく同じ・合計30）。並び（StarPrize の MeepleRed から）:
+    /// 赤コマ / 青コマ / 黄コマ / 黒コマ / 7G / 惑星回復薬 / 5%OFFチケットのカケラ。
+    /// 2026-11-12 ユーザー指定「流れ星から出てくるものに、各色のミープル（黒も）・7G・惑星回復ポーション・5%OFFチケットの
+    /// カケラを追加」で足した。割合の指定はなかったので合計30%にし、その分をいちばん出やすい5%から引いた
+    /// （ほかのクーポン・ノワールの割合は変えていない。5% は 約70→40% / 約55→25% / 約40→10%）
+    /// </summary>
+    private static readonly double[] ITEM_ODDS = { 5.0, 5.0, 5.0, 2.0, 3.0, 5.0, 5.0 };
+
+    /// <summary>
     /// 流れ星の当たりの重み（%。合計100）。公転の数 1〜3 / 4〜12 / 13〜 の3段階（企画書の例そのまま）。
-    /// 並び: 5% / ドリンク / コーヒー / 7% / ノワール / 5時間無料 / フリータイム。
+    /// 並び: 5% / ドリンク / コーヒー / 7% / ノワール / 5時間無料 / フリータイム / 持ち物の当たり（ITEM_ODDS）。
     /// 5時間無料・フリータイムは 2026-11-07 追加（ユーザー指定「提案の3分の1の確率で」: 5時間無料 0.3/0.6/1.0% と
-    /// フリータイム 0.1/0.3/0.5% の3分の1）。足した分は5%から引いて合計を100のままにした
+    /// フリータイム 0.1/0.3/0.5% の3分の1）。足した分は5%から引いて合計を100のままにした（持ち物の当たりも同じ）
     /// </summary>
     public static readonly double[][] ODDS =
     {
-        new[] { 70.0 - 0.1 - 0.1 / 3, 20.0, 7.5, 2.0, 0.5, 0.1, 0.1 / 3 },
-        new[] { 55.0 - 0.2 - 0.1, 27.0, 13.0, 4.0, 1.0, 0.2, 0.1 },
-        new[] { 40.0 - 1.0 / 3 - 0.5 / 3, 33.0, 18.0, 7.0, 2.0, 1.0 / 3, 0.5 / 3 },
+        WithItems(70.0 - 0.1 - 0.1 / 3, 20.0, 7.5, 2.0, 0.5, 0.1, 0.1 / 3),
+        WithItems(55.0 - 0.2 - 0.1, 27.0, 13.0, 4.0, 1.0, 0.2, 0.1),
+        WithItems(40.0 - 1.0 / 3 - 0.5 / 3, 33.0, 18.0, 7.0, 2.0, 1.0 / 3, 0.5 / 3),
     };
+
+    /// <summary>クーポン・ノワールの重み（7つ）のうしろに持ち物の当たりの重みを並べ、その合計を5%（先頭）から引いた1段階分</summary>
+    private static double[] WithItems(params double[] coupons)
+    {
+        var row = new double[coupons.Length + ITEM_ODDS.Length];
+        coupons.CopyTo(row, 0);
+        ITEM_ODDS.CopyTo(row, coupons.Length);
+        row[0] -= ITEM_ODDS.Sum();
+        return row;
+    }
 
 
     public sealed class VisitContext
@@ -381,7 +424,7 @@ public static class JourneyRules
         StoreCalendar.Season season)
     {
         int tier = streak >= 13 ? 2 : streak >= 4 ? 1 : 0;
-        var w = (double[])ODDS[tier].Clone(); // 5% / ドリンク / コーヒー / 7% / ノワール / 5時間無料 / フリータイム
+        var w = (double[])ODDS[tier].Clone(); // 5% / ドリンク / コーヒー / 7% / ノワール / 5時間無料 / フリータイム / 持ち物
 
         double total = w.Sum();
         double x = rng.NextDouble() * total;

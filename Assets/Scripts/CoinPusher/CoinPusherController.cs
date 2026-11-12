@@ -12,7 +12,7 @@ using UnityEngine.UI;
 /// コインプッシャーの画面（2026-11-12）。CoinPusher シーンのルート（CoinPusherRoot）に付いていて、
 /// SceneLoader.MergeScene("CoinPusher") でホームに加算マージされて動き出す（CoinPusher.Open）。
 /// ホームの Canvas の上に全画面で、台の映像（CoinPusherWorld の RenderTexture）と操作の帯を出す:
-///  ・上: 題・閉じる・所持金・今回の獲得（G・赤／青／黄コマ・星のカケラ）
+///  ・上: 題・閉じる・所持金・今回の獲得（G・赤／青／黄／黒コマ・星のカケラ・惑星回復薬）
 ///  ・下:「コインを入れる」（1回 1G。長押しで続けて入れる。狙っている所に落ちる）。
 ///    プッシャーの上をタップすると、そこへ落とす（なぞると狙いだけ動く。プッシャーより手前を押したら、前のふちの少し奥へ）
 /// 閉じるときは、台の並びを保存 → 送っていない増減を送る → 星のカケラが5個以上なら流れ星 → ホームに戻って結果をひとこと。
@@ -29,9 +29,17 @@ public class CoinPusherController : MonoBehaviour
     private const float SAVE_INTERVAL = 2f;      // 台の並びを端末に保存する間隔（変わったとき）
     private const float RESAVE_INTERVAL = 10f;   // 何もしなくても台の並びを保存し直す間隔（プッシャーで動くので）
     private const int MAX_POPUPS = 10;
+    private const float CHIP = 88f, CHIP_GOLD = 130f; // 上の帯の「今回の獲得」の1つ分の幅（G だけ広い）
 
     private static readonly Color BG = new Color(0.02f, 0.025f, 0.07f, 1f);
     private static readonly Color STAR_COLOR = SpaceTheme.Hex(0xFFD36E);
+
+    /// <summary>上の帯の「今回の獲得」に並べる物（この順に左から）</summary>
+    private static readonly PusherItem[] HUD_ITEMS =
+    {
+        PusherItem.Coin, PusherItem.MeepleRed, PusherItem.MeepleBlue, PusherItem.MeepleYellow, PusherItem.MeepleBlack,
+        PusherItem.StarFragment, PusherItem.PlanetPotion,
+    };
 
     private Canvas _canvas;
     private RectTransform _ui, _safe, _popLayer;
@@ -39,14 +47,14 @@ public class CoinPusherController : MonoBehaviour
     private RawImage _view;
     private CoinPusherWorld _world;
     private TextMeshProUGUI _wallet;
-    private readonly TextMeshProUGUI[] _gotCounts = new TextMeshProUGUI[5]; // G・赤・青・黄・星のカケラ
+    private readonly TextMeshProUGUI[] _gotCounts = new TextMeshProUGUI[HUD_ITEMS.Length];
     private bool _built, _closing, _holding, _fieldDirty, _towerPending;
     private float _nextDrop, _holdNext, _nextFlush, _nextSave, _nextResave, _nextShortToast;
     private int _sinceBonus, _sinceTower, _popups; // ボーナスまでに入れた枚数・コインタワーまでにゲットした枚数（台と一緒に保存）
     private string _uid;
     private Vector2 _canvasSize;
-    // 今回遊んだ分（終わったときの一言・履歴）
-    private int _sSpent, _sGold, _sRed, _sBlue, _sYellow, _sStar;
+    // 今回遊んだ分（使った G と獲得した物。上の帯・終わったときの一言・履歴）
+    private readonly CoinPusher.Ledger _session = new CoinPusher.Ledger();
 
     private void Awake()
     {
@@ -208,33 +216,40 @@ public class CoinPusherController : MonoBehaviour
         coinImg.enabled = IgCurrency.Icon != null;
         SpaceTheme.Text(bar, "WalletLabel", CoinPusher.T_WALLET, 22, SpaceTheme.TEXT_SUB, new Vector2(0f, 0.5f),
             new Vector2(104f, 24f), new Vector2(220f, 30f), FontStyles.Bold, TextAlignmentOptions.Left, new Vector2(0f, 0.5f));
+        // 右の「今回の獲得」が7つに増えたので（2026-11-12 黒コマ・惑星回復薬を追加）、幅を 240→200 にして、大きな額は縮めて収める
         _wallet = SpaceTheme.Text(bar, "Wallet", "", 46, SpaceTheme.GOLD, new Vector2(0f, 0.5f), new Vector2(104f, -16f),
-            new Vector2(240f, 56f), FontStyles.Bold, TextAlignmentOptions.Left, new Vector2(0f, 0.5f));
+            new Vector2(200f, 56f), FontStyles.Bold, TextAlignmentOptions.Left, new Vector2(0f, 0.5f));
+        _wallet.enableAutoSizing = true;
+        _wallet.fontSizeMin = 28f;
+        _wallet.fontSizeMax = 46f;
 
         SpaceTheme.Text(bar, "GotLabel", CoinPusher.T_GOT, 22, SpaceTheme.TEXT_SUB, new Vector2(1f, 0.5f),
             new Vector2(-24f, 30f), new Vector2(560f, 30f), FontStyles.Bold, TextAlignmentOptions.Right, new Vector2(1f, 0.5f));
-        var icons = new[]
+        // 右から順に並べる。G は 100G を超えて3〜4けたになるので広く（数の枠 80＝4けたまで縮めずに入る）、
+        // コマ・星のカケラ・惑星回復薬は2けたまでの幅（2026-11-12 ユーザー指定「100G 以上で右の赤コマのアイコンと数字が被る」。
+        // それまでは全部同じ幅で、数の枠が狭く、3けたの G がとなりの赤コマのアイコンに重なっていた）。
+        // 130 ＋ 88 × 6 ＋ 右の余白 24 で、帯（幅 1000）の右から 682 まで。左の所持金（右はし 304）とは重ならない。
+        // 決めた枠より長くなったら、数の文字を縮めて枠に収める（となりに重ねない）
+        float right = -24f;
+        for (int i = HUD_ITEMS.Length - 1; i >= 0; i--)
         {
-            (IgCurrency.Icon, SpaceTheme.GOLD),
-            (SpaceMeeples.Of(PlanetColor.Red)?.Icon, PlanetColors.Of(PlanetColor.Red)),
-            (SpaceMeeples.Of(PlanetColor.Blue)?.Icon, PlanetColors.Of(PlanetColor.Blue)),
-            (SpaceMeeples.Of(PlanetColor.Yellow)?.Icon, PlanetColors.Of(PlanetColor.Yellow)),
-            (SpaceWorld.StarFragmentIcon, STAR_COLOR),
-        };
-        const float CHIP = 104f;
-        for (int i = 0; i < icons.Length; i++)
-        {
-            float x = -24f - (icons.Length - 1 - i) * CHIP;
-            var chip = SpaceTheme.Rect("Got" + i, bar, new Vector2(1f, 0.5f), new Vector2(x, -18f), new Vector2(CHIP - 6f, 52f),
+            float cw = HUD_ITEMS[i] == PusherItem.Coin ? CHIP_GOLD : CHIP;
+            var chip = SpaceTheme.Rect("Got" + i, bar, new Vector2(1f, 0.5f), new Vector2(right, -18f), new Vector2(cw - 4f, 52f),
                 new Vector2(1f, 0.5f));
-            var icon = SpaceTheme.Rect("Icon", chip, new Vector2(0f, 0.5f), new Vector2(22f, 0f), new Vector2(44f, 44f));
-            var img = SpaceTheme.Img(icon, icons[i].Item1, Color.white);
+            var icon = SpaceTheme.Rect("Icon", chip, new Vector2(0f, 0.5f), new Vector2(21f, 0f), new Vector2(42f, 42f));
+            var sprite = IconOf(HUD_ITEMS[i]);
+            var img = SpaceTheme.Img(icon, sprite, Color.white);
             img.preserveAspect = true;
-            img.enabled = icons[i].Item1 != null;
-            _gotCounts[i] = SpaceTheme.Text(chip, "Count", "0", 32, SpaceTheme.TEXT, new Vector2(0f, 0.5f), new Vector2(48f, 0f),
-                new Vector2(CHIP - 54f, 44f), FontStyles.Bold, TextAlignmentOptions.Left, new Vector2(0f, 0.5f));
+            img.enabled = sprite != null;
+            var count = SpaceTheme.Text(chip, "Count", "0", 32, SpaceTheme.TEXT, new Vector2(0f, 0.5f), new Vector2(46f, 0f),
+                new Vector2(cw - 50f, 44f), FontStyles.Bold, TextAlignmentOptions.Left, new Vector2(0f, 0.5f));
+            count.textWrappingMode = TextWrappingModes.NoWrap; // 折り返さずに、枠の幅に合わせて縮める
+            count.enableAutoSizing = true;
+            count.fontSizeMin = 18f;
+            count.fontSizeMax = 32f;
+            _gotCounts[i] = count;
+            right -= cw;
         }
-
     }
 
     private void BuildBottom()
@@ -314,12 +329,12 @@ public class CoinPusherController : MonoBehaviour
         int balance = IgCurrency.Balance;
         if (_wallet != null)
             _wallet.text = balance.ToString("N0", CultureInfo.InvariantCulture) + "<size=60%>" + IgCurrency.UNIT + "</size>";
-        int[] got = { _sGold, _sRed, _sBlue, _sYellow, _sStar };
         for (int i = 0; i < _gotCounts.Length; i++)
         {
             if (_gotCounts[i] == null) continue;
-            _gotCounts[i].text = got[i].ToString(CultureInfo.InvariantCulture);
-            _gotCounts[i].color = got[i] > 0 ? SpaceTheme.GOLD : SpaceTheme.TEXT_MUTED;
+            int got = _session.Count(HUD_ITEMS[i]);
+            _gotCounts[i].text = got.ToString(CultureInfo.InvariantCulture);
+            _gotCounts[i].color = got > 0 ? SpaceTheme.GOLD : SpaceTheme.TEXT_MUTED;
         }
         if (_dropGroup != null) _dropGroup.alpha = balance >= CoinPusher.COST ? 1f : 0.5f;
     }
@@ -372,7 +387,7 @@ public class CoinPusherController : MonoBehaviour
         }
         _nextDrop = now + MIN_INTERVAL;
         CoinPusher.RecordSpend(CoinPusher.COST);
-        _sSpent += CoinPusher.COST;
+        _session.spent += CoinPusher.COST;
         _world.DropCoin();
         CoinPusherSounds.Clink();
         _fieldDirty = true;
@@ -384,15 +399,11 @@ public class CoinPusherController : MonoBehaviour
         }
     }
 
-    /// <summary>ボーナス: コマ（色はおまかせ）か星のカケラを、プッシャーの上のどこかへ1つ落とす</summary>
+    /// <summary>ボーナス: 星のカケラ・コマ（色はおまかせ）・惑星回復薬のどれかを、プッシャーの上のどこかへ1つ落とす</summary>
     private IEnumerator DropBonus()
     {
-        PusherItem kind;
-        float r = UnityEngine.Random.value;
-        if (r < 0.55f) kind = PusherItem.StarFragment;
-        else kind = r < 0.70f ? PusherItem.MeepleRed : r < 0.85f ? PusherItem.MeepleBlue : PusherItem.MeepleYellow;
-        string what = kind == PusherItem.StarFragment ? CoinPusher.T_BONUS_STAR : NameOf(kind) + CoinPusher.T_BONUS_MEEPLE_B;
-        ShowBanner(CoinPusher.T_BONUS, what, ColorOf(kind));
+        var kind = CoinPusher.RollBonus(UnityEngine.Random.value);
+        ShowBanner(CoinPusher.T_BONUS, NameOf(kind) + CoinPusher.T_BONUS_FALL_B, ColorOf(kind));
         CoinPusherSounds.Bonus();
         yield return new WaitForSecondsRealtime(0.6f);
         if (_world == null || _closing) yield break;
@@ -406,14 +417,7 @@ public class CoinPusherController : MonoBehaviour
     private void OnWon(PusherItem kind, Vector3 world)
     {
         CoinPusher.RecordWin(kind);
-        switch (kind)
-        {
-            case PusherItem.Coin: _sGold++; break;
-            case PusherItem.MeepleRed: _sRed++; break;
-            case PusherItem.MeepleBlue: _sBlue++; break;
-            case PusherItem.MeepleYellow: _sYellow++; break;
-            case PusherItem.StarFragment: _sStar++; break;
-        }
+        _session.Add(kind);
         _fieldDirty = true;
         RefreshHud();
         if (kind == PusherItem.Coin) CoinPusherSounds.Win();
@@ -436,12 +440,15 @@ public class CoinPusherController : MonoBehaviour
     }
 
     /// <summary>
-    /// コインタワー: 知らせを出してから、プッシャーの上にコインを積んだタワーを出す。数はタワーが出てから減らす
-    /// （出る前に閉じたら、数はそのまま保存されて、次に開いたときに出る）
+    /// コインタワー: 知らせを出してから、プッシャーの上にコインを積んだタワーを出し、同時にタワーの横へコマを1つ落とす
+    /// （2026-11-12 ユーザー指定。色は赤・青・黄・黒から同じ割合で。CoinPusher.RollTowerMeeple）。タワーとコマは同じ時に出すので、
+    /// どちらかだけになることはない。数はタワーが出てから減らす（出る前に閉じたら、数はそのまま保存されて、次に開いたときに出る）
     /// </summary>
     private IEnumerator TowerBonus()
     {
-        ShowBanner(CoinPusher.T_TOWER, CoinPusher.T_TOWER_SUB_A + CoinPusher.TOWER_EVERY + CoinPusher.T_TOWER_SUB_B, SpaceTheme.GOLD);
+        var meeple = CoinPusher.RollTowerMeeple(UnityEngine.Random.value);
+        ShowBanner(CoinPusher.T_TOWER, CoinPusher.T_TOWER_SUB_A + CoinPusher.TOWER_EVERY + CoinPusher.T_TOWER_SUB_B, SpaceTheme.GOLD,
+            NameOf(meeple) + CoinPusher.T_TOWER_ALSO_B, ColorOf(meeple));
         CoinPusherSounds.Bonus();
         yield return new WaitForSecondsRealtime(0.35f);
         if (_world == null || _closing)
@@ -449,7 +456,8 @@ public class CoinPusherController : MonoBehaviour
             _towerPending = false;
             yield break;
         }
-        _world.SpawnTower(CoinPusher.TOWER_COINS);
+        float towerX = _world.SpawnTower(CoinPusher.TOWER_COINS);
+        _world.DropBonus(meeple, towerX);
         CoinPusherSounds.Prize();
         _sinceTower -= CoinPusher.TOWER_EVERY;
         _fieldDirty = true;
@@ -457,14 +465,24 @@ public class CoinPusherController : MonoBehaviour
         MaybeTower();
     }
 
-    private void OnLost(PusherItem kind) => _fieldDirty = true;
+    /// <summary>
+    /// 横から落ちた（没収）。コマ・星のカケラ・惑星回復薬など G 以外のときは、残念な音を鳴らす
+    /// （2026-11-12 ユーザー指定「ミープルなどの G 以外のものが落ちてしまったときは、残念感のある音を」）
+    /// </summary>
+    private void OnLost(PusherItem kind)
+    {
+        _fieldDirty = true;
+        if (kind != PusherItem.Coin && !_closing) CoinPusherSounds.Lost();
+    }
 
     private static string NameOf(PusherItem kind) => kind switch
     {
         PusherItem.MeepleRed => SpaceMeeples.Of(PlanetColor.Red).Name,
         PusherItem.MeepleBlue => SpaceMeeples.Of(PlanetColor.Blue).Name,
         PusherItem.MeepleYellow => SpaceMeeples.Of(PlanetColor.Yellow).Name,
+        PusherItem.MeepleBlack => SpaceMeeples.Black.Name,
         PusherItem.StarFragment => SpaceWorld.STAR_FRAGMENT_NAME,
+        PusherItem.PlanetPotion => SpacePlanetPotion.NAME,
         _ => IgCurrency.UNIT,
     };
 
@@ -473,7 +491,9 @@ public class CoinPusherController : MonoBehaviour
         PusherItem.MeepleRed => SpaceTheme.Hex(0xFF7A7A),
         PusherItem.MeepleBlue => SpaceTheme.Hex(0x7AB0FF),
         PusherItem.MeepleYellow => SpaceTheme.Hex(0xFFE066),
+        PusherItem.MeepleBlack => SpaceMeeples.Black.Tint,
         PusherItem.StarFragment => STAR_COLOR,
+        PusherItem.PlanetPotion => SpacePlanetPotion.TINT,
         _ => SpaceTheme.GOLD,
     };
 
@@ -482,7 +502,9 @@ public class CoinPusherController : MonoBehaviour
         PusherItem.MeepleRed => SpaceMeeples.Of(PlanetColor.Red)?.Icon,
         PusherItem.MeepleBlue => SpaceMeeples.Of(PlanetColor.Blue)?.Icon,
         PusherItem.MeepleYellow => SpaceMeeples.Of(PlanetColor.Yellow)?.Icon,
+        PusherItem.MeepleBlack => SpaceMeeples.Black.Icon,
         PusherItem.StarFragment => SpaceWorld.StarFragmentIcon,
+        PusherItem.PlanetPotion => SpacePlanetPotion.Icon,
         _ => IgCurrency.Icon,
     };
 
@@ -506,23 +528,26 @@ public class CoinPusherController : MonoBehaviour
         _popups++;
     }
 
-    /// <summary>画面のまん中より上に、ボーナスの知らせ</summary>
     /// <summary>
     /// ボーナスの知らせ。奥の壁のあたり（下から 75%）に出す（ボーナスの景品もコインタワーもプッシャーの上に出るので、
-    /// そこを隠さないように。2026-11-12 までは 62% で、プッシャーの上と重なっていた）
+    /// そこを隠さないように。2026-11-12 までは 62% で、プッシャーの上と重なっていた）。
+    /// sub2 があれば3行目に（コインタワーの「黒コマも落ちてくる」。その色 sub2Color で）
     /// </summary>
-    private void ShowBanner(string title, string sub, Color color)
+    private void ShowBanner(string title, string sub, Color color, string sub2 = null, Color? sub2Color = null)
     {
         if (_popLayer == null) return;
         var rt = SpaceTheme.Rect("Banner", _popLayer, new Vector2(0.5f, 0.75f), Vector2.zero, new Vector2(900f, 160f));
-        var shade = SpaceTheme.Rect("Shade", rt, SpaceTheme.CENTER, Vector2.zero, new Vector2(1000f, 300f));
+        var shade = SpaceTheme.Rect("Shade", rt, SpaceTheme.CENTER, Vector2.zero, new Vector2(1000f, sub2 != null ? 360f : 300f));
         SpaceTheme.Img(shade, SpaceSprites.Glow, new Color(0.01f, 0.015f, 0.05f, 0.8f));
         var glow = SpaceTheme.Rect("Glow", rt, SpaceTheme.CENTER, Vector2.zero, new Vector2(900f, 340f));
         SpaceTheme.Img(glow, SpaceSprites.Glow, SpaceTheme.A(color, 0.35f));
-        var t = SpaceTheme.Text(rt, "Title", title, 64, SpaceTheme.GOLD, SpaceTheme.CENTER, new Vector2(0f, 30f),
+        SpaceTheme.Text(rt, "Title", title, 64, SpaceTheme.GOLD, SpaceTheme.CENTER, new Vector2(0f, 30f),
             new Vector2(900f, 80f), FontStyles.Bold);
-        var s = SpaceTheme.Text(rt, "Sub", sub, 32, color, SpaceTheme.CENTER, new Vector2(0f, -36f), new Vector2(900f, 46f),
+        SpaceTheme.Text(rt, "Sub", sub, 32, color, SpaceTheme.CENTER, new Vector2(0f, -36f), new Vector2(900f, 46f),
             FontStyles.Bold);
+        if (sub2 != null)
+            SpaceTheme.Text(rt, "Sub2", sub2, 32, sub2Color ?? color, SpaceTheme.CENTER, new Vector2(0f, -82f),
+                new Vector2(900f, 46f), FontStyles.Bold);
         rt.gameObject.AddComponent<CoinPusherFloat>().Init(1.8f, 40f, null);
     }
 
@@ -558,7 +583,7 @@ public class CoinPusherController : MonoBehaviour
         if (busy != null) Destroy(busy);
         if (this == null) return;
 
-        string text = CoinPusher.SessionText(_sSpent, _sGold, _sRed, _sBlue, _sYellow, _sStar);
+        string text = CoinPusher.SessionText(_session);
         if (text != null) LocalHistoryLog.Add(CoinPusher.HISTORY, CoinPusher.T_TITLE + "で " + text);
 
         float from = _group != null ? _group.alpha : 1f;
@@ -724,7 +749,7 @@ public class CoinPusherFloat : MonoBehaviour
 public static class CoinPusherSounds
 {
     private const int RATE = 44100;
-    private static AudioClip _clink, _win, _prize, _bonus;
+    private static AudioClip _clink, _win, _prize, _bonus, _lost;
     private static AudioSource _source;
 
     /// <summary>コインを入れた（チャリン）</summary>
@@ -742,6 +767,13 @@ public static class CoinPusherSounds
     /// <summary>ボーナスが落ちてくる（ポロロン）</summary>
     public static void Bonus() => Play(_bonus != null ? _bonus : (_bonus = Bell("pusher_bonus",
         new[] { (784f, 0f, 0.12f), (988f, 0.08f, 0.12f), (1175f, 0.16f, 0.12f), (1568f, 0.24f, 0.5f) }, 0.4f)), 0.75f);
+
+    /// <summary>
+    /// コマ・星のカケラなど G 以外が横から落ちた（残念な「ぽわ・ぽわ・ぽわわ〜ん」。2026-11-12）。
+    /// ラ → ソ# → ソと半音ずつ下がり、最後の音はゆれながらさらに少し下がって消える
+    /// </summary>
+    public static void Lost() => Play(_lost != null ? _lost : (_lost = Sad("pusher_lost",
+        new[] { (440f, 0f, 0.17f), (415.3f, 0.19f, 0.17f), (392f, 0.38f, 0.62f) }, 0.55f)), 0.8f);
 
     private static void Play(AudioClip clip, float volume)
     {
@@ -775,6 +807,43 @@ public static class CoinPusherSounds
                 float w = Mathf.Sin(2f * Mathf.PI * n.freq * t)
                           + 0.4f * Mathf.Sin(2f * Mathf.PI * n.freq * 2.76f * t) * Mathf.Exp(-7f * t / n.dur)
                           + 0.15f * Mathf.Sin(2f * Mathf.PI * n.freq * 5.4f * t) * Mathf.Exp(-11f * t / n.dur);
+                data[offset + i] += w * env * gain;
+            }
+        }
+        for (int i = 0; i < length; i++) data[i] = Mathf.Clamp(data[i], -1f, 1f);
+        var clip = AudioClip.Create(name, length, 1, RATE, false);
+        clip.SetData(data, 0);
+        return clip;
+    }
+
+    /// <summary>
+    /// 残念な音（ベルのように「チン」と鳴らず、ラッパのように伸びる、こもった音色）。音ごとに 20ms で立ち上がって
+    /// 終わりに向けて弱まり、少しだけ音が下がる。最後の音は 6Hz でゆれながら 6% 下がり、ゆっくり消える
+    /// </summary>
+    private static AudioClip Sad(string name, (float freq, float start, float dur)[] notes, float gain)
+    {
+        float total = 0f;
+        foreach (var n in notes) total = Mathf.Max(total, n.start + n.dur);
+        int length = (int)((total + 0.05f) * RATE);
+        var data = new float[length];
+        for (int k = 0; k < notes.Length; k++)
+        {
+            var n = notes[k];
+            bool last = k == notes.Length - 1;
+            int offset = (int)(n.start * RATE);
+            int count = (int)(n.dur * RATE);
+            double phase = 0.0;
+            for (int i = 0; i < count && offset + i < length; i++)
+            {
+                float t = i / (float)RATE;
+                float u = t / n.dur; // 音の中での進み（0〜1）
+                float f = n.freq * (1f - (last ? 0.06f : 0.015f) * u);
+                if (last) f *= 1f + 0.012f * Mathf.Sin(2f * Mathf.PI * 6f * t);
+                phase += 2.0 * Mathf.PI * f / RATE;
+                // 倍音を少し混ぜた、やわらかいラッパのような音色（最大でもおよそ ±1）
+                float w = (float)(Math.Sin(phase) + 0.5 * Math.Sin(2.0 * phase) + 0.3 * Math.Sin(3.0 * phase)
+                                  + 0.15 * Math.Sin(4.0 * phase)) / 1.95f;
+                float env = Mathf.Min(1f, t / 0.02f) * (last ? 1f - u * u * u : 1f - 0.5f * u * u);
                 data[offset + i] += w * env * gain;
             }
         }

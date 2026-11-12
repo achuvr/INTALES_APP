@@ -190,6 +190,13 @@ public class SpaceInventoryPanel : MonoBehaviour
         "ショップ（空の金貨座）で買えます。5個そろうと流れ星を1回見られます";
     private const string T_STAR_FRAGMENT_INFO_BOTH =
         "INTALES WORLD の星くずの島にコマを置くか、ショップで買うと手に入ります。5個そろうと流れ星を1回見られます";
+    // 流れ星でコマ・5%OFFチケットのカケラが当たるようになった（2026-11-12）。INTALES WORLD もショップもない人でも、
+    // 持っていれば欄を出す（そのときの見出しの右の説明と、押したときの説明）
+    private const string T_MEEPLE_HINT_STAR = "流れ星で当たることがあります";
+    private const string T_MEEPLE_INFO_STAR = "流れ星で当たることがあります。\nコマは職人座を完成させると、INTALES WORLD で使えます。";
+    private const string T_STAR_ALSO = "流れ星で当たることもあります。";
+    private const string T_FRAGMENT_HINT_FIVE = "そろうとチケットになります"; // 5%OFFチケットのカケラだけの人
+    private const string T_FRAGMENT_INFO_STAR = "流れ星で当たることがあります。2枚そろうと5%OFFチケットになります";
     // 所持金（アプリ内の通貨。単位 G。2026-11-12。金貨座を完成させると、いちばん上に出る。IgCurrency）。
     // 欄の見出しを「所持金」にすると行の名前と重なるので、見出しは「通貨」
     private const string T_IG_SECTION = "通貨";
@@ -278,6 +285,8 @@ public class SpaceInventoryPanel : MonoBehaviour
               .Append(IgCurrency.GlyphText).Append(T_MEEPLE_HINT_SHOP).Append(T_MEEPLE_INFO_SHOP)
               .Append(T_MEEPLE_INFO_ALSO_SHOP).Append(T_STAR_FRAGMENT_INFO_SHOP).Append(T_STAR_FRAGMENT_INFO_BOTH)
               .Append(T_ITEM_SECTION).Append(T_ITEM_HINT).Append(SpacePlanetPotion.GlyphText)
+              .Append(T_MEEPLE_HINT_STAR).Append(T_MEEPLE_INFO_STAR).Append(T_STAR_ALSO).Append(T_FRAGMENT_HINT_FIVE)
+              .Append(T_FRAGMENT_INFO_STAR)
               .Append(T_IG_DESC_LOCKED).Append(T_IG_INFO_LOCKED)
               .Append(T_FRAGMENT_SECTION).Append(T_FRAGMENT_HINT).Append(T_FRAGMENT_HINT_SHOP)
               .Append(T_CARD_SECTION).Append(T_CARD_HINT).Append(T_CARD_HINT_POKER).Append(T_CARD_RESET)
@@ -526,29 +535,44 @@ public class SpaceInventoryPanel : MonoBehaviour
         // 通貨座がアクティブになると所持品にミープルが増えるように」）
         bool world = SpaceWorld.Installed;
         bool shop = IgCurrency.Unlocked;
-        if (world || shop)
+        var d = Data;
+        // 流れ星でコマ・5%OFFチケットのカケラが当たるようになったので（2026-11-12）、INTALES WORLD もショップもない人でも、
+        // 持っていれば欄を出す（当たりのカードの「所持品に入りました」のとおりに）
+        bool meeples = world || shop || SpaceMeeples.OwnsAny(d);
+        bool fivePieces = world || (d != null && d.FiveFragment > 0);
+        bool starPieces = world || shop || (d != null && d.StarFragment > 0);
+        if (meeples)
         {
-            y = SectionLabel(T_MEEPLE_SECTION, y + ROW_GAP, world ? T_MEEPLE_HINT : T_MEEPLE_HINT_SHOP);
-            BuildMeepleRow(_content, -y,
-                world ? (shop ? T_MEEPLE_INFO + "\n" + T_MEEPLE_INFO_ALSO_SHOP : T_MEEPLE_INFO) : T_MEEPLE_INFO_SHOP);
+            string hint = world ? T_MEEPLE_HINT : shop ? T_MEEPLE_HINT_SHOP : T_MEEPLE_HINT_STAR;
+            string info = world ? (shop ? T_MEEPLE_INFO + "\n" + T_MEEPLE_INFO_ALSO_SHOP : T_MEEPLE_INFO) + "\n" + T_STAR_ALSO
+                : shop ? T_MEEPLE_INFO_SHOP + "\n" + T_STAR_ALSO
+                : T_MEEPLE_INFO_STAR;
+            y = SectionLabel(T_MEEPLE_SECTION, y + ROW_GAP, hint);
+            BuildMeepleRow(_content, -y, info);
             y += ROW_H;
-
+        }
+        if (fivePieces || starPieces)
+        {
             // カケラ（コマではないので、コマの欄とは分ける。2026-11-12 ユーザー指定）
-            y = SectionLabel(T_FRAGMENT_SECTION, y + ROW_GAP, world ? T_FRAGMENT_HINT : T_FRAGMENT_HINT_SHOP);
-            var d = Data;
-            if (world)
+            y = SectionLabel(T_FRAGMENT_SECTION, y + ROW_GAP,
+                fivePieces ? (starPieces ? T_FRAGMENT_HINT : T_FRAGMENT_HINT_FIVE) : T_FRAGMENT_HINT_SHOP);
+            if (fivePieces)
             {
-                // 5%OFFチケットのカケラ（INTALES WORLD の商人の港でだけもらう。2枚で5%OFFチケット。2026-11-10）
+                // 5%OFFチケットのカケラ（INTALES WORLD の商人の港でもらう・流れ星で当たる。2枚で5%OFFチケット。2026-11-10）
                 BuildFragmentRow(_content, -y, "Fragment", SpaceWorld.FragmentIcon, true, SpaceWorld.FRAGMENT_NAME,
-                    T_FRAGMENT_DESC, T_FRAGMENT_INFO, d != null ? d.FiveFragment : 0, SpaceWorld.FRAGMENTS_PER_COUPON);
-                y += ROW_H + ROW_GAP;
+                    T_FRAGMENT_DESC, world ? T_FRAGMENT_INFO + "\n" + T_STAR_ALSO : T_FRAGMENT_INFO_STAR,
+                    d != null ? d.FiveFragment : 0, SpaceWorld.FRAGMENTS_PER_COUPON);
+                y += ROW_H + (starPieces ? ROW_GAP : 0f);
             }
-            // 星のカケラ（INTALES WORLD の星くずの島でもらう・ショップで買う。5個で流れ星を1回。2026-11-11）
-            BuildFragmentRow(_content, -y, "StarFragment", SpaceWorld.StarFragmentIcon, false, SpaceWorld.STAR_FRAGMENT_NAME,
-                T_STAR_FRAGMENT_DESC,
-                world ? (shop ? T_STAR_FRAGMENT_INFO_BOTH : T_STAR_FRAGMENT_INFO) : T_STAR_FRAGMENT_INFO_SHOP,
-                d != null ? d.StarFragment : 0, SpaceWorld.STAR_FRAGMENTS_PER_STAR);
-            y += ROW_H;
+            if (starPieces)
+            {
+                // 星のカケラ（INTALES WORLD の星くずの島でもらう・ショップで買う。5個で流れ星を1回。2026-11-11）
+                BuildFragmentRow(_content, -y, "StarFragment", SpaceWorld.StarFragmentIcon, false, SpaceWorld.STAR_FRAGMENT_NAME,
+                    T_STAR_FRAGMENT_DESC,
+                    world ? (shop ? T_STAR_FRAGMENT_INFO_BOTH : T_STAR_FRAGMENT_INFO) : T_STAR_FRAGMENT_INFO_SHOP,
+                    d != null ? d.StarFragment : 0, SpaceWorld.STAR_FRAGMENTS_PER_STAR);
+                y += ROW_H;
+            }
         }
         // トランプ（宝石座か切り札座を完成させた人。手札を7つの枠に並べる。2026-11-12）
         var cards = CardDeck.Current;

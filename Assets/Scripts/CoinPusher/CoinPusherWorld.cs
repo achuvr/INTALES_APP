@@ -11,6 +11,8 @@ public enum PusherItem
     MeepleBlue = 2,   // 青コマ
     MeepleYellow = 3, // 黄コマ
     StarFragment = 4, // 星のカケラ
+    MeepleBlack = 5,  // 黒コマ（2026-11-12 追加。コインタワーのボーナスで落ちてくる）
+    PlanetPotion = 6, // 惑星回復薬（2026-11-12 追加。ボーナスの景品）
 }
 
 /// <summary>
@@ -28,7 +30,9 @@ public enum PusherItem
 public sealed class CoinPusherWorld : MonoBehaviour
 {
     public const float HALF_W = 3.0f;          // 台の左右の半分の幅
-    public const float SIDE_OPEN = 1.0f;       // 手前の左右の、横の壁がないところ（ここから横に落ちると没収）
+    // 手前の左右の、横の壁がないところ（ここから横に落ちると没収）。2026-11-12 ユーザー指定「壁をもう少し短くして、
+    // 横に落ちやすく」で 1.0→1.6（プッシャーがいちばん手前に来たときの前の台 2.6 のうち、手前 1.6 は横があいている）
+    public const float SIDE_OPEN = 1.6f;
     public const float PUSHER_H = 0.6f;        // プッシャーの高さ
     public const float PUSHER_D = 4.4f;        // プッシャーの奥行き
     public const float PUSH_NEAR = 2.6f;       // プッシャーの前の面がいちばん手前に来たとき
@@ -45,10 +49,13 @@ public sealed class CoinPusherWorld : MonoBehaviour
     public const float DROP_HALF_W = 2.5f;     // 狙える左右の半分の幅
     private const float AIM_Z_DEFAULT = (PUSH_FAR + WALL_Z) * 0.5f; // はじめの狙いの奥行き（いちばん奥に下がっても上面が残る所のまん中）
     private const float FALL_TIME = 0.23f;     // 投入口からプッシャーの上まで落ちる時間（重力96・初めの速さ3で約0.21〜0.22秒）
-    private const float ITEM_HALF = 0.55f;     // コマ・星のカケラの半分の大きさ（向きが変わってもこの円に収まる）
+    private const float ITEM_HALF = 0.55f;     // コマ・星のカケラ・惑星回復薬の半分の大きさ（向きが変わってもほぼこの円に収まる）
+    private const float BONUS_HALF_W = DROP_HALF_W * 0.8f; // ボーナスの景品を落とす左右の範囲
     // コインタワーの中心とプッシャーの前の面の距離（いちばん奥に下がっても上面が残る帯のまん中。壁にも前のふちにも当たらない）
     private const float TOWER_FROM_FRONT = PUSH_TOP_KEEP * 0.5f;
     private const float TOWER_HALF_W = 1.8f;   // コインタワーを置く左右の範囲
+    // タワーと一緒に落とすコマは、タワーの中心から左右にこれだけ離す（コインの半径＋コマの半分＋すき間。落ちてタワーを崩さないように）
+    private const float TOWER_CLEAR = CoinPusherMeshes.COIN_R + ITEM_HALF + 0.25f;
     public const float GONE_Y = -1.2f;         // ここより下に落ちたら、手前なら獲得・それ以外は没収
     public const int MAX_ITEMS = 220;          // 台に乗せられる数（これ以上はコインを入れられない）
     // 重力と物理の刻み。2026-11-12 ユーザー指定「落ちる速さを今の倍に（プッシャーから落ちるときも含めて）」で、
@@ -99,6 +106,7 @@ public sealed class CoinPusherWorld : MonoBehaviour
     private bool _physicsChanged;
     private PhysicsMaterial _itemPm, _floorPm, _wallPm;
     private Material _coinFace, _coinRim, _star, _meepleRed, _meepleBlue, _meepleYellow;
+    private Material _meepleBlack, _potionGlass, _potionCork, _paint; // _paint は頂点の色で塗る光らない材質（黒コマのふち・薬）
 
     /// <summary>台を作る。width・height は映像（RenderTexture）の大きさ</summary>
     public static CoinPusherWorld Create(int width, int height)
@@ -146,6 +154,7 @@ public sealed class CoinPusherWorld : MonoBehaviour
         Physics.BakeMesh(CoinPusherMeshes.CoinCollider.GetInstanceID(), true);
         Physics.BakeMesh(CoinPusherMeshes.Meeple.GetInstanceID(), true);
         Physics.BakeMesh(CoinPusherMeshes.Star.GetInstanceID(), true);
+        Physics.BakeMesh(CoinPusherMeshes.PotionCollider.GetInstanceID(), true);
         _itemPm = NewPhysicsMaterial("PusherItem", 0.32f, 0.42f, 0.02f);
         _floorPm = NewPhysicsMaterial("PusherFloor", 0.28f, 0.34f, 0f);
         _wallPm = NewPhysicsMaterial("PusherWall", 0.06f, 0.08f, 0f);
@@ -160,6 +169,11 @@ public sealed class CoinPusherWorld : MonoBehaviour
         _meepleRed = Lit(PlanetColors.Of(PlanetColor.Red), 0.4f, 0f);
         _meepleBlue = Lit(PlanetColors.Of(PlanetColor.Blue), 0.4f, 0f);
         _meepleYellow = Lit(PlanetColors.Of(PlanetColor.Yellow), 0.4f, 0f);
+        // 黒コマは黒い面（つやを強めにして、暗い台の上でも光の映りで形が分かるように）＋光るふち。惑星回復薬は淡い水色のガラスと栓
+        _meepleBlack = Lit(SpaceTheme.Hex(0x2B2A36), 0.78f, 0.1f);
+        _potionGlass = Lit(SpaceTheme.Hex(0xC9ECFF), 0.9f, 0.1f);
+        _potionCork = Lit(SpaceTheme.Hex(0xB5824E), 0.3f, 0f);
+        _paint = Unlit(Color.white);
         var grid = GridTexture();
         _owned.Add(grid);
         var floor = Lit(SpaceTheme.Hex(0x2A3478), 0.62f, 0.15f, grid, new Vector2(4f, 6f));
@@ -485,11 +499,25 @@ public sealed class CoinPusherWorld : MonoBehaviour
     /// <summary>狙っている所（プッシャーの上をタップした所）にコインを1枚落とす</summary>
     public void DropCoin() => DropAt(PusherItem.Coin, _aimX, _aimZ, 0.04f);
 
-    /// <summary>ボーナスの景品を、プッシャーの上のどこかに落とす</summary>
-    public void DropBonus(PusherItem kind)
+    /// <summary>
+    /// ボーナスの景品を、プッシャーの上のどこかに落とす。avoidX（コインタワーの左右の位置）があれば、そこから TOWER_CLEAR 以上
+    /// 離れた所に（タワーの左右の空いている幅に合わせて、どちらかの側を選ぶ）
+    /// </summary>
+    public void DropBonus(PusherItem kind, float? avoidX = null)
     {
         DropRange(ITEM_HALF, out float zMin, out float zMax);
-        DropAt(kind, UnityEngine.Random.Range(-DROP_HALF_W * 0.8f, DROP_HALF_W * 0.8f), UnityEngine.Random.Range(zMin, zMax), 0f);
+        float x = UnityEngine.Random.Range(-BONUS_HALF_W, BONUS_HALF_W);
+        if (avoidX.HasValue)
+        {
+            float left = Mathf.Max(0f, avoidX.Value - TOWER_CLEAR + BONUS_HALF_W);  // 左はし 〜 タワーの左
+            float right = Mathf.Max(0f, BONUS_HALF_W - avoidX.Value - TOWER_CLEAR); // タワーの右 〜 右はし
+            if (left + right > 0f)
+            {
+                float r = UnityEngine.Random.Range(0f, left + right);
+                x = r < left ? -BONUS_HALF_W + r : avoidX.Value + TOWER_CLEAR + (r - left);
+            }
+        }
+        DropAt(kind, x, UnityEngine.Random.Range(zMin, zMax), 0f);
     }
 
     /// <summary>x・z の真上の投入口の高さから、まっすぐ下へ落とす（横の速さは付けない。狙った所からずれないように）</summary>
@@ -510,11 +538,12 @@ public sealed class CoinPusherWorld : MonoBehaviour
     /// コインタワー: プッシャーの上に、コインを count 枚まっすぐ積む。置く所はプッシャーの前の面から TOWER_FROM_FRONT 奥
     /// （プッシャーと一緒に動き、いちばん奥に下がっても壁に当たらない）。左右は、上に何も乗っていない所をなるべく選ぶ
     /// （ほかのコインの上に積むと傾いて崩れやすい）。プッシャーは動いているので、積んだコインにもプッシャーと同じ速さを与える
-    /// （止まったまま置くと、動く床に引っぱられて崩れる）。崩すのは、上に落としたコインや、ほかの物に押されて
+    /// （止まったまま置くと、動く床に引っぱられて崩れる）。崩すのは、上に落としたコインや、ほかの物に押されて。
+    /// 置いた左右の位置を返す（一緒に落とすコマが、そこを避けるように）
     /// </summary>
-    public void SpawnTower(int count)
+    public float SpawnTower(int count)
     {
-        if (_pusher == null || count <= 0) return;
+        if (_pusher == null || count <= 0) return 0f;
         float z = PusherFront(_time) + TOWER_FROM_FRONT;
         var xs = new List<float>();
         for (int i = 0; i < 7; i++) xs.Add(Mathf.Lerp(-TOWER_HALF_W, TOWER_HALF_W, i / 6f));
@@ -561,6 +590,7 @@ public sealed class CoinPusherWorld : MonoBehaviour
             Unlit(SpaceTheme.Hex(0xFFD37A, 0.55f)), null, false);
         flash.transform.SetParent(_pusher.transform, true);
         flash.AddComponent<CoinPusherFade>().Init(0.9f);
+        return bestX;
     }
 
     /// <summary>
@@ -615,6 +645,18 @@ public sealed class CoinPusherWorld : MonoBehaviour
                 mr.sharedMaterial = _star;
                 col.sharedMesh = CoinPusherMeshes.Star;
                 mass = 0.9f;
+                break;
+            case PusherItem.PlanetPotion:
+                mf.sharedMesh = CoinPusherMeshes.Potion;
+                mr.sharedMaterials = new[] { _potionGlass, _potionCork, _paint };
+                col.sharedMesh = CoinPusherMeshes.PotionCollider;
+                mass = 1.2f;
+                break;
+            case PusherItem.MeepleBlack:
+                mf.sharedMesh = CoinPusherMeshes.MeepleBlack;
+                mr.sharedMaterials = new[] { _meepleBlack, _paint };
+                col.sharedMesh = CoinPusherMeshes.Meeple; // 当たり判定はほかのコマと同じ形
+                mass = 1.6f;
                 break;
             default:
                 mf.sharedMesh = CoinPusherMeshes.Meeple;
@@ -746,7 +788,7 @@ public sealed class CoinPusherWorld : MonoBehaviour
         }
         foreach (var s in data.items)
         {
-            if (s.t < 0 || s.t > (int)PusherItem.StarFragment) continue;
+            if (!Enum.IsDefined(typeof(PusherItem), s.t)) continue;
             var pos = new Vector3(s.x, s.y, s.z);
             if (pos.y < -0.5f || pos.y > 6f || Mathf.Abs(pos.x) > HALF_W + 0.5f) continue; // 落ちかけていた物は戻さない
             var rot = new Quaternion(s.qx, s.qy, s.qz, s.qw);
