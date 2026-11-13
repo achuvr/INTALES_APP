@@ -28,7 +28,10 @@ public sealed class ConstellationDef
 public sealed class ConstellationProgress
 {
     public ConstellationDef Def;
-    /// <summary>そのジャンルの公認されたゲーム（公認された順。全部）</summary>
+    /// <summary>
+    /// そのジャンルの公認されたゲーム（公認された順。全部）。お店から灯した星（StarGiftQr。2026-11-13）も1つずつ入る
+    /// （Game は null、Key は StarGiftQr.KeyOf(番号)。見分けは StarGiftQr.IsGiftKey）
+    /// </summary>
     public readonly List<(string Key, BoardGameEntry Game, string Day)> Games = new List<(string, BoardGameEntry, string)>();
     public int Count => Games.Count;
     /// <summary>レベル（0=まだ完成していない、1=完成、2〜=さらに6作品ずつ）</summary>
@@ -162,6 +165,10 @@ public static class Constellations
             foreach (var (def, day) in LitBy(kv.Key, g, kv.Value))
                 byId[def.Id].Games.Add((kv.Key, g, day));
         }
+        // お店から灯した星（管理者が星座と個数を決めて出すQR。2026-11-13 StarGiftQr）: 個数ぶん、灯した日に入る（ゲームはない）
+        foreach (var gift in StarGiftQr.Gifts)
+            if (byId.TryGetValue(gift.Id, out var gp))
+                for (int i = 0; i < gift.Count; i++) gp.Games.Add((StarGiftQr.KeyOf(gift.Nonce), null, gift.Day));
         // もう一度灯した星は灯した日に入るので、星座ごとに灯した順（日付 → キー）に並べ直す
         foreach (var p in result)
             p.Games.Sort((a, b) =>

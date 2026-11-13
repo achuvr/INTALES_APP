@@ -201,6 +201,75 @@ public class CallMethodFromQR : MonoBehaviour
     }
 
     /// <summary>
+    /// 星座に星を灯すQR（"stars:{星座ID}:{個数}:{営業日}:{番号}:{署名}"。2026-11-13。StarGiftQr）。
+    /// 管理者の「お客様に見せるQRコード」のゲームタブの「星座に星を灯す」で、星座と個数を決めて出したもの。
+    /// その営業日のうちだけ・同じQRは1人1回まで。「星を灯せるのは1日1回」（公認QR）とは別に数える。
+    /// 完成・レベルアップしたら、公認のときと同じくその星座のチケット（1つ上がるごとに1枚）と全画面の演出
+    /// </summary>
+    public async UniTask ClaimStars(string qrText)
+    {
+        var parsed = StarGiftQr.Parse(qrText, System.DateTime.UtcNow, out var def, out int count, out string nonce);
+        if (parsed != StarGiftQr.Result.Ok)
+        {
+            FriendMenuController.ShowToast(parsed == StarGiftQr.Result.Expired ? StarGiftQr.T_EXPIRED : StarGiftQr.T_INVALID);
+            EndFromButton();
+            return;
+        }
+
+        // この星で完成・レベルアップするなら、その星座のチケットを上がった数だけ（公認と同じ。ふつうはドリンク、職人座は7%OFF）
+        var before = Constellations.Progress().Find(p => p.Def.Id == def.Id);
+        int levelBefore = before != null ? before.Level : 0;
+        int gained = StarGiftQr.LevelsGained(before != null ? before.Count : 0, count, def.Size);
+        var rewards = new Dictionary<string, int>();
+        if (gained > 0) rewards[def.Reward] = gained;
+
+        string title = StarGiftQr.Title(def, count);
+        var result = await StarGiftQr.ClaimAsync(def, count, nonce, rewards);
+        if (result == StarGiftQr.ClaimResult.Already)
+        {
+            EndFromButton();
+            InfoModal.Show(StarGiftQr.T_ALREADY, title, StarGiftQr.T_ALREADY_SUB);
+            return;
+        }
+        if (result != StarGiftQr.ClaimResult.Ok)
+        {
+            FriendMenuController.ShowToast(StarGiftQr.T_FAILED);
+            EndFromButton();
+            return;
+        }
+
+        AssetsDatabase.instance?.PlayLevelUpSE();
+        End();
+        LocalHistoryLog.Add("certify", $"お店から{def.Name}に星を{count}つ灯してもらった");
+        var after = Constellations.Progress().Find(p => p.Def.Id == def.Id);
+        bool leveled = after != null && after.Level > levelBefore;
+        if (leveled)
+        {
+            string ticket = SpaceCoupons.NameOf(def.Reward);
+            LocalHistoryLog.Add("certify", levelBefore == 0
+                ? $"{def.Name}が完成（{ticket}を{gained}枚 入手）"
+                : $"{def.Name}が Lv.{after.Level} に上がった（{ticket}を{gained}枚 入手）");
+        }
+
+        if (SpaceTheme.InUse)
+        {
+            // 星座が完成・レベルアップしたら、先に全画面の演出（完成していなかった星座なら完成の演出。閉じると星のお知らせ）
+            var mine = after != null ? new List<ConstellationProgress> { after } : new List<ConstellationProgress>();
+            void ShowNotice() => SpaceNotice.GameCertified(title, mine, rewards, false, null, StarGiftQr.T_CAPTION,
+                StarGiftQr.T_TITLE, levelBefore);
+            if (leveled) SpaceNotice.ConstellationReveal(after, ShowNotice, levelBefore == 0);
+            else ShowNotice();
+        }
+        else
+        {
+            var parts = new List<string>();
+            foreach (var kv in rewards) parts.Add($"{SpaceCoupons.NameOf(kv.Key)}を{kv.Value}枚");
+            InfoModal.Show(StarGiftQr.T_TITLE, title,
+                parts.Count > 0 ? $"星座のボーナス！ {string.Join("・", parts)} 入手しました" : null);
+        }
+    }
+
+    /// <summary>
     /// 1か月遊び放題パスの受け取りQR（"pass:{ID}"）。管理者の「お客様に見せるQRコード」の「1か月パス」で
     /// 発行したもの（1回だけ・発行から60分間使える）。受け取ると、今日を1日目として30日間のパスが所持品に入る
     /// </summary>

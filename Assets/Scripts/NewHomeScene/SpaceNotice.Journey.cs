@@ -618,7 +618,7 @@ public static partial class SpaceNotice
     /// <summary>
     /// G をもらった（2026-11-12）: 光る金貨が上から収まり、「5G をもらいました！」「所持金 12G」。
     /// G を渡すQR（GoldQr）のときは見出し「COIN」。INTALES WORLD の黄金の鉱山のときは captionText と place（置き場の名前）を渡し、
-    /// ほかの置き場のお知らせと同じく見出し＋置き場の名前の題にして、金貨の下に「3G をもらいました」
+    /// ほかの置き場のお知らせと同じく見出し＋置き場の名前の題にして、金貨の下に「4G をもらいました」
     /// </summary>
     public static GameObject GoldGot(int amount, int balance, string captionText = null, string place = null)
     {

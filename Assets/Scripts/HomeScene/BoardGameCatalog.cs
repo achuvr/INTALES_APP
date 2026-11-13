@@ -40,7 +40,8 @@ public class BoardGameCatalogData
 /// 店舗のボードゲーム一覧データを読み込んでキャッシュする。
 ///
 /// データの流れ（在庫の自動反映）:
-///   tools/firestore/sync-boardgames.js（GitHub Actions が毎日実行）が
+///   アプリの管理者の図鑑の「ボドゲーマから図鑑を更新」（Cloud Functions の syncBoardgames。2026-11-13）か、
+///   tools/firestore/sync-boardgames.js（パソコン・GitHub Actions）が
 ///   bodoge.hoobby.net をスクレイプし、在庫が変わったときだけ
 ///   master/boardgames と master/config.boardgames_version を更新する。
 ///   クライアントは SyncAsync() でバージョンを比較し、上がっていた場合のみ
@@ -126,6 +127,23 @@ public static class BoardGameCatalog
         finally
         {
             _syncing = false;
+        }
+    }
+
+    /// <summary>
+    /// 配信中の一覧（master/boardgames）を今すぐ読み直して保存する（管理者が図鑑を更新したあと。2026-11-13）。
+    /// バージョンの比べ合いはしない（master/config はこのセッションで読んだ古い値のままなので）。読めたら true
+    /// </summary>
+    public static async UniTask<bool> RefreshAsync()
+    {
+        try
+        {
+            return await FetchAndSaveAsync(null);
+        }
+        catch (Exception e)
+        {
+            Debug.LogError("[BoardGame] 読み直しエラー: " + e.Message);
+            return false;
         }
     }
 

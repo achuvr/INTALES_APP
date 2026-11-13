@@ -13,6 +13,10 @@ public enum PusherItem
     StarFragment = 4, // 星のカケラ
     MeepleBlack = 5,  // 黒コマ（2026-11-12 追加。コインタワーのボーナスで落ちてくる）
     PlanetPotion = 6, // 惑星回復薬（2026-11-12 追加。ボーナスの景品）
+    PlatinumCoin = 7, // プラチナコイン（2026-11-13 追加。コインタワーのいちばん上の1枚。受け皿に落ちると CoinPusher.PLATINUM_VALUE＝5G）
+    // ピースパズルのピース（2026-11-13 追加。ピース座が完成した人のボーナスの景品。番号はピースの種類 1〜8 の順。
+    // 受け皿に落ちると、そのピースを1つ。CoinPusherWorld.IsPiece / PieceType）
+    Piece1 = 8, Piece2 = 9, Piece3 = 10, Piece4 = 11, Piece5 = 12, Piece6 = 13, Piece7 = 14, Piece8 = 15,
 }
 
 /// <summary>
@@ -20,7 +24,7 @@ public enum PusherItem
 /// （Dice3DSimulator と同じやり方。CoinPusherController が全画面の RawImage に出す）。
 /// 台の形（台の上面が y=0、手前のふちが z=0、奥が +z）:
 ///  ・手前のふちから落ちた物は受け皿へ（獲得）。手前の左右 SIDE_OPEN だけ横の壁がなく、そこから横に落ちた物は没収
-///  ・プッシャー（台の幅いっぱいの箱）が奥で前後に動き、前の物を押し出す。いちばん奥に下がっても、上面はコイン2枚分
+///  ・プッシャー（台の幅いっぱいの箱）が奥で前後に動き、前の物を押し出す。いちばん奥に下がっても、上面はコイン2枚分以上
 ///    （PUSH_TOP_KEEP）奥の壁より手前に残るので、上に乗った物は全部は落ちない。それより奥の物は、下がるときに奥の壁で前へ押される
 ///  ・コインは、狙った所（プッシャーの上をタップした所）の真上の投入口から、まっすぐ下へ落ちる。
 ///    落ちる先は、落ちたときにプッシャーの上になる範囲に収める（手前の台へ直接は落とせない）
@@ -49,7 +53,10 @@ public sealed class CoinPusherWorld : MonoBehaviour
     public const float DROP_HALF_W = 2.5f;     // 狙える左右の半分の幅
     private const float AIM_Z_DEFAULT = (PUSH_FAR + WALL_Z) * 0.5f; // はじめの狙いの奥行き（いちばん奥に下がっても上面が残る所のまん中）
     private const float FALL_TIME = 0.23f;     // 投入口からプッシャーの上まで落ちる時間（重力96・初めの速さ3で約0.21〜0.22秒）
-    private const float ITEM_HALF = 0.55f;     // コマ・星のカケラ・惑星回復薬の半分の大きさ（向きが変わってもほぼこの円に収まる）
+    // コマ・星のカケラ・惑星回復薬の半分の大きさ（向きが変わってもほぼこの円に収まる）。大きい星のカケラ・惑星回復薬に合わせた値で、
+    // 2026-11-13 に0.6倍にしたコマ（約0.36）には大きめ（落とす範囲が少し内側になるだけ）。
+    // 同日に足したピースも、いちばん長い棒（長さ 1.08）でこの中に収まる大きさにした（CoinPusherMeshes.PIECE_CELL）
+    private const float ITEM_HALF = 0.55f;
     private const float BONUS_HALF_W = DROP_HALF_W * 0.8f; // ボーナスの景品を落とす左右の範囲
     // コインタワーの中心とプッシャーの前の面の距離（いちばん奥に下がっても上面が残る帯のまん中。壁にも前のふちにも当たらない）
     private const float TOWER_FROM_FRONT = PUSH_TOP_KEEP * 0.5f;
@@ -82,6 +89,26 @@ public sealed class CoinPusherWorld : MonoBehaviour
     public Camera Cam => _cam;
     public int ItemCount => _items.Count;
 
+    /// <summary>コイン（G のコインとプラチナコイン。同じ形で、縦に立ったら倒す・コインタワーまでの数に数える）</summary>
+    public static bool IsCoin(PusherItem kind) => kind == PusherItem.Coin || kind == PusherItem.PlatinumCoin;
+
+    /// <summary>ピースパズルのピースか（2026-11-13）</summary>
+    public static bool IsPiece(PusherItem kind) => kind >= PusherItem.Piece1 && kind <= PusherItem.Piece8;
+
+    /// <summary>ピースの種類（1〜8。ピースでなければ 0）</summary>
+    public static int PieceType(PusherItem kind) => IsPiece(kind) ? kind - PusherItem.Piece1 + 1 : 0;
+
+    /// <summary>その種類（1〜8）のピース</summary>
+    public static PusherItem PieceItem(int type) => PusherItem.Piece1 + (Mathf.Clamp(type, 1, PuzzleRules.TYPES) - 1);
+
+    /// <summary>
+    /// この台の月（はじめの並びにした営業日の "yyyy-MM"。Load・FillInitial で決まり、Save で一緒に保存する）。
+    /// 2026-11-13 ユーザー指定「コインプッシャーも1カ月に1回リセット」: 今の月がこれより後になったら台をはじめの並びに戻す
+    /// </summary>
+    public string Month { get; private set; }
+    // 月を書く前に保存した台の月（コインプッシャーを入れた 2026-11-12 からこの変更までに始めた台なので11月）
+    private const string LEGACY_MONTH = "2026-11";
+
     private sealed class Item
     {
         public PusherItem Kind;
@@ -107,6 +134,9 @@ public sealed class CoinPusherWorld : MonoBehaviour
     private PhysicsMaterial _itemPm, _floorPm, _wallPm;
     private Material _coinFace, _coinRim, _star, _meepleRed, _meepleBlue, _meepleYellow;
     private Material _meepleBlack, _potionGlass, _potionCork, _paint; // _paint は頂点の色で塗る光らない材質（黒コマのふち・薬）
+    private Material _platinumFace, _platinumRim, _glintMat; // プラチナコインの面・ふち・きらめき（2026-11-13）
+    private Mesh _glintQuad;
+    private readonly Material[] _pieceMats = new Material[PuzzleRules.TYPES + 1]; // ピースの色（種類 1〜8。2026-11-13）
 
     /// <summary>台を作る。width・height は映像（RenderTexture）の大きさ</summary>
     public static CoinPusherWorld Create(int width, int height)
@@ -174,6 +204,19 @@ public sealed class CoinPusherWorld : MonoBehaviour
         _potionGlass = Lit(SpaceTheme.Hex(0xC9ECFF), 0.9f, 0.1f);
         _potionCork = Lit(SpaceTheme.Hex(0xB5824E), 0.3f, 0f);
         _paint = Unlit(Color.white);
+        // プラチナコイン（2026-11-13 ユーザー指定「見た目もプラチナ感を」）: 青みのある白銀の面（Resources/CoinPusher/PlatinumFace。
+        // tools/coin/make_coin_face.py --platinum。磨いた金属の光の筋と浮き彫りの「5」）・白銀のふち。つやは金より強く。
+        // metallic は金と同じく低め（ホームは環境光が黒なので、上げると映り込みが黒くなる）。ときどき十字の光がまたたく（CoinPusherTwinkle）
+        _platinumFace = Lit(Color.white, 0.88f, 0.3f, Resources.Load<Texture2D>("CoinPusher/PlatinumFace"));
+        _platinumRim = Lit(SpaceTheme.Hex(0xDCE4F2), 0.92f, 0.35f);
+        var glintTex = GlintTexture();
+        _owned.Add(glintTex);
+        _glintMat = Unlit(Color.white);
+        _glintMat.mainTexture = glintTex;
+        _glintQuad = CoinPusherMeshes.Quad(Vector2.one, Color.white);
+        _owned.Add(_glintQuad);
+        // ピース（2026-11-13）: パズルの画面・ショップの絵と同じ色（PuzzleArt）。つやは控えめのプラスチック
+        for (int t = 1; t <= PuzzleRules.TYPES; t++) _pieceMats[t] = Lit(PuzzleArt.ColorOf(t), 0.55f, 0f);
         var grid = GridTexture();
         _owned.Add(grid);
         var floor = Lit(SpaceTheme.Hex(0x2A3478), 0.62f, 0.15f, grid, new Vector2(4f, 6f));
@@ -443,7 +486,7 @@ public sealed class CoinPusherWorld : MonoBehaviour
         var up = transform.up;
         foreach (var it in _items)
         {
-            if (it.Kind != PusherItem.Coin || it.Rb == null) continue;
+            if (!IsCoin(it.Kind) || it.Rb == null) continue;
             var axis = it.Rb.rotation * Vector3.up; // コインの軸（上下の面の向き）
             float dot = Vector3.Dot(axis, up);
             bool standing = Mathf.Abs(dot) < STAND_DOT
@@ -523,10 +566,10 @@ public sealed class CoinPusherWorld : MonoBehaviour
     /// <summary>x・z の真上の投入口の高さから、まっすぐ下へ落とす（横の速さは付けない。狙った所からずれないように）</summary>
     private void DropAt(PusherItem kind, float x, float z, float jitter)
     {
-        float half = kind == PusherItem.Coin ? CoinPusherMeshes.COIN_R : ITEM_HALF;
+        float half = IsCoin(kind) ? CoinPusherMeshes.COIN_R : ITEM_HALF;
         float xMax = HALF_W - half - 0.08f;
         var lp = new Vector3(Mathf.Clamp(x + UnityEngine.Random.Range(-jitter, jitter), -xMax, xMax),
-            DROP_Y + (kind == PusherItem.Coin ? 0f : 0.4f), DropZ(z + UnityEngine.Random.Range(-jitter, jitter), half));
+            DROP_Y + (IsCoin(kind) ? 0f : 0.4f), DropZ(z + UnityEngine.Random.Range(-jitter, jitter), half));
         // 傾きと回転は控えめに（大きいと縦に近い向きで落ちて立ちやすい）。落ちる速さは物理の2倍速に合わせて 3
         var rot = Quaternion.Euler(UnityEngine.Random.Range(-8f, 8f), UnityEngine.Random.Range(0f, 360f), UnityEngine.Random.Range(-8f, 8f));
         var it = Spawn(kind, lp, rot);
@@ -539,6 +582,7 @@ public sealed class CoinPusherWorld : MonoBehaviour
     /// （プッシャーと一緒に動き、いちばん奥に下がっても壁に当たらない）。左右は、上に何も乗っていない所をなるべく選ぶ
     /// （ほかのコインの上に積むと傾いて崩れやすい）。プッシャーは動いているので、積んだコインにもプッシャーと同じ速さを与える
     /// （止まったまま置くと、動く床に引っぱられて崩れる）。崩すのは、上に落としたコインや、ほかの物に押されて。
+    /// いちばん上の1枚はプラチナコイン（2026-11-13 ユーザー指定。5G。ほかは G のコイン）。
     /// 置いた左右の位置を返す（一緒に落とすコマが、そこを避けるように）
     /// </summary>
     public float SpawnTower(int count)
@@ -580,7 +624,8 @@ public sealed class CoinPusherWorld : MonoBehaviour
         for (int i = 0; i < count; i++)
         {
             var pos = new Vector3(bestX + UnityEngine.Random.Range(-0.008f, 0.008f), y + i * STEP, z + UnityEngine.Random.Range(-0.008f, 0.008f));
-            var it = Spawn(PusherItem.Coin, pos, Quaternion.Euler(0f, UnityEngine.Random.Range(0f, 360f), 0f));
+            var kind = i == count - 1 ? PusherItem.PlatinumCoin : PusherItem.Coin; // いちばん上はプラチナコイン
+            var it = Spawn(kind, pos, Quaternion.Euler(0f, UnityEngine.Random.Range(0f, 360f), 0f));
             it.Rb.linearVelocity = velocity;
         }
 
@@ -629,6 +674,7 @@ public sealed class CoinPusherWorld : MonoBehaviour
         go.transform.localRotation = localRot;
         var mf = go.AddComponent<MeshFilter>();
         var mr = go.AddComponent<MeshRenderer>();
+        if (IsPiece(kind)) return SpawnPiece(go, mf, mr, kind);
         var col = go.AddComponent<MeshCollider>();
         col.convex = true;
         float mass;
@@ -639,6 +685,14 @@ public sealed class CoinPusherWorld : MonoBehaviour
                 mr.sharedMaterials = new[] { _coinFace, _coinRim };
                 col.sharedMesh = CoinPusherMeshes.CoinCollider;
                 mass = 1f;
+                break;
+            case PusherItem.PlatinumCoin:
+                // G のコインと同じ形・同じ重さ（コインタワーに積んだまま崩れ方も同じに）。見た目だけ白銀で、ときどききらめく
+                mf.sharedMesh = CoinPusherMeshes.Coin;
+                mr.sharedMaterials = new[] { _platinumFace, _platinumRim };
+                col.sharedMesh = CoinPusherMeshes.CoinCollider;
+                mass = 1f;
+                if (_cam != null) go.AddComponent<CoinPusherTwinkle>().Init(_cam.transform, _glintQuad, _glintMat, transform);
                 break;
             case PusherItem.StarFragment:
                 mf.sharedMesh = CoinPusherMeshes.Star;
@@ -667,6 +721,36 @@ public sealed class CoinPusherWorld : MonoBehaviour
                 break;
         }
         col.sharedMaterial = _itemPm;
+        return AddBody(go, kind, mass);
+    }
+
+    /// <summary>
+    /// ピース（2026-11-13）: マスの箱をつなげた平たい形。当たり判定はマスごとの箱（L字・T字・U字のへこみも形どおりにするため。
+    /// 1つの凸の当たり判定だと、へこみが埋まってしまう）。重さはマスの数に比例
+    /// </summary>
+    private Item SpawnPiece(GameObject go, MeshFilter mf, MeshRenderer mr, PusherItem kind)
+    {
+        int type = PieceType(kind);
+        mf.sharedMesh = CoinPusherMeshes.Piece(type);
+        mr.sharedMaterial = _pieceMats[type];
+        var size = new Vector3(CoinPusherMeshes.PIECE_CELL, CoinPusherMeshes.PIECE_T, CoinPusherMeshes.PIECE_CELL);
+        var centers = CoinPusherMeshes.PieceCellCenters(type);
+        foreach (var c in centers)
+        {
+            var box = go.AddComponent<BoxCollider>();
+            box.center = c;
+            box.size = size;
+            box.sharedMaterial = _itemPm;
+        }
+        return AddBody(go, kind, PIECE_MASS_PER_CELL * centers.Count);
+    }
+
+    /// <summary>ピースのマス1つあたりの重さ（コイン1枚が 1。4マスのピースでコマより少し重いくらい）</summary>
+    private const float PIECE_MASS_PER_CELL = 0.45f;
+
+    /// <summary>物理の体を付けて、台の上の物の一覧に入れる</summary>
+    private Item AddBody(GameObject go, PusherItem kind, float mass)
+    {
         var rb = go.AddComponent<Rigidbody>();
         rb.mass = mass;
         // 減衰・押し戻しの速さ・眠る基準は、物理を2倍速にした分に合わせて前（0.05・0.3・2.5・0.01）の 2倍・2倍・2倍・4倍
@@ -685,11 +769,35 @@ public sealed class CoinPusherWorld : MonoBehaviour
     }
 
     /// <summary>
-    /// 初めて遊ぶとき（保存した台がないとき）の台: 手前にコインを2段に敷きつめ、プッシャーの上にも少し。
-    /// コマを2つ・星のカケラを3つ、コインの上に置く
+    /// 台の上の物を全部片づける（リセットのとき。このあと FillInitial）。獲得・没収には数えない
     /// </summary>
-    public void FillInitial()
+    public void Clear()
     {
+        foreach (var it in _items)
+        {
+            if (it.Rb == null) continue;
+            var go = it.Rb.gameObject;
+            go.SetActive(false); // 当たり判定をすぐ外す（Destroy はフレームの終わりなので、新しく並べる物とぶつからないように）
+            Destroy(go);
+        }
+        _items.Clear();
+    }
+
+    /// <summary>
+    /// 初めて遊ぶとき（保存した台がないとき）・リセットしたときの台: 手前にコインを2段に敷きつめ、プッシャーの上にも少し。
+    /// コマを2つ・星のカケラを3つ、コインの上に置く。month はこの台の月（今の営業日の月）。
+    /// プッシャーは時計 0（いちばん手前で止まりかけ）に戻してから並べる（上の2列はその位置に合わせてある）
+    /// </summary>
+    public void FillInitial(string month)
+    {
+        Month = month;
+        _time = 0f;
+        _nextStandCheck = 0f; // 時計を戻したので、縦のコインを調べる時刻も戻す（戻さないと前の時刻まで調べなくなる）
+        if (_pusher != null)
+        {
+            _pusher.transform.localPosition = PusherLocal(0f);
+            _pusher.position = _pusher.transform.position;
+        }
         float d = CoinPusherMeshes.COIN_R * 2f + 0.03f;
         float rowStep = d * 0.88f;
         for (int layer = 0; layer < 2; layer++)
@@ -735,20 +843,25 @@ public sealed class CoinPusherWorld : MonoBehaviour
         public float x, y, z, qx, qy, qz, qw;
     }
 
+    // 保存の形の版。1 = 元の大きさの物の位置。2・3 = 2026-11-13 にコインを0.85倍・0.86倍にしていたとき（Load で読まずに作り直す）。
+    // 4 = 同日コインを元の大きさに戻したあと（コマは0.6倍のまま）
+    private const int SAVE_VERSION = 4;
+
     [Serializable]
     private sealed class SaveData
     {
-        public int v = 1;
+        public int v = SAVE_VERSION;
         public float time;
         public int bonus;
         public int tower; // コインタワーまでに数えた、ゲットしたコインの枚数（2026-11-12 追加。前の保存では 0）
+        public string month; // この台の月（営業日の "yyyy-MM"。2026-11-13 追加。前の保存にはない＝LEGACY_MONTH の台）
         public List<SaveItem> items = new List<SaveItem>();
     }
 
-    /// <summary>台の上の物の位置・向きと、プッシャーの時計・ボーナスとコインタワーまでの数を文字にする</summary>
+    /// <summary>台の上の物の位置・向きと、プッシャーの時計・ボーナスとコインタワーまでの数・台の月を文字にする</summary>
     public string Save(int sinceBonus, int sinceTower)
     {
-        var data = new SaveData { time = _time % PUSH_PERIOD, bonus = sinceBonus, tower = sinceTower };
+        var data = new SaveData { time = _time % PUSH_PERIOD, bonus = sinceBonus, tower = sinceTower, month = Month };
         foreach (var it in _items)
         {
             if (it.Rb == null) continue;
@@ -759,11 +872,15 @@ public sealed class CoinPusherWorld : MonoBehaviour
         return JsonUtility.ToJson(data);
     }
 
-    /// <summary>保存した台を並べ直す。読めなければ false（呼んだ側で FillInitial）</summary>
-    public bool Load(string json, out int sinceBonus, out int sinceTower)
+    /// <summary>
+    /// 保存した台を並べ直す。読めなければ false（呼んだ側で FillInitial）。
+    /// 台の月より今の月 month が後なら（月が変わった）、並べずに false を返して expired（呼んだ側でリセットの知らせ）
+    /// </summary>
+    public bool Load(string json, string month, out int sinceBonus, out int sinceTower, out bool expired)
     {
         sinceBonus = 0;
         sinceTower = 0;
+        expired = false;
         if (string.IsNullOrEmpty(json)) return false;
         SaveData data;
         try
@@ -776,9 +893,22 @@ public sealed class CoinPusherWorld : MonoBehaviour
             return false;
         }
         if (data == null || data.items == null || data.items.Count == 0) return false;
+        string fieldMonth = string.IsNullOrEmpty(data.month) ? LEGACY_MONTH : data.month;
+        if (CoinPusher.Expired(fieldMonth, month))
+        {
+            expired = true;
+            return false;
+        }
+        // 版 2・3 はコインが小さかったときの台。元の大きさのコインを同じ所に並べると隣や下のコインと大きく重なり、
+        // はじき合って台が崩れる（落ちた物が獲得・没収になる）ので、並べずに作り直す
+        if (data.v == 2 || data.v == 3) return false;
+        Month = fieldMonth; // 端末の日付が戻っていて先の月の台なら、その月のまま（その月を過ぎるまでリセットしない）
         _time = data.time;
         sinceBonus = Mathf.Max(0, data.bonus);
         sinceTower = Mathf.Max(0, data.tower);
+        // 版 1 の台は、コマが元の大きさ（背の高さ1.0）のときの位置。0.6倍の今のコマは下の物から少し浮いて並び（重なりはできない）、
+        // 眠らせると浮いたまま止まってしまうので、そのときは眠らせずに落ち着かせる（次に保存するときから今の版）
+        bool resized = data.v < SAVE_VERSION;
         // プッシャーを保存したときの位置へ先に置き直してから物を並べる（置き直さないと、いちばん手前の位置に作ったプッシャーに
         // 前の物がめり込み、最初の物理の1回で MovePosition が一気に動かして前の物をはじき飛ばす）
         if (_pusher != null)
@@ -794,7 +924,7 @@ public sealed class CoinPusherWorld : MonoBehaviour
             var rot = new Quaternion(s.qx, s.qy, s.qz, s.qw);
             if (rot.x * rot.x + rot.y * rot.y + rot.z * rot.z + rot.w * rot.w < 0.5f) rot = Quaternion.identity;
             var it = Spawn((PusherItem)s.t, pos, rot);
-            if (pos.y < 1.2f) it.Rb.Sleep(); // 止まっていた物は眠らせて、並べ直したときに揺れないように
+            if (pos.y < 1.2f && !resized) it.Rb.Sleep(); // 止まっていた物は眠らせて、並べ直したときに揺れないように
         }
         return _items.Count > 0;
     }
@@ -910,6 +1040,43 @@ public sealed class CoinPusherWorld : MonoBehaviour
         return m;
     }
 
+    /// <summary>
+    /// プラチナコインのきらめきの絵（2026-11-13）: 縦横に長く・斜めに短く伸びる細い光の筋と、まん中のやわらかい光。
+    /// 色は白で、形は透明度（ふちは 0 なので、端で切れて見えない）
+    /// </summary>
+    private static Texture2D GlintTexture()
+    {
+        const int S = 64;
+        var tex = new Texture2D(S, S, TextureFormat.RGBA32, true)
+        {
+            name = "PusherGlint", wrapMode = TextureWrapMode.Clamp, filterMode = FilterMode.Bilinear,
+        };
+        var px = new Color32[S * S];
+        for (int y = 0; y < S; y++)
+        for (int x = 0; x < S; x++)
+        {
+            float u = (x + 0.5f) / S * 2f - 1f, v = (y + 0.5f) / S * 2f - 1f;
+            float r2 = u * u + v * v;
+            float a = Mathf.Max(GlintRay(Mathf.Abs(u), Mathf.Abs(v), 1f), GlintRay(Mathf.Abs(v), Mathf.Abs(u), 1f));
+            float d1 = Mathf.Abs(u + v) * 0.7071f, d2 = Mathf.Abs(u - v) * 0.7071f;
+            a = Mathf.Max(a, 0.55f * Mathf.Max(GlintRay(d1, d2, 0.55f), GlintRay(d2, d1, 0.55f)));
+            a += Mathf.Exp(-r2 / 0.012f) * 0.9f + Mathf.Exp(-r2 / 0.09f) * 0.3f;
+            px[y * S + x] = new Color32(255, 255, 255, (byte)(Mathf.Clamp01(a) * 255f));
+        }
+        tex.SetPixels32(px);
+        tex.Apply(true, false);
+        return tex;
+    }
+
+    /// <summary>光の筋の明るさ: 筋に沿った中心からの距離 along が length まで伸び、先ほど細く暗い。across は筋からの距離</summary>
+    private static float GlintRay(float along, float across, float length)
+    {
+        if (along >= length) return 0f;
+        float k = 1f - along / length;
+        float width = 0.012f + 0.05f * k;
+        return k * k * Mathf.Exp(-(across / width) * (across / width));
+    }
+
     /// <summary>台の床の模様（細い格子。材質の色を掛けて使う）</summary>
     private static Texture2D GridTexture()
     {
@@ -955,5 +1122,80 @@ public class CoinPusherFade : MonoBehaviour
         if (_mat != null) _mat.color = new Color(_color.r, _color.g, _color.b, _color.a * (1f - k));
         transform.localScale = new Vector3(_scale.x * (1f + 0.35f * k), _scale.y, _scale.z * (1f + 0.35f * k));
         if (k >= 1f) Destroy(gameObject);
+    }
+}
+
+/// <summary>
+/// プラチナコインのきらめき（2026-11-13 ユーザー指定「見た目もプラチナ感を」）: ときどき、コインの上を向いた面のどこかに
+/// 十字の光がふわっと出て消える。光はコインの子にしない（コインが転がっても光がいつもカメラを向くように、毎フレーム位置だけ合わせる）。
+/// コインが消えたら光も消す（絵・材質・形は CoinPusherWorld が持っていて、台を閉じるときに片づける）
+/// </summary>
+public class CoinPusherTwinkle : MonoBehaviour
+{
+    private const float LIFE = 0.55f; // 1回のきらめきの秒数
+    // いちばん大きいときの光の幅（コインの直径 0.68 より少し大きく。白銀の面の上では白い光が目立ちにくいので、
+    // 筋がコインの外の暗い所まで伸びて見えるように）
+    private const float SIZE = 0.8f;
+    private Transform _cam, _glint;
+    private float _next, _t = -1f;    // 次にきらめく時刻・きらめいてからの時間（-1 なら休み）
+    private Vector2 _spot;            // 光る所（コインの面の上の位置）
+    private float _spin;
+
+    public void Init(Transform cam, Mesh quad, Material mat, Transform parent)
+    {
+        _cam = cam;
+        var go = new GameObject("PlatinumGlint");
+        go.transform.SetParent(parent, false);
+        go.AddComponent<MeshFilter>().sharedMesh = quad;
+        var mr = go.AddComponent<MeshRenderer>();
+        mr.sharedMaterial = mat;
+        mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+        mr.receiveShadows = false;
+        _glint = go.transform;
+        _glint.localScale = Vector3.zero;
+        _next = Time.time + UnityEngine.Random.Range(0.15f, 0.6f);
+    }
+
+    private void LateUpdate()
+    {
+        if (_glint == null || _cam == null) return;
+        float now = Time.time;
+        if (_t < 0f)
+        {
+            if (now < _next) return;
+            _t = 0f;
+            // 光る所は面のふち寄り（中心から半径の 0.3〜0.85。ふちの外の暗い所と重なって見えやすい）
+            var dir = UnityEngine.Random.insideUnitCircle;
+            if (dir.sqrMagnitude < 1e-4f) dir = Vector2.right;
+            _spot = dir.normalized * (CoinPusherMeshes.COIN_R * UnityEngine.Random.Range(0.3f, 0.85f));
+            _spin = UnityEngine.Random.Range(-30f, 30f);
+        }
+        _t += Time.deltaTime;
+        float k = Mathf.Clamp01(_t / LIFE);
+        // コインの2つの面のうち、上を向いているほう（裏返っていても上の面で光る）
+        var up = _glint.parent != null ? _glint.parent.up : Vector3.up;
+        float side = Vector3.Dot(transform.up, up) >= 0f ? 1f : -1f;
+        var pos = transform.TransformPoint(new Vector3(_spot.x, CoinPusherMeshes.COIN_H * 0.5f * side, _spot.y));
+        pos += (_cam.position - pos).normalized * 0.08f; // 少しカメラ寄りに（面に埋もれないように）
+        _glint.position = pos;
+        _glint.rotation = _cam.rotation * Quaternion.Euler(0f, 0f, _spin + k * 40f);
+        float s = Mathf.Sin(k * Mathf.PI); // 0 → 1 → 0
+        _glint.localScale = Vector3.one * (SIZE * s * Mathf.Sqrt(s));
+        if (k >= 1f)
+        {
+            _t = -1f;
+            _next = now + UnityEngine.Random.Range(0.7f, 1.8f);
+            _glint.localScale = Vector3.zero;
+        }
+    }
+
+    private void OnDisable()
+    {
+        if (_glint != null) _glint.localScale = Vector3.zero;
+    }
+
+    private void OnDestroy()
+    {
+        if (_glint != null) Destroy(_glint.gameObject);
     }
 }

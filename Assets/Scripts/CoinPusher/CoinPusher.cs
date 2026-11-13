@@ -14,9 +14,14 @@ using UnityEngine;
 ///    （図鑑と同じ。UserDataManager などのシングルトンを残すため）。中身は CoinPusherController と CoinPusherWorld
 ///  ・コインを1枚入れるたびに 1G。台の手前から落ちた物を獲得（コイン＝1G・赤／青／黄／黒コマ＝1個・星のカケラ＝1個・
 ///    惑星回復薬＝1個）。手前の左右から横に落ちた物は没収。コインを BONUS_EVERY 枚入れるごとに、ボーナスで星のカケラ・コマ・
-///    惑星回復薬のどれかが1つ落ちてくる（RollBonus）。コインを TOWER_EVERY 枚ゲットするごとに、ボーナスでプッシャーの上に
-///    コインタワー（TOWER_COINS 枚を積んだ柱）が出て、コマ（赤・青・黄・黒のどれか）も1つ落ちてくる
+///    惑星回復薬のどれかが1つ落ちてくる（RollBonus。ピース座が完成している人は、ピースパズルのピースも落ちてくる＝BONUS_PIECE。
+///    2026-11-13）。コインを TOWER_EVERY 枚ゲットするごとに、ボーナスでプッシャーの上に
+///    コインタワー（TOWER_COINS 枚を積んだ柱。いちばん上はプラチナコイン＝PLATINUM_VALUE の 5G）が出て、
+///    コマ（赤・青・黄・黒のどれか）も1つ落ちてくる
 ///  ・台の上の物の並びは端末に保存して、次に開いたときに続きから（閉じて開き直しても景品は戻らない）
+///  ・台は月に1回リセット（2026-11-13 ユーザー指定「コインプッシャーも1カ月に1回リセットがかかるように。管理者にはリセットボタン」）:
+///    営業日の月（MonthKey。トランプの月替わりと同じ朝4時切り替え）が台の月より後になったら、はじめの並びに戻す
+///    （ボーナス・コインタワーまでの数も 0 から。送っていない増減＝獲得した物はそのまま）。管理者は画面右上の「リセット」でいつでも
 ///  ・所持金・コマ・星のカケラ・惑星回復薬の増減は、手元の数はすぐに、サーバー（users）には数秒ごとと閉じるときにまとめて送る
 ///    （FieldValue.Increment。送れなかった分は端末に残して、次に送る）。星のカケラが5個そろったら、閉じたあとホームで流れ星
 /// </summary>
@@ -40,6 +45,13 @@ public static class CoinPusher
     public const float BONUS_STAR = 0.40f;
     public const float BONUS_POTION = 0.15f;
     /// <summary>
+    /// ピース座が完成している人（管理者は初めから）のボーナスの景品のうち、ピースパズルのピースになる割合
+    /// （2026-11-13 ユーザー指定「ピース座をアクティブにすると、コインプッシャーにピースも落ちてくるように。レアも含めていい」。
+    /// 割合はこちらで決めた）。ピースの種類はショップのランダムと同じ（U字＝レアは PuzzleRules.RARE_PERCENT %、ほかの7種類は同じ割合）。
+    /// 残りは、いつもの景品（星のカケラ・惑星回復薬・コマ）をいつもの割合で
+    /// </summary>
+    public const float BONUS_PIECE = 0.25f;
+    /// <summary>
     /// コインをこの枚数ゲットする（受け皿に落とす）ごとに、ボーナスでコインタワーが出る
     /// （2026-11-12 ユーザー指定「30枚コインを落下させてゲットするとボーナスでコインタワーが出現」。数は台と一緒に端末に保存）。
     /// 同時にコマも1つ、タワーの横に落ちてくる（同日ユーザー指定「タワーボーナスに黒ミープルを落とすのも追加」→
@@ -47,8 +59,17 @@ public static class CoinPusher
     /// 枚数は同日ユーザー指定で 30→40（数えている途中の枚数は台と一緒に保存してあるので、そのまま40まで数える）
     /// </summary>
     public const int TOWER_EVERY = 40;
-    /// <summary>コインタワーに積むコインの枚数</summary>
+    /// <summary>コインタワーに積むコインの枚数（いちばん上の1枚はプラチナコイン。2026-11-13）</summary>
     public const int TOWER_COINS = 10;
+    /// <summary>
+    /// プラチナコインの価値（G）。2026-11-13 ユーザー指定「コインタワーの一番上に乗るコインはプラチナコインに。5Gの価値」。
+    /// 受け皿に落ちると 5G（所持金・今回の獲得の G に足す）。コインタワーまでの数には、G のコインと同じく1枚と数える
+    /// </summary>
+    public const int PLATINUM_VALUE = 5;
+    /// <summary>プラチナコインのアイコン（Resources/ItemIcon/PlatinumCoin。tools/coin/make_ig_coin_icon.py --platinum）</summary>
+    public static Sprite PlatinumIcon => s_platinumIcon != null ? s_platinumIcon
+        : (s_platinumIcon = Resources.Load<Sprite>("ItemIcon/PlatinumCoin"));
+    private static Sprite s_platinumIcon;
     /// <summary>コインタワーと一緒に落ちてくるコマの色（この中から同じ割合で1つ）</summary>
     public static readonly PusherItem[] TOWER_MEEPLES =
         { PusherItem.MeepleRed, PusherItem.MeepleBlue, PusherItem.MeepleYellow, PusherItem.MeepleBlack };
@@ -79,6 +100,14 @@ public static class CoinPusher
     public const string T_SUMMARY_GOT_B = " を獲得";
     public const string T_SUMMARY_NONE = "獲得はありませんでした";
     public const string T_RULES = "手前から落ちた物を獲得 ・ 左右から落ちた物は没収";
+    public const string T_MONTHLY = "台が新しくなりました";               // 月が変わってリセットしたときの知らせ
+    public const string T_MONTHLY_SUB = "月が変わったので、台をリセットしました";
+    public const string T_RESET = "リセット";                            // 管理者だけのボタン・確認の決定・リセットしたときの知らせ
+    public const string T_RESET_CONFIRM = "台をリセットしますか？";
+    public const string T_RESET_CONFIRM_BODY = "台の上のコインと景品を消して、\nはじめの状態に戻します";
+    public const string T_RESET_DONE = "台をはじめの状態に戻しました";
+    public const string T_PLATINUM = "プラチナ";             // 獲得したときに浮かぶ「プラチナ +5G」
+    public const string T_PLATINUM_NAME = "プラチナコイン";
 
     /// <summary>この画面で表示しうる文字（NewHome の起動時にまとめてフォントへ登録する）</summary>
     public static string GlyphText => new StringBuilder()
@@ -86,12 +115,23 @@ public static class CoinPusher
         .Append(T_WALLET).Append(T_GOT).Append(T_SHORT).Append(T_FULL).Append(T_BONUS).Append(T_BONUS_FALL_B)
         .Append(T_TOWER).Append(T_TOWER_SUB_A).Append(T_TOWER_SUB_B).Append(T_TOWER_ALSO_B).Append(T_SAVING).Append(T_SAVE_FAILED)
         .Append(T_SUMMARY_A).Append(T_SUMMARY_SPENT_B).Append(T_SUMMARY_GOT_B).Append(T_SUMMARY_NONE).Append(T_RULES)
+        .Append(T_MONTHLY).Append(T_MONTHLY_SUB).Append(T_RESET).Append(T_RESET_CONFIRM).Append(T_RESET_CONFIRM_BODY)
+        .Append(T_RESET_DONE).Append("キャンセル").Append(T_PLATINUM).Append(T_PLATINUM_NAME)
         .Append(SpaceWorld.STAR_FRAGMENT_NAME).Append(SpacePlanetPotion.NAME)
-        .Append(SpaceMeeples.GlyphText).Append(IgCurrency.GlyphText).Append("+×・：、0123456789").ToString();
+        .Append(SpaceMeeples.GlyphText).Append(IgCurrency.GlyphText).Append(PuzzleStore.GlyphText)
+        .Append("+×・：、0123456789").ToString();
 
-    /// <summary>ボーナスの景品を決める（r は 0〜1 の乱数）。星のカケラ 40%・惑星回復薬 15%・赤／青／黄コマ 各15%</summary>
-    public static PusherItem RollBonus(float r)
+    /// <summary>
+    /// ボーナスの景品を決める（r・r2 は 0〜1 の乱数）。星のカケラ 40%・惑星回復薬 15%・赤／青／黄コマ 各15%。
+    /// pieces（ピース座が完成している）なら、まず BONUS_PIECE の割合でピース（種類は r2 で RollPieceType）、残りをいつもの割合で
+    /// </summary>
+    public static PusherItem RollBonus(float r, bool pieces = false, float r2 = 0f)
     {
+        if (pieces)
+        {
+            if (r < BONUS_PIECE) return CoinPusherWorld.PieceItem(RollPieceType(r2));
+            r = (r - BONUS_PIECE) / (1f - BONUS_PIECE);
+        }
         if (r < BONUS_STAR) return PusherItem.StarFragment;
         r -= BONUS_STAR;
         if (r < BONUS_POTION) return PusherItem.PlanetPotion;
@@ -100,9 +140,33 @@ public static class CoinPusher
         return r < each ? PusherItem.MeepleRed : r < each * 2f ? PusherItem.MeepleBlue : PusherItem.MeepleYellow;
     }
 
+    /// <summary>
+    /// ボーナスで落ちてくるピースの種類（r は 0〜1 の乱数）。ショップのランダム（PuzzleRules.RollPiece）と同じ割合:
+    /// U字（レア）が RARE_PERCENT %、ほかの7種類は同じ割合
+    /// </summary>
+    public static int RollPieceType(float r)
+    {
+        float rare = PuzzleRules.RARE_PERCENT / 100f;
+        if (r < rare) return PuzzleRules.RARE;
+        int t = 1 + (int)((r - rare) / (1f - rare) * (PuzzleRules.TYPES - 1));
+        return Mathf.Clamp(t, 1, PuzzleRules.TYPES - 1);
+    }
+
     /// <summary>コインタワーと一緒に落ちてくるコマを決める（r は 0〜1 の乱数）。赤・青・黄・黒 各25%</summary>
     public static PusherItem RollTowerMeeple(float r) =>
         TOWER_MEEPLES[Mathf.Clamp((int)(r * TOWER_MEEPLES.Length), 0, TOWER_MEEPLES.Length - 1)];
+
+    // ================================================================
+    // 月に1回のリセット（2026-11-13）
+    // ================================================================
+    /// <summary>今の営業日の月（"yyyy-MM"。朝4時切り替え。トランプの月替わりと同じ）</summary>
+    public static string MonthKey => CardRules.MonthKey(StoreCalendar.TodayBusiness);
+
+    /// <summary>
+    /// 台の月 fieldMonth より今の月 month が後か（＝月が変わったので台をリセットする）。"yyyy-MM" は文字の順が月の順。
+    /// 先へ進んだときだけにして、端末の日付を前後に行き来させても、そのたびにリセットされないようにする
+    /// </summary>
+    public static bool Expired(string fieldMonth, string month) => string.CompareOrdinal(month ?? "", fieldMonth ?? "") > 0;
 
     // ================================================================
     // 遊べるか・開く
@@ -164,10 +228,37 @@ public static class CoinPusher
         public int black;   // 獲得した黒コマ（コインタワーのボーナス）
         public int star;    // 獲得した星のカケラ
         public int potion;  // 獲得した惑星回復薬（ボーナスの景品）
+        /// <summary>獲得したピースパズルのピース（添字が種類 1〜8。0 は使わない。2026-11-13 追加。前に端末へ書いた記録にはない）</summary>
+        public int[] pieces = new int[PuzzleRules.TYPES + 1];
+
+        /// <summary>ピースの数（前の記録から読んで長さが合わないときは、長さをそろえる）</summary>
+        public int[] Pieces
+        {
+            get
+            {
+                if (pieces == null || pieces.Length != PuzzleRules.TYPES + 1)
+                {
+                    var fixedArr = new int[PuzzleRules.TYPES + 1];
+                    if (pieces != null) Array.Copy(pieces, fixedArr, Math.Min(pieces.Length, fixedArr.Length));
+                    pieces = fixedArr;
+                }
+                return pieces;
+            }
+        }
 
         public bool Empty => spent == 0 && gold == 0 && red == 0 && blue == 0 && yellow == 0 && black == 0 && star == 0
-                             && potion == 0;
-        public Ledger Copy() => (Ledger)MemberwiseClone();
+                             && potion == 0 && Pieces.All(n => n == 0);
+
+        /// <summary>獲得したピースの数（全種類の合計。上の帯の「今回の獲得」）</summary>
+        public int PieceTotal => Pieces.Sum();
+
+        /// <summary>写し（ピースの数の並びも別のものにする。同じ並びを分け合うと、送っているあいだに増えた分まで引いてしまう）</summary>
+        public Ledger Copy()
+        {
+            var c = (Ledger)MemberwiseClone();
+            c.pieces = (int[])Pieces.Clone();
+            return c;
+        }
 
         /// <summary>獲得した数（item の種類の）</summary>
         public int Count(PusherItem item) => item switch
@@ -179,21 +270,26 @@ public static class CoinPusher
             PusherItem.MeepleBlack => black,
             PusherItem.StarFragment => star,
             PusherItem.PlanetPotion => potion,
+            _ when CoinPusherWorld.IsPiece(item) => Pieces[CoinPusherWorld.PieceType(item)],
             _ => 0,
         };
 
-        /// <summary>獲得を1つ数える</summary>
+        /// <summary>獲得を1つ数える（プラチナコインは G に PLATINUM_VALUE 足す）</summary>
         public void Add(PusherItem item)
         {
             switch (item)
             {
                 case PusherItem.Coin: gold++; break;
+                case PusherItem.PlatinumCoin: gold += PLATINUM_VALUE; break;
                 case PusherItem.MeepleRed: red++; break;
                 case PusherItem.MeepleBlue: blue++; break;
                 case PusherItem.MeepleYellow: yellow++; break;
                 case PusherItem.MeepleBlack: black++; break;
                 case PusherItem.StarFragment: star++; break;
                 case PusherItem.PlanetPotion: potion++; break;
+                default:
+                    if (CoinPusherWorld.IsPiece(item)) Pieces[CoinPusherWorld.PieceType(item)]++;
+                    break;
             }
         }
 
@@ -207,6 +303,9 @@ public static class CoinPusher
             black -= o.black;
             star -= o.star;
             potion -= o.potion;
+            var mine = Pieces;
+            var theirs = o.Pieces;
+            for (int t = 1; t <= PuzzleRules.TYPES; t++) mine[t] -= theirs[t];
         }
     }
 
@@ -263,6 +362,8 @@ public static class CoinPusher
         d.BlackMeeple += l.black;
         d.StarFragment += l.star;
         d.PlanetPotion += l.potion;
+        for (int t = 1; t <= PuzzleRules.TYPES; t++)
+            if (l.Pieces[t] != 0) PuzzleStore.AddPiecesLocal(t, l.Pieces[t]);
     }
 
     /// <summary>コインを入れた（手元の所持金はすぐ減らす）</summary>
@@ -286,12 +387,17 @@ public static class CoinPusher
         switch (item)
         {
             case PusherItem.Coin: d.Ig++; break;
+            case PusherItem.PlatinumCoin: d.Ig += PLATINUM_VALUE; break;
             case PusherItem.MeepleRed: d.RedMeeple++; break;
             case PusherItem.MeepleBlue: d.BlueMeeple++; break;
             case PusherItem.MeepleYellow: d.YellowMeeple++; break;
             case PusherItem.MeepleBlack: d.BlackMeeple++; break;
             case PusherItem.StarFragment: d.StarFragment++; break;
             case PusherItem.PlanetPotion: d.PlanetPotion++; break;
+            default:
+                // ピース（2026-11-13）: 手元の持っているピースにすぐ足す（パズルの手持ちの欄にも出る）
+                if (CoinPusherWorld.IsPiece(item)) PuzzleStore.AddPiecesLocal(CoinPusherWorld.PieceType(item), 1);
+                break;
         }
         s_ledgerDirty = true;
     }
@@ -314,15 +420,20 @@ public static class CoinPusher
         if (l.Empty) return true;
         if (s_flushing) return false;
         var snap = l.Copy();
-        var updates = new Dictionary<string, object>();
+        // ピースは users.pieces の中の種類ごとの数なので、入れ子の場所（FieldPath）で足す。ほかもそろえて FieldPath で書く
+        var updates = new Dictionary<FieldPath, object>();
         int net = snap.gold - snap.spent;
-        if (net != 0) updates[IgCurrency.FIELD] = FieldValue.Increment(net);
-        if (snap.red != 0) updates[SpaceMeeples.Of(PlanetColor.Red).Field] = FieldValue.Increment(snap.red);
-        if (snap.blue != 0) updates[SpaceMeeples.Of(PlanetColor.Blue).Field] = FieldValue.Increment(snap.blue);
-        if (snap.yellow != 0) updates[SpaceMeeples.Of(PlanetColor.Yellow).Field] = FieldValue.Increment(snap.yellow);
-        if (snap.black != 0) updates[SpaceMeeples.Black.Field] = FieldValue.Increment(snap.black);
-        if (snap.star != 0) updates[SpaceWorld.STAR_FRAGMENT_FIELD] = FieldValue.Increment(snap.star);
-        if (snap.potion != 0) updates[SpacePlanetPotion.FIELD] = FieldValue.Increment(snap.potion);
+        if (net != 0) updates[new FieldPath(IgCurrency.FIELD)] = FieldValue.Increment(net);
+        if (snap.red != 0) updates[new FieldPath(SpaceMeeples.Of(PlanetColor.Red).Field)] = FieldValue.Increment(snap.red);
+        if (snap.blue != 0) updates[new FieldPath(SpaceMeeples.Of(PlanetColor.Blue).Field)] = FieldValue.Increment(snap.blue);
+        if (snap.yellow != 0) updates[new FieldPath(SpaceMeeples.Of(PlanetColor.Yellow).Field)] = FieldValue.Increment(snap.yellow);
+        if (snap.black != 0) updates[new FieldPath(SpaceMeeples.Black.Field)] = FieldValue.Increment(snap.black);
+        if (snap.star != 0) updates[new FieldPath(SpaceWorld.STAR_FRAGMENT_FIELD)] = FieldValue.Increment(snap.star);
+        if (snap.potion != 0) updates[new FieldPath(SpacePlanetPotion.FIELD)] = FieldValue.Increment(snap.potion);
+        for (int t = 1; t <= PuzzleRules.TYPES; t++)
+            if (snap.Pieces[t] != 0)
+                updates[new FieldPath(PuzzleStore.FIELD_PIECES, t.ToString(System.Globalization.CultureInfo.InvariantCulture))] =
+                    FieldValue.Increment(snap.Pieces[t]);
         if (updates.Count > 0)
         {
             s_flushing = true;
@@ -446,6 +557,8 @@ public static class CoinPusher
         if (s.black > 0) parts.Add(SpaceMeeples.Black.Name + s.black + "個");
         if (s.star > 0) parts.Add(SpaceWorld.STAR_FRAGMENT_NAME + s.star + "個");
         if (s.potion > 0) parts.Add(SpacePlanetPotion.NAME + s.potion + "個");
+        for (int t = 1; t <= PuzzleRules.TYPES; t++)
+            if (s.Pieces[t] > 0) parts.Add(PuzzleStore.PieceLabel(t) + s.Pieces[t] + "個");
         string head = s.spent > 0 ? IgCurrency.Format(s.spent) + T_SUMMARY_SPENT_B : "";
         return parts.Count > 0 ? head + string.Join("・", parts) + T_SUMMARY_GOT_B : head + T_SUMMARY_NONE;
     }

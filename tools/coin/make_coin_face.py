@@ -1,13 +1,17 @@
 # コインプッシャー（2026-11-12）の 3D のコインの面の絵。金色の地に、ふちの段と浮き彫りの「G」。
 # 円の外も金色で塗りつぶす（コインの面は円に切り抜いて貼るので、外側は見えない）。不透明の 256×256。
-#   python make_coin_face.py <書き出し先.png> [確認用.png]
+#   python make_coin_face.py <書き出し先.png> [確認用.png]              … 金のコイン（Resources/CoinPusher/CoinFace.png）
+#   python make_coin_face.py <書き出し先.png> [確認用.png] --platinum   … プラチナコイン（2026-11-13。コインタワーのてっぺん・5G。
+#                                                                        銀白色の地に浮き彫りの「5」。Resources/CoinPusher/PlatinumFace.png）
 import sys
 
 import numpy as np
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
-OUT = sys.argv[1]
-PREVIEW = sys.argv[2] if len(sys.argv) > 2 else None
+PLATINUM = "--platinum" in sys.argv
+ARGS = [a for a in sys.argv[1:] if not a.startswith("--")]
+OUT = ARGS[0]
+PREVIEW = ARGS[1] if len(ARGS) > 1 else None
 
 S = 256
 SS = 4
@@ -17,9 +21,17 @@ C = N / 2
 YY, XX = np.mgrid[0:N, 0:N].astype(np.float64)
 R = np.hypot(XX - C, YY - C) / (N / 2)  # 中心0・ふち1
 
-GOLD_HI = np.array([255, 236, 150], dtype=np.float64)
-GOLD_MID = np.array([246, 192, 60], dtype=np.float64)
-GOLD_LO = np.array([176, 112, 22], dtype=np.float64)
+if PLATINUM:
+    # プラチナ: 青みのある白銀（明るいところはほぼ白、暗いところは青紫がかった灰色）
+    GOLD_HI = np.array([252, 253, 255], dtype=np.float64)
+    GOLD_MID = np.array([198, 207, 224], dtype=np.float64)
+    GOLD_LO = np.array([112, 121, 146], dtype=np.float64)
+    TEXT = "5"
+else:
+    GOLD_HI = np.array([255, 236, 150], dtype=np.float64)
+    GOLD_MID = np.array([246, 192, 60], dtype=np.float64)
+    GOLD_LO = np.array([176, 112, 22], dtype=np.float64)
+    TEXT = "G"
 
 
 def lerp(a, b, t):
@@ -60,7 +72,7 @@ for path in (r"C:\Windows\Fonts\arialbd.ttf", r"C:\Windows\Fonts\segoeuib.ttf", 
     except OSError:
         continue
 glyph = Image.new("L", (N, N), 0)
-ImageDraw.Draw(glyph).text((C, C + N * 0.02), "G", font=font, anchor="mm", fill=255)
+ImageDraw.Draw(glyph).text((C, C + N * 0.02), TEXT, font=font, anchor="mm", fill=255)
 g = np.asarray(glyph.filter(ImageFilter.GaussianBlur(N * 0.012)), dtype=np.float64) / 255.0
 gy, gx = np.gradient(g)
 shade = np.clip((gx * 0.6 + gy * 0.8) * N * 0.06, -1, 1)  # 左上を向いたふちが明るい（浮き彫り）
@@ -68,6 +80,13 @@ inside = g > 0.5
 face = lerp(GOLD_MID, GOLD_HI, 0.35 + 0.0 * g)
 img = np.where(inside[..., None], face, img)
 img = img + (shade[..., None] * 90.0) * (g > 0.05)[..., None]
+if PLATINUM:
+    # プラチナだけ: 左上から右下へ斜めに走る、やわらかい光の筋2本（磨いた金属のつや）と、右下のふちの青みがかった反射
+    t = ((XX - C) * 0.8 - (YY - C) * 0.6) / (N / 2)  # 筋に直交する向きの位置（筋は右下がり）
+    sheen = np.exp(-((t + 0.28) / 0.10) ** 2) * 0.55 + np.exp(-((t + 0.02) / 0.05) ** 2) * 0.35
+    img = img * (1 - sheen[..., None]) + np.array([255.0, 255.0, 255.0]) * sheen[..., None]
+    cool = np.clip(diag - 0.35, 0, 1) * (R > 0.84) * 0.5
+    img = img * (1 - cool[..., None]) + np.array([170.0, 190.0, 235.0]) * cool[..., None]
 img = np.clip(img, 0, 255)
 
 out = Image.fromarray(img.astype(np.uint8), "RGB").resize((S, S), Image.LANCZOS)

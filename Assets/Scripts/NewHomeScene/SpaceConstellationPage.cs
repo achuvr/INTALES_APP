@@ -37,12 +37,14 @@ public class SpaceConstellationPage : MonoBehaviour
     private const string T_NEXT_B = " 作品で ";
     private const string T_TOTAL_A = "これまでに達成したアチーブメント ";
     private const string T_ROUND = "いまの星";
+    /// <summary>お店から灯した星（管理者の星座に星を灯すQR。2026-11-13 StarGiftQr）の行の名前</summary>
+    private const string T_GIFT_STAR = "お店から灯した星";
 
     public static string GlyphText => new StringBuilder()
         .Append(T_CAPTION).Append(T_TITLE).Append(T_HINT).Append(T_CERT).Append(T_WORKS).Append(T_STARS).Append(T_BEST)
         .Append(T_DONE).Append(T_DONE_BIG).Append(T_LEFT_A).Append(T_LEFT_B).Append(T_GENRE_A).Append(T_GENRE_B)
         .Append(T_EMPTY_STAR).Append(T_CLOSE).Append(T_SEE_GAMES).Append(T_REWARD_A).Append(T_REWARD_B).Append(T_LV).Append(T_NEXT_A).Append(T_NEXT_B)
-        .Append("ドリンクチケット7%OFFチケット").Append(T_TOTAL_A).Append(T_ROUND).Append("0123456789/ 　・月日")
+        .Append("ドリンクチケット7%OFFチケット").Append(T_TOTAL_A).Append(T_ROUND).Append(T_GIFT_STAR).Append("0123456789/ 　・月日")
         .Append(Constellations.GlyphText).ToString();
 
     private const float SIDE = 40f;
@@ -277,7 +279,11 @@ public class SpaceConstellationPage : MonoBehaviour
         y += 50f + 30f;
 
         // いまの1周（6つの星）に入っているゲーム（公認された順）。まだの星は薄い行。完成後はこれまでの作品数も
-        string total = p.Complete ? $"{T_TOTAL_A}{p.Count}" : T_ROUND;
+        // （お店から灯した星はアチーブメントではないので、作品数には数えない）
+        int achieved = 0;
+        foreach (var g in p.Games)
+            if (!StarGiftQr.IsGiftKey(g.Key)) achieved++;
+        string total = p.Complete ? $"{T_TOTAL_A}{achieved}" : T_ROUND;
         SpaceTheme.Text(card, "Total", total, 24, SpaceTheme.TEXT_MUTED, new Vector2(0f, 1f), new Vector2(84f, -(y + 18f)),
             new Vector2(W - 168f, 36f), FontStyles.Bold, TextAlignmentOptions.Left, new Vector2(0f, 0.5f));
         y += 44f;
@@ -294,7 +300,7 @@ public class SpaceConstellationPage : MonoBehaviour
             if (on)
             {
                 var g = p.Games[gi];
-                label = SpaceTheme.NoParse(SpaceTheme.SafeNow(g.Game?.title ?? g.Key));
+                label = StarGiftQr.IsGiftKey(g.Key) ? T_GIFT_STAR : SpaceTheme.NoParse(SpaceTheme.SafeNow(g.Game?.title ?? g.Key));
                 if (DateTime.TryParseExact(g.Day, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None,
                         out var d))
                     day = $"{d.Month}/{d.Day}";

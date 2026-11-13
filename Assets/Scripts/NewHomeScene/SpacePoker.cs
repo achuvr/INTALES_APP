@@ -14,7 +14,8 @@ using UnityEngine.UI;
 /// 宝石座が完成した人（管理者は初めから）だけホームの空に宝石座が出て（SpaceBackground）、それをタップすると開く全画面。
 ///  ・手札（最大7枚）から5枚選ぶ →「この5枚で勝負する」→ 役に応じた報酬（CardRules.Rewards）。使った5枚はなくなる（山札にも戻らない）
 ///  ・選んだ5枚の役と報酬は、勝負する前から見える（「いちばん強い5枚」で自動で選べる）
-///  ・手札が8枚（捨てる前）のときは勝負できない（先に捨てるカードを選ぶ）
+///  ・手札が8枚（捨てる前）のとき・山札座で引いて捨てる前は勝負できない（先に捨てるカードを選ぶ）
+///  ・山札座が完成していれば、手札の下に「山札座で1枚引いて1枚捨てる」（1日1回。SpaceDeckSwap。2026-11-13）
 /// 配色は宝石らしい深いすみれ色（ショップの緑・メニューの紺と分ける）。Android の戻るは NewHomeController が Instance.HandleBack を呼ぶ。
 /// </summary>
 public class SpacePoker : MonoBehaviour
@@ -95,8 +96,8 @@ public class SpacePoker : MonoBehaviour
     private string _shownHand = "";
     private readonly List<Slot> _slots = new List<Slot>();
     private readonly List<int> _selected = new List<int>();
-    private TextMeshProUGUI _summary, _previewTitle, _previewSub, _playLabel;
-    private CanvasGroup _playGroup, _bestGroup, _clearGroup;
+    private TextMeshProUGUI _summary, _previewTitle, _previewSub, _playLabel, _swapLabel;
+    private CanvasGroup _playGroup, _bestGroup, _clearGroup, _swapGroup;
     private readonly Dictionary<PokerHand, Image> _tableRows = new Dictionary<PokerHand, Image>();
 
     /// <summary>ポーカーを開く。宝石座が完成していなければ開かない（管理者は初めから開ける）</summary>
@@ -152,11 +153,12 @@ public class SpacePoker : MonoBehaviour
     {
         if (_closing || _busy || Time.unscaledTime < _nextCheck) return;
         _nextCheck = Time.unscaledTime + 0.5f;
-        // 手札が変わったら（捨てた・入店で引いた・月が変わった など）並べ直す
+        // 手札が変わったら（捨てた・入店で引いた・月が変わった・山札座で引いた など）並べ直す
         if (HandKey(CardDeck.Current) != _shownHand) RebuildHand();
     }
 
-    private static string HandKey(CardState s) => s.Month + ":" + string.Join(",", s.Hand);
+    private static string HandKey(CardState s) =>
+        s.Month + ":" + string.Join(",", s.Hand) + ":" + s.SwapDay + (s.SwapPending ? "+" : "");
 
     // ================================================================
     // 画面
@@ -276,6 +278,24 @@ public class SpacePoker : MonoBehaviour
         _bestGroup = SmallButton(new Vector2(-190f, -y), T_BEST, SelectBest);
         _clearGroup = SmallButton(new Vector2(190f, -y), T_CLEAR, ClearSelection);
         y += 42f + 40f;
+
+        // 山札座の「1枚引いて1枚捨てる」（山札座が完成した人。1日1回。2026-11-13）。上の2つのボタンと同じ幅で、縁は山札座の色
+        if (CardDeck.SwapUnlocked)
+        {
+            var swap = SpaceTheme.Rect("Swap", _content, top, new Vector2(0f, -(y + 26f)), new Vector2(730f, 84f));
+            var swapFace = SpaceTheme.Glass(swap, 42f, BUTTON_DARK, SpaceTheme.A(SpaceDeckSwap.Tint, 0.7f), true);
+            SpaceTheme.Clickable(swap.gameObject, swapFace, () =>
+            {
+                if (!_busy) SpaceDeckSwap.Start(_canvas);
+            });
+            _swapLabel = SpaceTheme.Text(swap, "Label", SpaceDeckSwap.T_BUTTON, 30, SpaceTheme.TEXT, FontStyles.Bold);
+            SpaceTheme.Stretch(_swapLabel.rectTransform, 12f, 0f, 12f, 0f);
+            _swapLabel.enableAutoSizing = true;
+            _swapLabel.fontSizeMin = 20f;
+            _swapLabel.fontSizeMax = 30f;
+            _swapGroup = swap.gameObject.AddComponent<CanvasGroup>();
+            y += 26f + 42f + 40f;
+        }
 
         // 役の見込み（選んだ5枚の役と報酬）
         _previewTitle = SpaceTheme.Text(_content, "PreviewTitle", "", 48, SpaceTheme.TEXT, top, new Vector2(0f, -(y + 32f)),
@@ -450,7 +470,7 @@ public class SpacePoker : MonoBehaviour
 
         var s = CardDeck.Current;
         int hand = s.Hand.Count;
-        bool ready = _selected.Count == CardRules.POKER_CARDS && !CardRules.Overflow(s);
+        bool ready = _selected.Count == CardRules.POKER_CARDS && !CardRules.MustDiscard(s);
         PokerHand? preview = null;
         if (hand < CardRules.POKER_CARDS)
         {
@@ -460,9 +480,9 @@ public class SpacePoker : MonoBehaviour
             _previewSub.text = T_HOW;
             _previewSub.color = SpaceTheme.A(SpaceTheme.TEXT_SUB, 0.8f);
         }
-        else if (CardRules.Overflow(s))
+        else if (CardRules.MustDiscard(s))
         {
-            _previewTitle.text = CardDeck.T_ERR_DISCARD_FIRST;
+            _previewTitle.text = CardDeck.DiscardFirstText(s);
             _previewTitle.color = SpaceTheme.GOLD;
             SetPreviewSize(30f);
             _previewSub.text = "";
@@ -491,6 +511,14 @@ public class SpacePoker : MonoBehaviour
         if (!_busy) _playLabel.text = T_PLAY;
         _bestGroup.alpha = hand >= CardRules.POKER_CARDS ? 1f : 0.45f;
         _clearGroup.alpha = _selected.Count > 0 ? 1f : 0.45f;
+        if (_swapGroup != null)
+        {
+            // 山札座: 引いて捨てる前なら「捨てるカードを選ぶ」、今日もう使ったら淡く「山札座は今日使いました」
+            bool done = !s.SwapPending && s.SwapDay == StoreCalendar.TodayKey;
+            _swapLabel.text = s.SwapPending ? SpaceDeckSwap.T_BUTTON_PENDING
+                : done ? SpaceDeckSwap.T_BUTTON_DONE : SpaceDeckSwap.T_BUTTON;
+            _swapGroup.alpha = done || _busy ? 0.45f : 1f;
+        }
     }
 
     /// <summary>役の見込みの見出しの大きさ（自動で縮める上限ごと変える）</summary>
@@ -504,9 +532,9 @@ public class SpacePoker : MonoBehaviour
     {
         if (_busy) return;
         var s = CardDeck.Current;
-        if (CardRules.Overflow(s))
+        if (CardRules.MustDiscard(s))
         {
-            SpaceTheme.Toast(CardDeck.T_ERR_DISCARD_FIRST, _canvas);
+            SpaceTheme.Toast(CardDeck.DiscardFirstText(s), _canvas);
             SpaceNotice.CardDiscard();
             return;
         }

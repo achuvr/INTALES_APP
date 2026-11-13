@@ -2,7 +2,9 @@
 # 硬貨の面は、浮き出た「G」の文字・その上の小さな星・まわりの粒のふち。外側はぼんやり光らせて、小さなきらめきを添える
 # （星のカケラ make_star_fragment_icon.py と同じ見せ方）。背景は透明の 512×512。
 # 単位は最初「IG」だったが、I が 1 と見間違えやすいので同日ユーザー指定で「G」に変えた（ファイル名は ig のまま）
-#   python make_ig_coin_icon.py <書き出し先.png> [確認用.png]
+#   python make_ig_coin_icon.py <書き出し先.png> [確認用.png]              … G の金貨（Resources/ItemIcon/IgCoin.png）
+#   python make_ig_coin_icon.py <書き出し先.png> [確認用.png] --platinum   … プラチナコイン（2026-11-13。コインプッシャーの
+#                                                                           コインタワーのてっぺん・5G。白銀に「5」。Resources/ItemIcon/PlatinumCoin.png）
 # 確認用は、暗い宇宙の色の上に 512・128・96・64 の大きさで並べた絵（所持品の行は 128、お知らせの枠は 96 前後で出る）
 import math
 import sys
@@ -10,13 +12,41 @@ import sys
 import numpy as np
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
-OUT = sys.argv[1]
-PREVIEW = sys.argv[2] if len(sys.argv) > 2 else None
+PLATINUM = "--platinum" in sys.argv
+ARGS = [a for a in sys.argv[1:] if not a.startswith("--")]
+OUT = ARGS[0]
+PREVIEW = ARGS[1] if len(ARGS) > 1 else None
+
+# 色と文字（金貨とプラチナコイン）
+GOLD = dict(
+    drop=(112, 60, 6), light=(255, 253, 232), dark=(150, 88, 14), line=(118, 64, 6),
+    side=((214, 146, 42), (128, 72, 12)), reed=(96, 52, 6), side_shade=(90, 48, 6),
+    rim=((255, 241, 176), (210, 140, 30)), field=((255, 232, 140), (222, 154, 40)),
+    in_shadow=(150, 90, 16), in_light=(255, 250, 214),
+    bead_shadow=(140, 80, 10), bead=((255, 246, 196), (214, 146, 36)),
+    text=((255, 251, 222), (240, 182, 66)),
+    gloss=(255, 255, 240), edge_hi=(255, 252, 230), outline=(120, 66, 8), glow=(255, 210, 110),
+    sparks=((255, 250, 222, 245), (255, 244, 205, 230), (230, 240, 255, 220)),
+    letter="G", font=r"C:\Windows\Fonts\georgiab.ttf",  # 硬貨らしい、うろこ（セリフ）のある太字
+)
+PLAT = dict(
+    drop=(70, 78, 100), light=(255, 255, 255), dark=(110, 120, 146), line=(84, 92, 116),
+    side=((200, 208, 224), (100, 108, 130)), reed=(66, 72, 92), side_shade=(58, 64, 82),
+    rim=((255, 255, 255), (168, 178, 200)), field=((248, 250, 255), (180, 190, 212)),
+    in_shadow=(112, 122, 148), in_light=(255, 255, 255),
+    bead_shadow=(98, 106, 128), bead=((255, 255, 255), (172, 182, 204)),
+    text=((255, 255, 255), (192, 202, 224)),
+    gloss=(255, 255, 255), edge_hi=(255, 255, 255), outline=(80, 88, 112), glow=(176, 210, 255),
+    sparks=((255, 255, 255, 250), (225, 238, 255, 235), (215, 230, 255, 225)),
+    # Georgia の数字は小文字のように下へはみ出す形なので、数字がそろう Cambria の太字
+    letter="5", font=r"C:\Windows\Fonts\cambriab.ttf",
+)
+P = PLAT if PLATINUM else GOLD
 
 S = 512
 SS = 4  # 4倍の大きさで描いてから縮める（ふちをなめらかに）
 W = S * SS
-FONT = r"C:\Windows\Fonts\georgiab.ttf"  # 硬貨らしい、うろこ（セリフ）のある太字
+FONT = P["font"]
 
 CX, CY = 256 * SS, 242 * SS  # 面の中心（下にふちの厚みが見えるので少し上）
 R = 194 * SS                 # 面の半径
@@ -100,12 +130,12 @@ def star_points(cx, cy, r_out, r_in, n=5, rot=-90.0):
     return pts
 
 
-def emboss(layer, mask_img, face_color, clip, light=(255, 253, 232), dark=(150, 88, 14), depth=u(2.2), drop=u(4.5)):
+def emboss(layer, mask_img, face_color, clip, light=P["light"], dark=P["dark"], depth=u(2.2), drop=u(4.5)):
     """mask_img（L）の形を、面から浮き出た金の模様として描く（落ち影・左上の光・右下の影・輪郭）。clip は落ち影を収める面"""
     m = arr(mask_img)
     # 落ち影（右下へ。ぼかして面に落とす）
     sh = arr(shift(mask_img, drop * 0.8, drop).filter(ImageFilter.GaussianBlur(u(2.2))))
-    layer.paint((112, 60, 6), sh * (1 - m) * clip, 0.68)
+    layer.paint(P["drop"], sh * (1 - m) * clip, 0.68)
     # 本体
     layer.paint(face_color, m)
     # 左上の縁の光・右下の縁の影（形を少しずらして引いた残り＝縁の帯）
@@ -115,7 +145,7 @@ def emboss(layer, mask_img, face_color, clip, light=(255, 253, 232), dark=(150, 
     layer.paint(dark, lo, 0.8)
     # 輪郭（金の地に金の文字なので、小さく出したときも形が読めるよう濃いめに）
     grown = arr(mask_img.filter(ImageFilter.MaxFilter(7)))
-    layer.paint((118, 64, 6), np.clip(grown - m, 0, 1), 0.85)
+    layer.paint(P["line"], np.clip(grown - m, 0, 1), 0.85)
 
 
 # ================================================================
@@ -128,7 +158,7 @@ side_img = circle(CX, CY + THICK, R)
 side = arr(side_img)
 
 # ---- ふちの厚み（下に見える三日月の帯）: 暗い金のグラデーション＋ギザギザ ----
-side_col = linear((214, 146, 42), (128, 72, 12), 90, CX, CY + THICK, R)
+side_col = linear(P["side"][0], P["side"][1], 90, CX, CY + THICK, R)
 coin.paint(side_col, side)
 band = np.clip(side - face, 0, 1)
 reed = blank_l()
@@ -139,25 +169,25 @@ while x < CX + R:
     dr.line([(x, CY), (x, CY + R + THICK + u(4))], fill=255, width=int(u(2.4)))
     x += step
 reed_m = arr(reed) * band
-coin.paint((96, 52, 6), reed_m, 0.45)
+coin.paint(P["reed"], reed_m, 0.45)
 # 厚みの下の端を少し暗く（丸みのかげ）
-coin.paint((90, 48, 6), band * np.clip((YY - (CY + R * 0.55)) / (R * 0.5), 0, 1), 0.35)
+coin.paint(P["side_shade"], band * np.clip((YY - (CY + R * 0.55)) / (R * 0.5), 0, 1), 0.35)
 
 # ---- 面（ふち）: 左上が明るく右下が濃い金 ----
-rim_col = linear((255, 241, 176), (210, 140, 30), 45, CX, CY, R * 0.95)
+rim_col = linear(P["rim"][0], P["rim"][1], 45, CX, CY, R * 0.95)
 coin.paint(rim_col, face)
 
 # ---- 内側の面（ふちより一段低い） ----
 field_img = circle(CX, CY, R * FIELD)
 field_mask = arr(field_img)
-field_col = radial((255, 232, 140), (222, 154, 40), CX - R * 0.32, CY - R * 0.38, R * 1.25)
+field_col = radial(P["field"][0], P["field"][1], CX - R * 0.32, CY - R * 0.38, R * 1.25)
 coin.paint(field_col, field_mask)
 # 一段低いので、左上の内側に影・右下の内側に光
 in_shadow = np.clip(field_mask - arr(shift(field_img, u(5), u(5))), 0, 1)
 in_light = np.clip(field_mask - arr(shift(field_img, -u(3.5), -u(3.5))), 0, 1)
-coin.paint((150, 90, 16), np.asarray(Image.fromarray((in_shadow * 255).astype(np.uint8)).filter(
+coin.paint(P["in_shadow"], np.asarray(Image.fromarray((in_shadow * 255).astype(np.uint8)).filter(
     ImageFilter.GaussianBlur(u(1.2))), dtype=np.float64) / 255 * field_mask, 0.7)
-coin.paint((255, 250, 214), in_light, 0.85)
+coin.paint(P["in_light"], in_light, 0.85)
 
 # ---- 粒のふち ----
 N_BEADS = 30
@@ -166,40 +196,45 @@ for i in range(N_BEADS):
     a = math.radians(-90 + i * 360.0 / N_BEADS)
     bx, by = CX + math.cos(a) * R * BEADS_AT, CY + math.sin(a) * R * BEADS_AT
     sh = arr(circle(bx + u(1.6), by + u(2.0), bead_r))
-    coin.paint((140, 80, 10), sh, 0.55)
+    coin.paint(P["bead_shadow"], sh, 0.55)
     body = arr(circle(bx, by, bead_r))
-    coin.paint(radial((255, 246, 196), (214, 146, 36), bx - bead_r * 0.4, by - bead_r * 0.45, bead_r * 1.6), body)
+    coin.paint(radial(P["bead"][0], P["bead"][1], bx - bead_r * 0.4, by - bead_r * 0.45, bead_r * 1.6), body)
 
-# ---- 「G」の文字（浮き出し） ----
+# ---- 「G」の文字（浮き出し。プラチナコインは「5」） ----
 font = ImageFont.truetype(FONT, int(R * 1.0))
-text = "G"
+text = P["letter"]
 probe = ImageDraw.Draw(blank_l())
 l, t, r_, b = probe.textbbox((0, 0), text, font=font)
 tw, th = r_ - l, b - t
 txt = blank_l()
 ty = CY + R * 0.10  # 星を上に置くので文字は少し下
 ImageDraw.Draw(txt).text((CX - tw / 2 - l, ty - th / 2 - t), text, font=font, fill=255)
-text_col = linear((255, 251, 222), (240, 182, 66), 90, CX, ty, th * 0.6)
+text_col = linear(P["text"][0], P["text"][1], 90, CX, ty, th * 0.6)
 emboss(coin, txt, text_col, field_mask)
 
 # ---- 文字の上の小さな星（宇宙のしるし） ----
 star = blank_l()
 sy = CY - R * 0.47
 ImageDraw.Draw(star).polygon(star_points(CX, sy, R * 0.115, R * 0.048), fill=255)
-emboss(coin, star, linear((255, 251, 222), (240, 182, 66), 90, CX, sy, R * 0.12), field_mask,
+emboss(coin, star, linear(P["text"][0], P["text"][1], 90, CX, sy, R * 0.12), field_mask,
        depth=u(1.6), drop=u(3))
 
 # ---- つや: 左上にうすい光・ふちの左上に細い光の線 ----
 gloss = blank_l()
 ImageDraw.Draw(gloss).ellipse([CX - R * 0.95, CY - R * 0.92, CX + R * 0.15, CY - R * 0.22], fill=255)
 gloss = gloss.filter(ImageFilter.GaussianBlur(u(16)))
-coin.paint((255, 255, 240), arr(gloss) * face, 0.22)
+coin.paint(P["gloss"], arr(gloss) * face, 0.22)
+if PLATINUM:
+    # プラチナだけ: 面を斜めに走るやわらかい光の筋2本（3D のコインの面 make_coin_face.py --platinum と同じ見せ方）
+    tt = ((XX - CX) * 0.8 - (YY - CY) * 0.6) / R
+    streak = np.exp(-((tt + 0.28) / 0.10) ** 2) * 0.5 + np.exp(-((tt + 0.02) / 0.05) ** 2) * 0.32
+    coin.paint((255, 255, 255), streak * face, 1.0)
 edge_hi = np.clip(face - arr(shift(face_img, u(3), u(3))), 0, 1)
-coin.paint((255, 252, 230), edge_hi, 0.9)
+coin.paint(P["edge_hi"], edge_hi, 0.9)
 # 外の輪郭（暗い金の細い線）
 outline = np.clip(arr(face_img.filter(ImageFilter.MaxFilter(9))) - face, 0, 1)
 outline = np.maximum(outline, np.clip(arr(side_img.filter(ImageFilter.MaxFilter(9))) - side, 0, 1))
-coin.paint((120, 66, 8), outline * (1 - np.maximum(face, side)), 0.85)
+coin.paint(P["outline"], outline * (1 - np.maximum(face, side)), 0.85)
 
 coin_img = coin.image().resize((S, S), Image.LANCZOS)
 
@@ -207,7 +242,7 @@ coin_img = coin.image().resize((S, S), Image.LANCZOS)
 # 光ときらめき
 # ================================================================
 glow_mask = coin_img.split()[3].filter(ImageFilter.GaussianBlur(22))
-glow = Image.new("RGBA", (S, S), (255, 210, 110, 0))
+glow = Image.new("RGBA", (S, S), P["glow"] + (0,))
 glow.putalpha(glow_mask.point(lambda v: int(v * 0.8)))
 icon = Image.new("RGBA", (S, S), (0, 0, 0, 0))
 icon.alpha_composite(glow)
@@ -220,9 +255,9 @@ def sparkle(d, x, y, s, col):
 
 
 d = ImageDraw.Draw(icon)
-sparkle(d, S * 0.865, S * 0.17, 13, (255, 250, 222, 245))
-sparkle(d, S * 0.12, S * 0.78, 8, (255, 244, 205, 230))
-sparkle(d, S * 0.15, S * 0.15, 5, (230, 240, 255, 220))
+sparkle(d, S * 0.865, S * 0.17, 13, P["sparks"][0])
+sparkle(d, S * 0.12, S * 0.78, 8, P["sparks"][1])
+sparkle(d, S * 0.15, S * 0.15, 5, P["sparks"][2])
 icon.save(OUT)
 print("書き出し:", OUT)
 

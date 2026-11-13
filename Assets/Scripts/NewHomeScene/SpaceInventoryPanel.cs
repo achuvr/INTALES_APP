@@ -215,6 +215,13 @@ public class SpaceInventoryPanel : MonoBehaviour
     private const string T_CARD_HINT = "毎月1日に手札と山札がリセットされます";
     private const string T_CARD_HINT_POKER = "空の宝石座をタップするとポーカー";
     private const string T_CARD_RESET = "毎月1日にリセット";
+    // ピースパズル（ピース座が完成した人。2026-11-13）
+    private const string T_PUZZLE_SECTION = "パズル";
+    private const string T_PUZZLE_HINT = "毎月1日に新しい盤面";
+    private const string T_PUZZLE_NAME = "ピースパズル";
+    private const string T_PUZZLE_DESC_A = "持っているピース ";
+    private const string T_PUZZLE_DESC_B = "個 ・ ボーナス ";
+    private const string T_PUZZLE_OPEN = "開く";
     private const string T_ITEM_SECTION = "アイテム";
     private const string T_ITEM_HINT = "押すと使えます";
     private const string T_MEMBER = "会員証";
@@ -290,7 +297,9 @@ public class SpaceInventoryPanel : MonoBehaviour
               .Append(T_IG_DESC_LOCKED).Append(T_IG_INFO_LOCKED)
               .Append(T_FRAGMENT_SECTION).Append(T_FRAGMENT_HINT).Append(T_FRAGMENT_HINT_SHOP)
               .Append(T_CARD_SECTION).Append(T_CARD_HINT).Append(T_CARD_HINT_POKER).Append(T_CARD_RESET)
-              .Append(CardDeck.GlyphText);
+              .Append(CardDeck.GlyphText)
+              .Append(T_PUZZLE_SECTION).Append(T_PUZZLE_HINT).Append(T_PUZZLE_NAME).Append(T_PUZZLE_DESC_A).Append(T_PUZZLE_DESC_B)
+              .Append(T_PUZZLE_OPEN);
             foreach (var c in SpaceCoupons.All) sb.Append(c.Name).Append(c.RowDesc).Append(c.Desc);
             return sb.ToString();
         }
@@ -581,6 +590,21 @@ public class SpaceInventoryPanel : MonoBehaviour
         {
             y = SectionLabel(T_CARD_SECTION, y + ROW_GAP, CardDeck.PokerUnlocked ? T_CARD_HINT_POKER : T_CARD_HINT);
             y += BuildCardRow(_content, -y, cards);
+            // 山札座の「1枚引いて1枚捨てる」（山札座が完成した人。1日1回。2026-11-13）
+            if (CardDeck.SwapUnlocked)
+            {
+                y += ROW_GAP;
+                BuildDeckSwapRow(_content, -y, cards);
+                y += ROW_H;
+            }
+        }
+        // ピースパズル（ピース座が完成した人。押すとパズルの画面。2026-11-13）
+        _shownPuzzle = PuzzleStore.Key;
+        if (PuzzleStore.Unlocked || PuzzleStore.OwnedTotal > 0)
+        {
+            y = SectionLabel(T_PUZZLE_SECTION, y + ROW_GAP, T_PUZZLE_HINT);
+            BuildPuzzleRow(_content, -y);
+            y += ROW_H;
         }
         // アイテム（惑星回復薬。金貨座のショップで買う。所持品のいちばん下に。2026-11-12 ユーザー指定）
         int potions = SpacePlanetPotion.Count;
@@ -800,6 +824,107 @@ public class SpaceInventoryPanel : MonoBehaviour
             }
         }
         return rowH;
+    }
+
+    /// <summary>
+    /// ピースパズルの行（2026-11-13）: ピースの絵＋「ピースパズル」＋持っているピースの数とボーナスの数、右に「開く」。
+    /// 押すとパズルの画面（SpacePuzzle。この一覧の上に開く）
+    /// </summary>
+    private void BuildPuzzleRow(RectTransform content, float y)
+    {
+        var state = PuzzleStore.Current;
+        int pieces = PuzzleStore.OwnedTotal;
+        var row = SpaceTheme.Rect("Puzzle", content);
+        row.anchorMin = new Vector2(0f, 1f);
+        row.anchorMax = new Vector2(1f, 1f);
+        row.pivot = new Vector2(0.5f, 1f);
+        row.sizeDelta = new Vector2(0f, ROW_H);
+        row.anchoredPosition = new Vector2(0f, y);
+        var face = SpaceTheme.Glass(row, 36f, SpaceTheme.GLASS, SpaceTheme.A(SpacePuzzle.ACCENT, 0.5f), true);
+        SpaceTheme.Clickable(row.gameObject, face, () =>
+        {
+            if (_busy || _useSheet != null || _result != null || _closing) return;
+            SpacePuzzle.Open(_canvas);
+        });
+
+        var iconRt = SpaceTheme.Rect("Icon", row, new Vector2(0f, 0.5f), new Vector2(24f + 64f, 0f), new Vector2(128f, 128f));
+        var glow = SpaceTheme.Rect("Glow", iconRt, SpaceTheme.CENTER, Vector2.zero, new Vector2(190f, 190f));
+        SpaceTheme.Img(glow, SpaceSprites.Glow, SpaceTheme.A(SpacePuzzle.ACCENT, 0.3f));
+        var picture = SpaceTheme.Rect("Picture", iconRt);
+        SpaceTheme.Stretch(picture);
+        var img = SpaceTheme.Img(picture, PuzzleArt.Icon(0), Color.white);
+        img.preserveAspect = true;
+        var name = SpaceTheme.Text(row, "Name", T_PUZZLE_NAME, 40, SpaceTheme.TEXT,
+            new Vector2(0f, 0.5f), new Vector2(176f, 26f), new Vector2(500f, 56f), FontStyles.Bold,
+            TextAlignmentOptions.Left, new Vector2(0f, 0.5f));
+        name.enableAutoSizing = true;
+        name.fontSizeMin = 26f;
+        name.fontSizeMax = 40f;
+        var desc = SpaceTheme.Text(row, "Desc",
+            T_PUZZLE_DESC_A + pieces + T_PUZZLE_DESC_B + state.Claimed.Count + " / " + state.Bonus.Count, 26, SpaceTheme.TEXT_SUB,
+            new Vector2(0f, 0.5f), new Vector2(176f, -28f), new Vector2(500f, 40f), FontStyles.Bold,
+            TextAlignmentOptions.Left, new Vector2(0f, 0.5f));
+        desc.enableAutoSizing = true;
+        desc.fontSizeMin = 16f;
+        desc.fontSizeMax = 26f;
+        SpaceTheme.Text(row, "Open", T_PUZZLE_OPEN, 32, SpacePuzzle.ACCENT, new Vector2(1f, 0.5f), new Vector2(-40f, 0f),
+            new Vector2(220f, 48f), FontStyles.Bold, TextAlignmentOptions.Right, new Vector2(1f, 0.5f));
+    }
+
+    /// <summary>
+    /// 山札座の行（2026-11-13）: 山札座の絵＋「山札座」＋できること、右に今日使えるか。押すと「1枚引いて1枚捨てる」を始める
+    /// （SpaceDeckSwap.Start。今日もう使ったら知らせるだけ・捨てる前なら捨てるカードを選ぶ画面）
+    /// </summary>
+    private void BuildDeckSwapRow(RectTransform content, float y, CardState state)
+    {
+        bool pending = CardRules.MustDiscard(state);
+        bool done = !pending && state.SwapDay == StoreCalendar.TodayKey;
+        var tint = SpaceDeckSwap.Tint;
+        var row = SpaceTheme.Rect("DeckSwap", content);
+        row.anchorMin = new Vector2(0f, 1f);
+        row.anchorMax = new Vector2(1f, 1f);
+        row.pivot = new Vector2(0.5f, 1f);
+        row.sizeDelta = new Vector2(0f, ROW_H);
+        row.anchoredPosition = new Vector2(0f, y);
+        var face = SpaceTheme.Glass(row, 36f, SpaceTheme.GLASS, SpaceTheme.A(tint, done ? 0.2f : 0.5f), true);
+        SpaceTheme.Clickable(row.gameObject, face, () =>
+        {
+            if (_busy || _useSheet != null || _result != null || _closing) return;
+            SpaceDeckSwap.Start(_canvas);
+        });
+        if (done) row.gameObject.AddComponent<CanvasGroup>().alpha = 0.6f;
+
+        // 山札座の絵（いまのレベルの姿。管理者で未完成なら完成した姿）と、後ろの光
+        var def = SpaceDeckSwap.Def;
+        if (def != null)
+        {
+            var p = Constellations.Progress().Find(x => x.Def.Id == def.Id);
+            var holder = SpaceTheme.Rect("Constellation", row, new Vector2(0f, 0.5f), new Vector2(24f + 64f, 0f),
+                new Vector2(128f, 128f));
+            var glow = SpaceTheme.Rect("Glow", holder, SpaceTheme.CENTER, Vector2.zero, new Vector2(190f, 190f));
+            SpaceTheme.Img(glow, SpaceSprites.Glow, SpaceTheme.A(tint, 0.3f));
+            SpaceConstellationPage.Figure(holder, def, p != null ? Mathf.Max(def.Size, p.Count - p.Partial) : def.Size, 128f);
+        }
+        var name = SpaceTheme.Text(row, "Name", SpaceDeckSwap.T_NAME, 40, SpaceTheme.TEXT,
+            new Vector2(0f, 0.5f), new Vector2(176f, 26f), new Vector2(500f, 56f), FontStyles.Bold,
+            TextAlignmentOptions.Left, new Vector2(0f, 0.5f));
+        name.enableAutoSizing = true;
+        name.fontSizeMin = 26f;
+        name.fontSizeMax = 40f;
+        // 説明と右の状態の幅は、惑星回復薬の行と同じく重ならない幅（説明 500・状態 220）
+        var desc = SpaceTheme.Text(row, "Desc", SpaceDeckSwap.T_ROW_DESC, 26, SpaceTheme.TEXT_SUB,
+            new Vector2(0f, 0.5f), new Vector2(176f, -28f), new Vector2(500f, 40f), FontStyles.Bold,
+            TextAlignmentOptions.Left, new Vector2(0f, 0.5f));
+        desc.enableAutoSizing = true;
+        desc.fontSizeMin = 16f;
+        desc.fontSizeMax = 26f;
+        var status = SpaceTheme.Text(row, "Status",
+            pending ? SpaceDeckSwap.T_PENDING : done ? SpaceDeckSwap.T_DONE : SpaceDeckSwap.T_READY, 30,
+            pending ? SpaceTheme.GOLD : done ? SpaceTheme.TEXT_MUTED : tint, new Vector2(1f, 0.5f), new Vector2(-40f, 0f),
+            new Vector2(220f, 48f), FontStyles.Bold, TextAlignmentOptions.Right, new Vector2(1f, 0.5f));
+        status.enableAutoSizing = true;
+        status.fontSizeMin = 20f;
+        status.fontSizeMax = 30f;
     }
 
     /// <summary>
@@ -1151,15 +1276,19 @@ public class SpaceInventoryPanel : MonoBehaviour
         JourneyService.Changed -= OnJourneyChanged;
     }
 
-    /// <summary>表示しているトランプの手札（変わったかどうかを見る用）</summary>
+    /// <summary>表示しているトランプの手札と山札座の状態（変わったかどうかを見る用）</summary>
     private string _shownCards;
 
-    private static string CardsKey(CardState s) => s.Month + ":" + string.Join(",", s.Hand);
+    private static string CardsKey(CardState s) =>
+        s.Month + ":" + string.Join(",", s.Hand) + ":" + s.SwapDay + (s.SwapPending ? "+" : "");
+
+    /// <summary>表示しているピースパズルの盤面と持っているピース（変わったかどうかを見る用。2026-11-13）</summary>
+    private string _shownPuzzle;
 
     private void OnJourneyChanged()
     {
         if (this == null || _closing || _busy) return;
-        if (CardsKey(CardDeck.Current) == _shownCards) return;
+        if (CardsKey(CardDeck.Current) == _shownCards && PuzzleStore.Key == _shownPuzzle) return;
         BuildList();
     }
 

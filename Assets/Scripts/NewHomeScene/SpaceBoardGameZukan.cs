@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Text;
 using System.Text.RegularExpressions;
+using Cysharp.Threading.Tasks;
 using TMPro;
 using UnityEngine;
 using UnityEngine.EventSystems;
@@ -15,11 +16,14 @@ using UnityEngine.UI;
 /// できることは旧ホームの BoardGameListController と同じ:
 ///  ・検索（タイトル・英名・ジャンルの部分一致）、人数・プレイ時間の絞り込み、
 ///    並び替え（五十音順・プレイ時間が短い順・人気順＝当店のお気に入り数・新着順＝お店が登録した順。開いたときは新着順）
-///  ・「遊んだのみ」「お気に入りのみ」。詳細のデザイナー名・ジャンルを押すとその条件で絞り込み（上に解除の札）
+///  ・「遊んだのみ」「遊んでないのみ」（2026-11-13 お客様の意見で追加。遊んだのみとはどちらか一方）「お気に入りのみ」。詳細のデザイナー名・ジャンルを押すとその条件で絞り込み（上に解除の札）
 ///  ・各行の ✓（遊んだ）★（お気に入り）は BoardGameMarks（users/{uid} に保存）
 ///  ・登録から30日のゲームはタイトルの左に「NEW」（登録日＝毎朝の同期で初めて見つけた日。分からないゲームには出さない）
 ///  ・詳細: 人数・プレイ時間・発売年・デザイナー・人気度・登録日・ジャンル、遊んだ／お気に入り、
 ///    「遊んだ記録」の写真（端末ローカルのみ。撮影・新しい順／古い順・全画面で保存／削除。BoardGamePhotoStore）
+///  ・管理者だけ: 下に「ボドゲーマから図鑑を更新」（2026-11-13 ユーザー指定「管理者画面で、ボドゲ図鑑の更新を行えるように」）。
+///    Cloud Functions の syncBoardgames（BoardGameSyncFunction）がボドゲーマのお店のページを読んで配信し、この端末の図鑑も
+///    その場で新しい一覧に作り直す。結果（新しく入ったゲーム・なくなったゲーム）はお知らせで出す
 /// 739件を扱うので、見えている行だけを作って使い回す（仮想化スクロール）。
 /// 実機のOOM対策も旧版と同じ: 行は1フレームに3行まで作り、全ゲームの文字を40文字/フレームで先にフォントへ登録する。
 /// 注意: 絵文字は使わない（フォントに無い文字が再レイアウトの無限ループ→OOMの引き金になる）。
@@ -37,6 +41,7 @@ public class SpaceBoardGameZukan : MonoBehaviour
     private const string T_COUNT = "件";
     private const string T_EMPTY = "該当するゲームがありません";
     private const string T_PLAYED_ONLY = "✓ 遊んだのみ";
+    private const string T_UNPLAYED_ONLY = "遊んでないのみ"; // 2026-11-13 お客様の意見「遊んだのみだけでなく、遊んでないもほしい」
     private const string T_FAV_ONLY = "★ お気に入りのみ";
     private const string T_NO_NAME = "（名称不明）";
     private const string T_GENRE = "ジャンル";
@@ -83,6 +88,28 @@ public class SpaceBoardGameZukan : MonoBehaviour
     private static readonly string[] SORT_SHORT = { "五十音順", "時間が短い順", "人気順", "新着順" }; // 並び順のボタンの文字
     private const int DEFAULT_SORT = 3; // 開いたときの並び順＝新着順（2026-11-05 ユーザー指定）
     private static readonly string[] POPUP_TITLES = { "遊ぶ人数で絞り込む", "プレイ時間で絞り込む", "並び順を選ぶ" };
+    // 管理者だけ: 下の「ボドゲーマから図鑑を更新」（2026-11-13）
+    private const string T_SYNC = "ボドゲーマから図鑑を更新";
+    private const string T_SYNC_STATUS_A = "いまの図鑑：";          // 「いまの図鑑：2026-11-06 更新・777件」
+    private const string T_SYNC_STATUS_B = " 更新・";
+    private const string T_SYNC_GO = "更新する";
+    private const string T_SYNC_CONFIRM = "図鑑を更新しますか？";
+    private const string T_SYNC_CONFIRM_BODY =
+        "ボドゲーマのお店のページを読んで、\n図鑑を最新にします（1分ほど）。\n変わったところは、お客様の\n図鑑にも届きます";
+    private const string T_SYNC_BUSY = "図鑑を更新中…";            // 「図鑑を更新中…（35秒）」
+    private const string T_SYNC_SEC = "秒";
+    private const string T_SYNC_DONE = "図鑑を更新しました";
+    private const string T_SYNC_SAME = "図鑑は最新です";
+    private const string T_SYNC_SAME_SUB = "ボドゲーマのお店のページと同じでした";
+    private const string T_SYNC_MINOR = "ゲームの増減はありません\n（お気に入りの数などを新しくしました）";
+    private const string T_SYNC_ADDED = "新しく入ったゲーム";
+    private const string T_SYNC_REMOVED = "図鑑からなくなったゲーム";
+    private const string T_SYNC_MORE_A = "ほか";                    // 「…、ほか5件」
+    private const string T_SYNC_FAILED = "図鑑を更新できませんでした";
+    private const string T_SYNC_RETRY = "少し待ってから、もう一度お試しください";
+    private const string T_SYNC_LOCAL_FAILED =
+        "お客様への配信はできましたが、この端末に読み込めませんでした。アプリを開き直すと新しい図鑑になります";
+    private const int SYNC_LIST_MAX = 12; // 結果のお知らせに名前を出す数（多いときは「ほか○件」）
 
     /// <summary>この画面で表示しうる決まった文言（ゲームの名前などは開いたときに登録する）</summary>
     public static string GlyphText
@@ -91,7 +118,7 @@ public class SpaceBoardGameZukan : MonoBehaviour
         {
             var sb = new StringBuilder();
             sb.Append(T_CAPTION).Append(T_TITLE).Append(T_SEARCH).Append(T_LOADING).Append(T_COUNT).Append(T_EMPTY)
-              .Append(T_PLAYED_ONLY).Append(T_FAV_ONLY).Append(T_NO_NAME).Append(T_GENRE).Append(T_PLAYERS).Append(T_TIME)
+              .Append(T_PLAYED_ONLY).Append(T_UNPLAYED_ONLY).Append(T_FAV_ONLY).Append(T_NO_NAME).Append(T_GENRE).Append(T_PLAYERS).Append(T_TIME)
               .Append(T_YEAR).Append(T_DESIGNER).Append(T_POPULAR).Append(T_POPULAR_B).Append(T_PLAYED_ON)
               .Append(T_PLAYED_OFF).Append(T_FAV_ON).Append(T_FAV_OFF).Append(T_RECORD).Append(T_NEWEST)
               .Append(T_OLDEST).Append(T_SHOOT).Append(T_CLOSE).Append(T_DASH).Append(T_NEW).Append(T_ADDED).Append(T_CONSTELLATION).Append(T_LOG_BTN).Append(BoardGameCertify.T_MARK).Append(T_GENRE_BTN).Append(T_GENRE_TITLE)
@@ -103,6 +130,11 @@ public class SpaceBoardGameZukan : MonoBehaviour
             foreach (var t in TIME_PRESETS) sb.Append(t.Label);
             foreach (var s in SORT_LABELS) sb.Append(s);
             foreach (var s in POPUP_TITLES) sb.Append(s);
+            sb.Append(T_SYNC).Append(T_SYNC_STATUS_A).Append(T_SYNC_STATUS_B).Append(T_SYNC_GO).Append(T_SYNC_CONFIRM)
+              .Append(T_SYNC_CONFIRM_BODY).Append(T_SYNC_BUSY).Append(T_SYNC_SEC).Append(T_SYNC_DONE).Append(T_SYNC_SAME)
+              .Append(T_SYNC_SAME_SUB).Append(T_SYNC_MINOR).Append(T_SYNC_ADDED).Append(T_SYNC_REMOVED).Append(T_SYNC_MORE_A)
+              .Append(T_SYNC_FAILED).Append(T_SYNC_RETRY).Append(T_SYNC_LOCAL_FAILED).Append(BoardGameSyncFunction.GlyphText)
+              .Append("（）、-v キャンセル");
             return sb.ToString();
         }
     }
@@ -118,6 +150,7 @@ public class SpaceBoardGameZukan : MonoBehaviour
     private const float TAG_TOP = 492f, TAG_H = 80f;
     private const float LIST_TOP = 492f;              // 絞り込みの札が出ている間は TAG_H + 12 だけ下げる
     private const float LIST_BOTTOM = 24f;
+    private const float ADMIN_BAR_H = 112f;           // 管理者だけ: 下の「ボドゲーマから図鑑を更新」の帯（一覧はその上まで）
     private const float ROW_H = 176f, ROW_GAP = 16f, ROW_STEP = ROW_H + ROW_GAP;
     private const float PAD_T = 8f, PAD_B = 40f;
     private const int BUFFER = 2;                     // 画面外に余分に出しておく行数
@@ -148,6 +181,10 @@ public class SpaceBoardGameZukan : MonoBehaviour
     private GameObject _emptyLabel, _detail, _popup, _tagBar;
     private bool _closing;
     private bool _ready; // 全ゲームの文字をフォントへ登録し終えた（それまでは一覧を作らない）
+    private bool _admin;   // 管理者（下に「ボドゲーマから図鑑を更新」を出す）
+    private bool _syncing; // 図鑑を更新している（終わるまで閉じない）
+    private TextMeshProUGUI _syncStatus; // 「いまの図鑑：2026-11-06 更新・777件」
+    private GameObject _syncDialog;      // 「図鑑を更新しますか？」（戻る操作では、これを先に閉じる）
 
     private readonly List<BoardGameEntry> _all = new List<BoardGameEntry>();
     private readonly List<BoardGameEntry> _items = new List<BoardGameEntry>();
@@ -157,11 +194,11 @@ public class SpaceBoardGameZukan : MonoBehaviour
     private int _playersFilter, _timeMin, _timeMax, _sortMode = DEFAULT_SORT; // 時間は0＝指定なし
     private ConstellationDef _genreFilter; // 星座のジャンルでの絞り込み（null=指定なし。2026-11-06 ユーザー指定）
     private bool _genreOther;              // 「その他」＝どの星座のジャンルにも入らないゲームだけ
-    private bool _playedOnly, _favOnly;
+    private bool _playedOnly, _unplayedOnly, _favOnly; // 遊んだのみ・遊んでないのみ（どちらか一方だけ）・お気に入りのみ
     private string _tagFilter;   // デザイナー/ジャンルでの絞り込み（null=なし）
     private bool _tagIsDesigner;
 
-    private Pill _playersBtn, _timeBtn, _sortBtn, _genreBtn, _playedBtn, _favBtn;
+    private Pill _playersBtn, _timeBtn, _sortBtn, _genreBtn, _playedBtn, _unplayedBtn, _favBtn;
 
     private struct ParsedRange { public int PMin, PMax, TMin, TMax; }
     private readonly Dictionary<BoardGameEntry, ParsedRange> _parsed = new Dictionary<BoardGameEntry, ParsedRange>();
@@ -229,9 +266,16 @@ public class SpaceBoardGameZukan : MonoBehaviour
         return zukan;
     }
 
-    /// <summary>戻る操作: 手前から閉じる（写真 → 記録 → 記録のカレンダー → 詳細 → 選択肢 → 図鑑）</summary>
+    /// <summary>戻る操作: 手前から閉じる（写真 → 記録 → 記録のカレンダー → 詳細 → 選択肢 → 図鑑）。図鑑の更新中は何もしない</summary>
     public void HandleBack()
     {
+        if (_syncing) return;
+        if (_syncDialog != null)
+        {
+            Destroy(_syncDialog);
+            _syncDialog = null;
+            return;
+        }
         var viewer = transform.Find("__PhotoViewer");
         var playLog = transform.Find("__PlayLog");
         var calendar = transform.Find(SpacePlayCalendar.NAME);
@@ -245,7 +289,7 @@ public class SpaceBoardGameZukan : MonoBehaviour
 
     public void Close()
     {
-        if (_closing) return;
+        if (_closing || _syncing) return; // 更新中は閉じない（終わったら、新しい一覧に作り直してお知らせを出す）
         _closing = true;
         StartCoroutine(CloseRoutine());
     }
@@ -260,6 +304,7 @@ public class SpaceBoardGameZukan : MonoBehaviour
     private void OnDestroy()
     {
         if (Instance == this) Instance = null;
+        if (_syncDialog != null) Destroy(_syncDialog); // 確かめるダイアログをホームに残さない
         foreach (var t in _thumbCache.Values) Destroy(t);
         _thumbCache.Clear();
         _thumbOrder.Clear();
@@ -305,6 +350,7 @@ public class SpaceBoardGameZukan : MonoBehaviour
         CloseButton(_safe, -84f, Close);
         ConstellationButton();
         PlayLogButton();
+        _admin = AdminClaim.IsAdmin;
 
         var data = BoardGameCatalog.Load();
         _all.AddRange(data.games ?? Array.Empty<BoardGameEntry>());
@@ -325,6 +371,7 @@ public class SpaceBoardGameZukan : MonoBehaviour
         yield return null;
         BuildFilters();
         BuildList();
+        if (_admin) BuildAdminBar();
         _countLabel.text = T_LOADING;
         yield return null;
 
@@ -336,6 +383,15 @@ public class SpaceBoardGameZukan : MonoBehaviour
             yield return null;
         }
 
+        yield return SpaceTheme.Prewarm(GameText());
+
+        _ready = true;
+        RebuildList(); // 読み込み中に変えた絞り込み・検索もここで反映される
+    }
+
+    /// <summary>全ゲームの表示しうる文字（開いたとき・図鑑を更新したときに、先にフォントへ登録する）</summary>
+    private string GameText()
+    {
         var sb = new StringBuilder();
         foreach (var g in _all)
         {
@@ -344,10 +400,7 @@ public class SpaceBoardGameZukan : MonoBehaviour
             if (g.designer != null) foreach (var d in g.designer) sb.Append(d);
         }
         sb.Append('_'); // リンクの下線（TMP は '_' の形で下線を描く）
-        yield return SpaceTheme.Prewarm(sb.ToString());
-
-        _ready = true;
-        RebuildList(); // 読み込み中に変えた絞り込み・検索もここで反映される
+        return sb.ToString();
     }
 
     private void BuildSearch()
@@ -387,7 +440,7 @@ public class SpaceBoardGameZukan : MonoBehaviour
             new Vector2(1f, 0.5f));
     }
 
-    /// <summary>人数・時間・並び順のボタンと、「遊んだのみ」「お気に入りのみ」</summary>
+    /// <summary>人数・時間・並び順のボタンと、「遊んだのみ」「遊んでないのみ」「お気に入りのみ」</summary>
     private void BuildFilters()
     {
         var bar = TopBar("Filters", FILTER_TOP, FILTER_H);
@@ -400,10 +453,19 @@ public class SpaceBoardGameZukan : MonoBehaviour
         Split(_genreBtn.Rt, 0.5f, 0.75f);
         Split(_sortBtn.Rt, 0.75f, 1f);
 
+        // 「遊んだのみ」と「遊んでないのみ」は、片方を選ぶともう片方は外れる（両方だと1件も出ないため）
         var checks = TopBar("Checks", CHECK_TOP, CHECK_H);
         _playedBtn = MakePill(checks, "PlayedOnly", 40f, 30f, () =>
         {
             _playedOnly = !_playedOnly;
+            if (_playedOnly) _unplayedOnly = false;
+            UpdateFilterButtons();
+            RebuildList();
+        });
+        _unplayedBtn = MakePill(checks, "UnplayedOnly", 40f, 30f, () =>
+        {
+            _unplayedOnly = !_unplayedOnly;
+            if (_unplayedOnly) _playedOnly = false;
             UpdateFilterButtons();
             RebuildList();
         });
@@ -413,8 +475,9 @@ public class SpaceBoardGameZukan : MonoBehaviour
             UpdateFilterButtons();
             RebuildList();
         });
-        Split(_playedBtn.Rt, 0f, 0.5f);
-        Split(_favBtn.Rt, 0.5f, 1f);
+        Split(_playedBtn.Rt, 0f, 1f / 3f);
+        Split(_unplayedBtn.Rt, 1f / 3f, 2f / 3f);
+        Split(_favBtn.Rt, 2f / 3f, 1f);
         UpdateFilterButtons();
     }
 
@@ -447,6 +510,8 @@ public class SpaceBoardGameZukan : MonoBehaviour
         SetPill(_genreBtn, _genreFilter != null || _genreOther, ACCENT);
         _playedBtn.Label.text = T_PLAYED_ONLY;
         SetPill(_playedBtn, _playedOnly, SpaceTheme.MINT);
+        _unplayedBtn.Label.text = T_UNPLAYED_ONLY;
+        SetPill(_unplayedBtn, _unplayedOnly, SpaceTheme.CYAN);
         _favBtn.Label.text = T_FAV_ONLY;
         SetPill(_favBtn, _favOnly, SpaceTheme.GOLD);
     }
@@ -456,7 +521,7 @@ public class SpaceBoardGameZukan : MonoBehaviour
         _scrollRoot = SpaceTheme.Rect("List", _safe);
         _scrollRoot.anchorMin = Vector2.zero;
         _scrollRoot.anchorMax = Vector2.one;
-        _scrollRoot.offsetMin = new Vector2(SIDE, LIST_BOTTOM);
+        _scrollRoot.offsetMin = new Vector2(SIDE, LIST_BOTTOM + (_admin ? ADMIN_BAR_H + 16f : 0f));
         _scrollRoot.offsetMax = new Vector2(-SIDE, -ListTop());
         _scroll = _scrollRoot.gameObject.AddComponent<ScrollRect>();
         _scroll.horizontal = false;
@@ -570,6 +635,7 @@ public class SpaceBoardGameZukan : MonoBehaviour
         if (_genreFilter != null && !Constellations.Matches(_genreFilter, g)) return false;
         if (_genreOther && Constellations.Of(g).Count > 0) return false;
         if (_playedOnly && !BoardGameMarks.IsPlayed(g)) return false;
+        if (_unplayedOnly && BoardGameMarks.IsPlayed(g)) return false;
         if (_favOnly && !BoardGameMarks.IsFavorite(g)) return false;
         return true;
     }
@@ -1091,7 +1157,8 @@ public class SpaceBoardGameZukan : MonoBehaviour
     {
         BoardGameMarks.SetPlayed(g, !BoardGameMarks.IsPlayed(g));
         RefreshMarks(g);
-        if (_playedOnly) RebuildList(); // 「遊んだのみ」のときは外したゲームをすぐ消す
+        // 「遊んだのみ」のときは外したゲームを、「遊んでないのみ」のときは ✓ を付けたゲームを、すぐ一覧から消す
+        if (_playedOnly || _unplayedOnly) RebuildList();
     }
 
     private void ToggleFavorite(BoardGameEntry g)
@@ -1633,6 +1700,191 @@ public class SpaceBoardGameZukan : MonoBehaviour
     {
         float aspect = (float)tex.width / Mathf.Max(1, tex.height);
         return aspect >= 1f ? new Vector2(side * aspect, side) : new Vector2(side, side / aspect);
+    }
+
+    // ================================================================
+    // 管理者だけ: ボドゲーマから図鑑を更新（2026-11-13）
+    // ================================================================
+    /// <summary>
+    /// 一覧の下の帯（金色の縁＝お店側の道具）。押すと確かめてから更新する。左に「いまの図鑑：日付 更新・件数」
+    /// </summary>
+    private void BuildAdminBar()
+    {
+        var bar = SpaceTheme.Rect("AdminSync", _safe);
+        bar.anchorMin = new Vector2(0f, 0f);
+        bar.anchorMax = new Vector2(1f, 0f);
+        bar.pivot = new Vector2(0.5f, 0f);
+        bar.offsetMin = new Vector2(SIDE, LIST_BOTTOM);
+        bar.offsetMax = new Vector2(-SIDE, LIST_BOTTOM + ADMIN_BAR_H);
+        var face = SpaceTheme.Glass(bar, 40f, PILL_FILL, SpaceTheme.A(SpaceTheme.GOLD, 0.6f), true);
+        SpaceTheme.Clickable(bar.gameObject, face, ConfirmSync);
+
+        // 右の「更新する」（見た目だけ。押せるのは帯全体）
+        var go = SpaceTheme.Rect("Go", bar, new Vector2(1f, 0.5f), new Vector2(-20f, 0f), new Vector2(196f, 72f),
+            new Vector2(1f, 0.5f));
+        SpaceTheme.Glass(go, 36f, SpaceTheme.A(SpaceTheme.GOLD, 0.2f), SpaceTheme.A(SpaceTheme.GOLD, 0.8f));
+        var goLabel = SpaceTheme.Text(go, "Label", T_SYNC_GO, 30, SpaceTheme.GOLD, FontStyles.Bold);
+        SpaceTheme.Stretch(goLabel.rectTransform);
+        goLabel.raycastTarget = false;
+
+        // 左の題と、いまの図鑑の日付・件数（右の「更新する」の手前まで。入りきらなければ小さくする）
+        var title = SpaceTheme.Text(bar, "Label", T_SYNC, 30, SpaceTheme.GOLD, FontStyles.Bold, TextAlignmentOptions.Left);
+        PlaceInBar(title.rectTransform, 14f, 44f);
+        title.enableAutoSizing = true;
+        title.fontSizeMin = 22f;
+        title.fontSizeMax = 30f;
+        _syncStatus = SpaceTheme.Text(bar, "Status", "", 22, SpaceTheme.TEXT_MUTED, FontStyles.Bold, TextAlignmentOptions.Left);
+        PlaceInBar(_syncStatus.rectTransform, -24f, 32f);
+        _syncStatus.enableAutoSizing = true;
+        _syncStatus.fontSizeMin = 16f;
+        _syncStatus.fontSizeMax = 22f;
+        RefreshSyncStatus();
+    }
+
+    /// <summary>帯の左から「更新する」の手前までの、縦の中心から y の行（高さ h）</summary>
+    private static void PlaceInBar(RectTransform rt, float y, float h)
+    {
+        rt.anchorMin = new Vector2(0f, 0.5f);
+        rt.anchorMax = new Vector2(1f, 0.5f);
+        rt.pivot = new Vector2(0f, 0.5f);
+        rt.offsetMin = new Vector2(32f, y - h * 0.5f);
+        rt.offsetMax = new Vector2(-(20f + 196f + 20f), y + h * 0.5f);
+    }
+
+    private void RefreshSyncStatus()
+    {
+        if (_syncStatus == null) return;
+        var data = BoardGameCatalog.Load();
+        _syncStatus.text = T_SYNC_STATUS_A + (string.IsNullOrEmpty(data.updated) ? "" : data.updated + T_SYNC_STATUS_B)
+                           + _all.Count + T_COUNT + "（v" + data.version + "）";
+    }
+
+    private void ConfirmSync()
+    {
+        if (_syncing || _closing || !_ready || _syncDialog != null) return;
+        _syncDialog = SpaceDialog.Confirm(_canvas, T_SYNC_CONFIRM, T_SYNC_CONFIRM_BODY, T_SYNC_GO, false,
+            () =>
+            {
+                _syncDialog = null;
+                if (this != null) SyncAsync().Forget();
+            },
+            () => _syncDialog = null);
+    }
+
+    /// <summary>
+    /// サーバーに図鑑を更新してもらい（1分ほど。経過の秒数を出す）、変わっていればこの端末の図鑑も読み直して一覧を作り直してから
+    /// 結果を知らせる。更新中は図鑑を閉じない
+    /// </summary>
+    private async UniTaskVoid SyncAsync()
+    {
+        if (_syncing || _closing) return;
+        _syncing = true;
+        CloseDetail();
+        ClosePopup();
+        var busy = SpaceDialog.Busy(_canvas, T_SYNC_BUSY);
+        var busyText = busy != null ? busy.transform.Find("Card/Message")?.GetComponent<TMP_Text>() : null;
+        float start = Time.realtimeSinceStartup;
+        bool done = false;
+        TickBusy(busyText, start, () => done).Forget();
+
+        BoardGameSyncFunction.Result result = null;
+        string error = null;
+        bool loaded = false;
+        try
+        {
+            (result, error) = await BoardGameSyncFunction.RunAsync();
+            if (result != null && result.changed) loaded = await BoardGameCatalog.RefreshAsync();
+        }
+        catch (Exception ex)
+        {
+            Debug.LogWarning($"[Zukan] 図鑑を更新できませんでした: {ex.Message}");
+            if (result == null) error = T_SYNC_RETRY;
+        }
+        finally
+        {
+            done = true;
+            if (busy != null) Destroy(busy);
+        }
+        if (this == null) return;
+
+        if (result == null)
+        {
+            _syncing = false;
+            SpaceNotice.Info(T_SYNC_FAILED, null, error);
+            return;
+        }
+        if (result.changed && loaded)
+        {
+            // 新しいゲームの文字をフォントへ登録してから一覧を作り直し、結果を出す（名前は登録済みの文字になる）
+            StartCoroutine(ReloadRoutine(() =>
+            {
+                _syncing = false;
+                ShowSyncResult(result, null);
+            }));
+            return;
+        }
+        _syncing = false;
+        ShowSyncResult(result, result.changed ? T_SYNC_LOCAL_FAILED : null);
+    }
+
+    /// <summary>更新中の表示に経過の秒数を出す（止まっていないと分かるように）</summary>
+    private static async UniTaskVoid TickBusy(TMP_Text label, float start, Func<bool> done)
+    {
+        while (!done() && label != null)
+        {
+            int sec = Mathf.FloorToInt(Time.realtimeSinceStartup - start);
+            label.text = T_SYNC_BUSY + "（" + sec + T_SYNC_SEC + "）";
+            await UniTask.Delay(1000, ignoreTimeScale: true);
+        }
+    }
+
+    /// <summary>
+    /// 新しい一覧で作り直す（管理者が図鑑を更新したあと）。検索・絞り込み・並び順はそのまま。
+    /// 行・人数と時間の読み取り・写真の1枚目は、古い一覧のゲームのものなので捨てる
+    /// </summary>
+    private IEnumerator ReloadRoutine(Action onDone)
+    {
+        _ready = false;
+        foreach (var kv in _active) Recycle(kv.Value);
+        _active.Clear();
+        _items.Clear();
+        _all.Clear();
+        _orderIndex.Clear();
+        _parsed.Clear();
+        _firstPhoto.Clear();
+        var data = BoardGameCatalog.Load();
+        _all.AddRange(data.games ?? Array.Empty<BoardGameEntry>());
+        for (int i = 0; i < _all.Count; i++) _orderIndex[_all[i]] = i;
+        if (_countLabel != null) _countLabel.text = T_LOADING;
+        yield return SpaceTheme.Prewarm(GameText());
+        _ready = true;
+        RebuildList();
+        RefreshSyncStatus();
+        onDone?.Invoke();
+    }
+
+    /// <summary>結果のお知らせ: 件数と、新しく入ったゲーム・なくなったゲームの名前（多いときは「ほか○件」）</summary>
+    private void ShowSyncResult(BoardGameSyncFunction.Result r, string note)
+    {
+        var sub = new StringBuilder();
+        if (r.added.Length > 0) AppendNames(sub, T_SYNC_ADDED, r.added);
+        if (r.removed.Length > 0) AppendNames(sub, T_SYNC_REMOVED, r.removed);
+        if (sub.Length == 0) sub.Append(r.changed ? T_SYNC_MINOR : T_SYNC_SAME_SUB);
+        if (note != null) sub.Append("\n\n").Append(note);
+        SpaceNotice.Info(r.changed ? T_SYNC_DONE : T_SYNC_SAME, r.count + T_COUNT, sub.ToString());
+    }
+
+    private static void AppendNames(StringBuilder sb, string label, string[] names)
+    {
+        if (sb.Length > 0) sb.Append("\n\n");
+        sb.Append(label).Append("（").Append(names.Length).Append(T_COUNT).Append("）\n");
+        int n = Mathf.Min(names.Length, SYNC_LIST_MAX);
+        for (int i = 0; i < n; i++)
+        {
+            if (i > 0) sb.Append("、");
+            sb.Append(names[i]);
+        }
+        if (names.Length > n) sb.Append("、").Append(T_SYNC_MORE_A).Append(names.Length - n).Append(T_COUNT);
     }
 
     // ================================================================

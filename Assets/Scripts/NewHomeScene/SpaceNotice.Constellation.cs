@@ -38,6 +38,11 @@ public static partial class SpaceNotice
         .Append(SpaceNoticeTexts.PokerUnlockedSub).Append(SpaceNoticeTexts.PokerUnlockedTap)
         .Append(SpaceNoticeTexts.BlackUnlockedShop).Append(SpaceNoticeTexts.BlackUnlocked).Append(SpaceNoticeTexts.BlackUnlockedSub)
         .Append(SpaceNoticeTexts.PusherUnlocked).Append(SpaceNoticeTexts.PusherUnlockedSub).Append(SpaceNoticeTexts.PusherUnlockedTap)
+        .Append(SpaceNoticeTexts.SwapUnlocked).Append(SpaceNoticeTexts.SwapUnlockedLater).Append(SpaceNoticeTexts.SwapUnlockedSub)
+        .Append(SpaceNoticeTexts.SwapUnlockedWhere).Append(SpaceNoticeTexts.SwapUnlockedWherePoker)
+        .Append(SpaceNoticeTexts.SwapUnlockedNeedCards)
+        .Append(SpaceNoticeTexts.PuzzleUnlocked).Append(SpaceNoticeTexts.PuzzleUnlockedSub).Append(SpaceNoticeTexts.PuzzleUnlockedWhere)
+        .Append(SpaceNoticeTexts.PuzzleUnlockedNeedShop)
         .Append(IgCurrency.GlyphText)
         .Append("Lv.0123456789/ →（）枚").ToString();
 
@@ -125,9 +130,11 @@ public static partial class SpaceNotice
     // ================================================================
     /// <summary>
     /// 星座の完成・レベルアップの全画面の演出。星が1つずつ灯り、線がつながり、光がはじけて名前が出る。
-    /// 閉じたら（「つづける」・戻るボタン）onClosed
+    /// 閉じたら（「つづける」・戻るボタン）onClosed。
+    /// completed は「完成」の演出にするか（省略すると Lv.1 になったとき。お店から星を何個も灯して、完成していなかった星座が
+    /// 一度に Lv.2 以上になったときも完成として出す＝完成で使えるようになる機能の案内を出す。2026-11-13）
     /// </summary>
-    public static GameObject ConstellationReveal(ConstellationProgress p, Action onClosed)
+    public static GameObject ConstellationReveal(ConstellationProgress p, Action onClosed, bool? completed = null)
     {
         var canvas = SpaceTheme.MainCanvas();
         if (canvas == null)
@@ -141,7 +148,7 @@ public static partial class SpaceNotice
         SpaceTheme.SubCanvas(root.gameObject, true);
         _open.Add(root.gameObject);
         var reveal = root.gameObject.AddComponent<SpaceConstellationReveal>();
-        reveal.Play(p, onClosed);
+        reveal.Play(p, onClosed, completed ?? p.Level == 1);
         return root.gameObject;
     }
 }
@@ -153,10 +160,11 @@ public class SpaceConstellationReveal : MonoBehaviour
     private Action _onClosed;
     private bool _closed;
 
-    public void Play(ConstellationProgress p, Action onClosed)
+    /// <param name="first">完成の演出にする（ふつうは Lv.1 になったとき）。false ならレベルアップの演出</param>
+    public void Play(ConstellationProgress p, Action onClosed, bool first)
     {
         _onClosed = onClosed;
-        StartCoroutine(Run(p));
+        StartCoroutine(Run(p, first));
     }
 
     private void OnDestroy()
@@ -166,10 +174,9 @@ public class SpaceConstellationReveal : MonoBehaviour
         _onClosed?.Invoke();
     }
 
-    private IEnumerator Run(ConstellationProgress p)
+    private IEnumerator Run(ConstellationProgress p, bool first)
     {
         var def = p.Def;
-        bool first = p.Level == 1;
         var rt = (RectTransform)transform;
         var group = gameObject.AddComponent<CanvasGroup>();
 
@@ -327,6 +334,12 @@ public class SpaceConstellationReveal : MonoBehaviour
         if (first && def.Id == CoinPusher.CONSTELLATION) // 積み木座の完成でコインプッシャー（2026-11-12）
             UnlockedLines(safe, textGroup, textY - 250f, "Pusher", IgCurrency.Icon, SpaceNoticeTexts.PusherUnlocked,
                 SpaceNoticeTexts.PusherUnlockedSub, SpaceNoticeTexts.PusherUnlockedTap, SpaceTheme.Hex(0x7FE7FF));
+        if (first && def.Id == CardDeck.DECK) // 山札座の完成で、1日1回「1枚引いて1枚捨てる」（2026-11-13）
+            DeckSwapUnlockedLine(safe, textGroup, textY - 250f);
+        if (first && def.Id == PuzzleStore.CONSTELLATION) // ピース座の完成でピースパズル（2026-11-13）
+            UnlockedLines(safe, textGroup, textY - 250f, "Puzzle", PuzzleArt.Icon(0), SpaceNoticeTexts.PuzzleUnlocked,
+                SpaceNoticeTexts.PuzzleUnlockedSub,
+                IgCurrency.Unlocked ? SpaceNoticeTexts.PuzzleUnlockedWhere : SpaceNoticeTexts.PuzzleUnlockedNeedShop, SpacePuzzle.ACCENT);
         var tg = textGroup.gameObject.AddComponent<CanvasGroup>();
         tg.alpha = 0f;
         yield return SpaceTheme.Tween(0.5f, 0f, k =>
@@ -396,6 +409,20 @@ public class SpaceConstellationReveal : MonoBehaviour
             SpacePoker.PINK);
     }
 
+    /// <summary>
+    /// 山札座が完成したときだけ添える一言（2026-11-13）: 「1日1回、トランプの手札を入れ替えられるようになりました」
+    /// 「山札から1枚引いて、手札から1枚捨てます」「所持品のトランプの欄（とポーカーの画面）から使えます」。
+    /// まだトランプのカードを持てない人（宝石座も切り札座もまだ）には、持つと使えることと、持てるようになる星座を出す
+    /// </summary>
+    private static void DeckSwapUnlockedLine(RectTransform safe, RectTransform textGroup, float cy)
+    {
+        bool cards = CardDeck.Unlocked;
+        string where = CardDeck.PokerUnlocked ? SpaceNoticeTexts.SwapUnlockedWherePoker : SpaceNoticeTexts.SwapUnlockedWhere;
+        UnlockedLines(safe, textGroup, cy, "Swap", CardDeck.DrawIcon,
+            cards ? SpaceNoticeTexts.SwapUnlocked : SpaceNoticeTexts.SwapUnlockedLater, SpaceNoticeTexts.SwapUnlockedSub,
+            cards ? where : SpaceNoticeTexts.SwapUnlockedNeedCards, SpaceDeckSwap.Tint);
+    }
+
     /// <summary>絵と3行の文字（1行目は白、2行目は淡い色、3行目は extraColor）をひとまとまりにして真ん中にそろえる</summary>
     private static void UnlockedLines(RectTransform safe, RectTransform textGroup, float cy, string id, Sprite sprite,
         string mainText, string subText, string extraText, Color extraColor)
@@ -462,6 +489,18 @@ internal static class SpaceNoticeTexts
     public const string PusherUnlocked = "ミニゲーム「コインプッシャー」で遊べるようになりました";
     public const string PusherUnlockedSub = "G を入れて、G・コマ・星のカケラを手前に押し出そう";
     public const string PusherUnlockedTap = "ホームの空の積み木座をタップすると遊べます";
+    /// <summary>山札座が完成したときだけ添える一言（2026-11-13。1日1回「1枚引いて1枚捨てる」）</summary>
+    public const string SwapUnlocked = "1日1回、トランプの手札を入れ替えられるようになりました";
+    public const string SwapUnlockedLater = "トランプのカードを持つと、1日1回手札を入れ替えられます";
+    public const string SwapUnlockedSub = "山札から1枚引いて、手札から1枚捨てます";
+    public const string SwapUnlockedWhere = "所持品のトランプの欄から使えます";
+    public const string SwapUnlockedWherePoker = "所持品のトランプの欄と、ポーカーの画面から使えます";
+    public const string SwapUnlockedNeedCards = "トランプのカードは、宝石座か切り札座を完成させると持てます";
+    /// <summary>ピース座が完成したときだけ添える一言（2026-11-13。ミニゲームのピースパズル）</summary>
+    public const string PuzzleUnlocked = "ミニゲーム「ピースパズル」で遊べるようになりました";
+    public const string PuzzleUnlockedSub = "ボーナスマスのまわり8マスをピースで囲むと、アイテムがもらえます";
+    public const string PuzzleUnlockedWhere = "ホームの空のピース座をタップすると遊べます。ピースは金貨座のショップで買えます";
+    public const string PuzzleUnlockedNeedShop = "ホームの空のピース座をタップすると遊べます。ピースは金貨座が完成するとショップで買えます";
     public const string IgUnlockedSubB = " もらえます。所持金は所持品で見られます";
     public const string IgUnlockedShop = "ホームの空の金貨座をタップすると、ショップが開きます";
 }

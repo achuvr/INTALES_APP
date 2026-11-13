@@ -24,14 +24,17 @@ public static partial class SpaceNotice
     public static string CertifyGlyphText => new StringBuilder()
         .Append(T_CERT_COMPLETE).Append(T_CERT_RELIGHT).Append(T_CERT_LEVEL).Append(T_CERT_NEXT).Append("Lv.").Append(T_CERT_REWARD_CAPTION).Append(T_CERT_REWARD_A).Append(T_CERT_REWARD_B)
         .Append(T_CERT_REWARD_NOTE).Append(T_CERT_CAPTION).Append(T_CERT_TITLE).Append(T_CERT_NONE).Append(T_CERT_STAR).Append(T_CERT_DONE)
-        .Append(T_CERT_SEE).Append("0123456789/ ★").ToString();
+        .Append(T_CERT_SEE).Append("0123456789/ ★").Append(StarGiftQr.GlyphText).ToString();
 
     /// <summary>
     /// 公認のお知らせ。after は公認した後の進み具合（そのゲームが入る星座だけ。最大3つ表示）。
-    /// rewards は星座の完成・レベルアップでもらえたチケット（フィールド名 → 枚数。種類ごとに1つ欄を出す）
+    /// rewards は星座の完成・レベルアップでもらえたチケット（フィールド名 → 枚数。種類ごとに1つ欄を出す）。
+    /// お店から星を灯すQR（StarGiftQr。2026-11-13）でも使う: 見出しを captionText・titleText に替え、
+    /// 灯す前のレベル levelBefore を渡す（一度に何個も灯して、ちょうど6の倍数でなくても「完成しました」と出すため）
     /// </summary>
     public static GameObject GameCertified(string title, List<ConstellationProgress> after,
-        IReadOnlyDictionary<string, int> rewards, bool relight = false, string noneText = null)
+        IReadOnlyDictionary<string, int> rewards, bool relight = false, string noneText = null,
+        string captionText = null, string titleText = null, int levelBefore = -1)
     {
         var accent = after.Count > 0 ? after[0].Def.Color : SpaceTheme.GOLD;
         var card = Overlay("__CertifyModal", out var root, SpaceTheme.A(accent, 0.5f));
@@ -39,11 +42,12 @@ public static partial class SpaceNotice
         SpaceTheme.SubCanvas(root, true); // 星がまたたくので分ける
 
         float y = 48f;
-        var caption = SpaceTheme.Text(card, "Caption", T_CERT_CAPTION, 24, SpaceTheme.A(SpaceTheme.GOLD, 0.9f),
+        var caption = SpaceTheme.Text(card, "Caption", captionText ?? T_CERT_CAPTION, 24, SpaceTheme.A(SpaceTheme.GOLD, 0.9f),
             FontStyles.Bold);
         SpaceTheme.Tracking(caption, 18f);
         Stack(caption.rectTransform, ref y, 36f, 0f);
-        var t = SpaceTheme.Text(card, "Title", relight ? T_CERT_RELIGHT : T_CERT_TITLE, 40, SpaceTheme.TEXT, FontStyles.Bold);
+        var t = SpaceTheme.Text(card, "Title", titleText ?? (relight ? T_CERT_RELIGHT : T_CERT_TITLE), 40, SpaceTheme.TEXT,
+            FontStyles.Bold);
         Stack(t.rectTransform, ref y, 56f, 8f);
         Stack(Divider(card), ref y, 2f, 16f, INNER - 120f);
 
@@ -68,10 +72,13 @@ public static partial class SpaceNotice
                 var p = after[i];
                 var row = SpaceTheme.Rect("Row", card);
                 Stack(row, ref y, 200f, i == 0 ? 24f : 12f);
+                // 今回ちょうど完成・レベルアップしたか（公認は1つずつなので6の倍数になったとき。お店から灯す星は前のレベルと比べる）
+                bool leveled = levelBefore >= 0 ? p.Level > levelBefore : p.JustLeveled;
+                bool completed = levelBefore >= 0 ? levelBefore == 0 && p.Level >= 1 : p.JustLeveled && p.Level == 1;
                 var bg = SpaceTheme.Rect("Bg", row);
                 SpaceTheme.Stretch(bg);
                 SpaceTheme.Glass(bg, 32f, new Color(0.07f, 0.09f, 0.24f, 0.7f),
-                    p.JustLeveled ? SpaceTheme.A(p.Def.Color, 0.8f) : null);
+                    leveled ? SpaceTheme.A(p.Def.Color, 0.8f) : null);
                 var fig = SpaceTheme.Rect("Figure", row, new Vector2(0f, 0.5f), new Vector2(110f, 0f), new Vector2(180f, 180f));
                 SpaceConstellationPage.Figure(fig, p.Def, p.Count, 180f);
                 SpaceTheme.Text(row, "Name", p.Def.Name, 38, SpaceTheme.TEXT, new Vector2(0f, 0.5f), new Vector2(240f, 34f),
@@ -80,8 +87,8 @@ public static partial class SpaceNotice
                 // ／それ以外は次まで「星が灯りました 3 / 6」「★ Lv.1　次のレベルまで 2 / 6」
                 int n = p.Def.Size;
                 string sub = !p.Complete ? $"{T_CERT_STAR}　{p.Partial} / {n}"
-                    : p.JustLeveled && p.Level == 1 ? "★ " + p.Def.Name + T_CERT_DONE
-                    : p.JustLeveled ? $"★ Lv.{p.Level} {T_CERT_LEVEL}"
+                    : completed ? "★ " + p.Def.Name + T_CERT_DONE
+                    : leveled ? $"★ Lv.{p.Level} {T_CERT_LEVEL}"
                     : $"★ Lv.{p.Level}　{T_CERT_NEXT} {p.Partial} / {n}";
                 var s = SpaceTheme.Text(row, "State", sub, 28, p.Complete ? SpaceTheme.GOLD : SpaceTheme.A(p.Def.Color, 0.95f),
                     new Vector2(0f, 0.5f), new Vector2(240f, -28f), new Vector2(510f, 44f), FontStyles.Bold,

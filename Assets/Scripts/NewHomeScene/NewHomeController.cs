@@ -327,7 +327,7 @@ public class NewHomeController : MonoBehaviour
           .Append(T_ORBIT).Append(T_STREAK_UNIT).Append(PlanetPowers.GlyphText).Append(SpaceNotice.JourneyGlyphText)
           .Append(SpaceOrbitPanel.GlyphText).Append(SpaceDiceRoller.GlyphText).Append(DiceChallenge.GlyphText)
           .Append(IgCurrency.GlyphText).Append(SpaceShop.GlyphText).Append(SpaceNotice.CardGlyphText)
-          .Append(SpacePoker.GlyphText).Append(CoinPusher.GlyphText);
+          .Append(SpacePoker.GlyphText).Append(CoinPusher.GlyphText).Append(SpacePuzzle.GlyphText);
         var d = Data;
         if (d != null && !string.IsNullOrEmpty(d.Username)) sb.Append(d.Username);
         return sb.ToString();
@@ -1114,8 +1114,8 @@ public class NewHomeController : MonoBehaviour
     }
 
     /// <summary>
-    /// トランプの手札が8枚のまま（捨てるカードを選ぶ前にアプリを閉じたなど）: 捨てるカードを選ぶ画面をもう一度出す
-    /// （選ぶまで閉じない。2026-11-12）
+    /// トランプの手札が8枚のまま・山札座で引いて捨てる前のまま（捨てるカードを選ぶ前にアプリを閉じたなど）:
+    /// 捨てるカードを選ぶ画面をもう一度出す（選ぶまで閉じない。2026-11-12。山札座は 2026-11-13）
     /// </summary>
     private void CheckCardDiscard()
     {
@@ -1290,7 +1290,8 @@ public class NewHomeController : MonoBehaviour
                               || _starter != null || _world != null || _zukan != null
                               || _prices != null || _orbitPanel != null || _accountMenu.IsOpen
                               || SpaceConstellationPage.Instance != null || SpaceDiceRoller.Instance != null
-                              || SpaceShop.Instance != null || SpacePoker.Instance != null || CoinPusher.Active;
+                              || SpaceShop.Instance != null || SpacePoker.Instance != null || CoinPusher.Active
+                              || SpacePuzzle.Instance != null;
 
     /// <summary>公転の画面（ユーザーカードの公転・来店回数・入店状況を押す）</summary>
     private void OpenOrbit()
@@ -2008,7 +2009,7 @@ public class NewHomeController : MonoBehaviour
             _planetView.Animate = !qrOpen && _news == null && _zukan == null && _prices == null
                                   && SpaceConstellationPage.Instance == null && SpaceDiceRoller.Instance == null
                                   && SpaceShop.Instance == null && SpacePoker.Instance == null && !CoinPusher.Active
-                                  && (_picker == null || _landing);
+                                  && SpacePuzzle.Instance == null && (_picker == null || _landing);
 
         // 惑星を解放したお知らせで「この惑星にする」が押されたら、中央の惑星を入れ替える
         // （選ぶ画面からの決定は OnPlanetChosen が先に _planet を変えるので、ここでは何もしない）
@@ -2039,6 +2040,11 @@ public class NewHomeController : MonoBehaviour
             else if (CoinPusherController.Instance != null) CoinPusherController.Instance.HandleBack(); // コインプッシャー（全画面）
             else if (SpaceConstellationPage.Instance != null) SpaceConstellationPage.Instance.HandleBack();
             else if (SpaceDiceRoller.Instance != null) SpaceDiceRoller.Instance.HandleBack();
+            // ピースパズルとショップは互いの上に開ける（パズルの「ショップでピースを買う」・ピースを買ったお知らせの「パズルを開く」）
+            // ので、手前にあるほうから閉じる
+            else if (SpacePuzzle.Instance != null && (SpaceShop.Instance == null
+                     || SpacePuzzle.Instance.transform.GetSiblingIndex() > SpaceShop.Instance.transform.GetSiblingIndex()))
+                SpacePuzzle.Instance.HandleBack();
             else if (SpaceShop.Instance != null) SpaceShop.Instance.HandleBack();
             else if (SpacePoker.Instance != null) SpacePoker.Instance.HandleBack();
             else if (_zukan != null) _zukan.HandleBack();

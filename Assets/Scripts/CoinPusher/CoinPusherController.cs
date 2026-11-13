@@ -12,9 +12,10 @@ using UnityEngine.UI;
 /// コインプッシャーの画面（2026-11-12）。CoinPusher シーンのルート（CoinPusherRoot）に付いていて、
 /// SceneLoader.MergeScene("CoinPusher") でホームに加算マージされて動き出す（CoinPusher.Open）。
 /// ホームの Canvas の上に全画面で、台の映像（CoinPusherWorld の RenderTexture）と操作の帯を出す:
-///  ・上: 題・閉じる・所持金・今回の獲得（G・赤／青／黄／黒コマ・星のカケラ・惑星回復薬）
+///  ・上: 題・閉じる・所持金・今回の獲得（G・赤／青／黄／黒コマ・星のカケラ・惑星回復薬。ピース座が完成している人はピースも）
 ///  ・下:「コインを入れる」（1回 1G。長押しで続けて入れる。狙っている所に落ちる）。
 ///    プッシャーの上をタップすると、そこへ落とす（なぞると狙いだけ動く。プッシャーより手前を押したら、前のふちの少し奥へ）
+/// 月が変わったら台をはじめの並びに戻す（開いたとき。開いたままなら、その場で。2026-11-13）。管理者には閉じるの左に「リセット」。
 /// 閉じるときは、台の並びを保存 → 送っていない増減を送る → 星のカケラが5個以上なら流れ星 → ホームに戻って結果をひとこと。
 /// Android の戻るは NewHomeController が Instance.HandleBack を呼ぶ。
 /// </summary>
@@ -28,11 +29,15 @@ public class CoinPusherController : MonoBehaviour
     private const float FLUSH_INTERVAL = 6f;     // サーバーに増減を送る間隔
     private const float SAVE_INTERVAL = 2f;      // 台の並びを端末に保存する間隔（変わったとき）
     private const float RESAVE_INTERVAL = 10f;   // 何もしなくても台の並びを保存し直す間隔（プッシャーで動くので）
+    private const float MONTH_CHECK_INTERVAL = 10f; // 開いているあいだに月が変わっていないか調べる間隔（アプリに戻ったときはすぐ）
+    private const float RESET_NOTICE_LIFE = 3f;  // リセットの知らせを出しておく秒数（ボーナスの知らせより長く。文が長いので）
     private const int MAX_POPUPS = 10;
     private const float CHIP = 88f, CHIP_GOLD = 130f; // 上の帯の「今回の獲得」の1つ分の幅（G だけ広い）
+    private const float CHIP_NARROW = 78f;            // ピースも並べて8つにするときの、G 以外の幅（2026-11-13）
 
     private static readonly Color BG = new Color(0.02f, 0.025f, 0.07f, 1f);
     private static readonly Color STAR_COLOR = SpaceTheme.Hex(0xFFD36E);
+    private static readonly Color PLATINUM_COLOR = SpaceTheme.Hex(0xE4ECFF); // プラチナコインの「プラチナ +5G」（青みのある白銀）
 
     /// <summary>上の帯の「今回の獲得」に並べる物（この順に左から）</summary>
     private static readonly PusherItem[] HUD_ITEMS =
@@ -48,9 +53,13 @@ public class CoinPusherController : MonoBehaviour
     private CoinPusherWorld _world;
     private TextMeshProUGUI _wallet;
     private readonly TextMeshProUGUI[] _gotCounts = new TextMeshProUGUI[HUD_ITEMS.Length];
+    private TextMeshProUGUI _pieceCount; // 今回の獲得のピース（全種類の合計。ピース座が完成している人だけ。2026-11-13）
     private bool _built, _closing, _holding, _fieldDirty, _towerPending;
-    private float _nextDrop, _holdNext, _nextFlush, _nextSave, _nextResave, _nextShortToast;
+    private float _nextDrop, _holdNext, _nextFlush, _nextSave, _nextResave, _nextShortToast, _nextMonthCheck;
     private int _sinceBonus, _sinceTower, _popups; // ボーナスまでに入れた枚数・コインタワーまでにゲットした枚数（台と一緒に保存）
+    // 台をはじめの並びに戻すたびに増やす（戻す前に知らせを出して、落とすのを待っていたボーナス・コインタワーを新しい台に持ちこまない）
+    private int _fieldGen;
+    private GameObject _dialog; // 管理者のリセットの確認
     private string _uid;
     private Vector2 _canvasSize;
     // 今回遊んだ分（使った G と獲得した物。上の帯・終わったときの一言・履歴）
@@ -86,6 +95,7 @@ public class CoinPusherController : MonoBehaviour
     private void OnDestroy()
     {
         if (Instance == this) Instance = null;
+        if (_dialog != null) Destroy(_dialog); // 確認を出したまま消えたとき（ホームの画面に残さない）
         if (_built && !_closing) SaveField(); // 閉じるボタンを通らずに消えたとき（シーンの切り替えなど）
         CoinPusher.Persist();
         PlayerPrefs.Save();
@@ -95,7 +105,12 @@ public class CoinPusherController : MonoBehaviour
 
     private void OnApplicationPause(bool paused)
     {
-        if (!paused || !_built || _closing) return;
+        if (!_built || _closing) return;
+        if (!paused)
+        {
+            _nextMonthCheck = 0f; // アプリに戻ったら、すぐに月が変わっていないか調べる（次の Update で）
+            return;
+        }
         SaveField();
         CoinPusher.FlushAsync().Forget();
     }
@@ -112,11 +127,15 @@ public class CoinPusherController : MonoBehaviour
         _world = CoinPusherWorld.Create(rtW, rtH);
         _world.Won += OnWon;
         _world.Lost += OnLost;
-        if (!_world.Load(PlayerPrefs.GetString(CoinPusher.FieldKey(_uid), ""), out _sinceBonus, out _sinceTower))
+        // 保存した台の続きから。月が変わっていたら（expired）、はじめの並びにしてすぐ保存し、組み立てのあとで知らせる
+        string month = CoinPusher.MonthKey;
+        if (!_world.Load(PlayerPrefs.GetString(CoinPusher.FieldKey(_uid), ""), month, out _sinceBonus, out _sinceTower,
+                out bool expired))
         {
-            _world.FillInitial();
+            _world.FillInitial(month);
             _sinceBonus = 0;
             _sinceTower = 0;
+            if (expired) SaveField();
         }
 
         _ui = SpaceTheme.Rect("__CoinPusher", _canvas.transform);
@@ -153,8 +172,11 @@ public class CoinPusherController : MonoBehaviour
         _built = true;
         _nextFlush = Time.unscaledTime + FLUSH_INTERVAL;
         _nextResave = Time.unscaledTime + RESAVE_INTERVAL;
+        _nextMonthCheck = Time.unscaledTime + MONTH_CHECK_INTERVAL;
         RefreshHud();
         StartCoroutine(SpaceTheme.Tween(0.3f, 0f, k => { if (_group != null) _group.alpha = k; }));
+        if (expired)
+            ShowBanner(CoinPusher.T_MONTHLY, CoinPusher.T_MONTHLY_SUB, SpaceTheme.CYAN, life: RESET_NOTICE_LIFE);
         MaybeTower(); // 前に開いていたとき、タワーが出る前に閉じていたら
     }
 
@@ -206,7 +228,22 @@ public class CoinPusherController : MonoBehaviour
         SpaceTheme.Bar(close, Vector2.zero, 44f, 6f, -45f, SpaceTheme.TEXT);
         SpaceTheme.Clickable(close.gameObject, face, HandleBack);
 
+        // 管理者だけ: 閉じるの左に「リセット」（2026-11-13 ユーザー指定。確認してから、自分の台をはじめの並びに戻す。
+        // 題と積み木座は左にあり、文字を大きくする設定でもここまでは届かない）
+        if (AdminClaim.IsAdmin)
+        {
+            var reset = SpaceTheme.Rect("Reset", _safe, new Vector2(1f, 1f), new Vector2(-(SIDE + 104f + 20f), -84f),
+                new Vector2(170f, 66f), new Vector2(1f, 0.5f));
+            var resetFace = SpaceTheme.Glass(reset, 33f, new Color(0.07f, 0.09f, 0.24f, 0.85f),
+                SpaceTheme.A(SpaceTheme.DANGER, 0.6f), true);
+            SpaceTheme.Clickable(reset.gameObject, resetFace, ConfirmReset);
+            var resetLabel = SpaceTheme.Text(reset, "Label", CoinPusher.T_RESET, 28, SpaceTheme.DANGER, FontStyles.Bold);
+            SpaceTheme.Stretch(resetLabel.rectTransform);
+        }
+
         // 所持金と今回の獲得の帯
+        // ピース座が完成している人（管理者は初めから）は、今回の獲得のいちばん右にピース（全種類の合計）も並べる（2026-11-13）
+        bool pieces = PuzzleStore.Unlocked;
         float w = Mathf.Min(_canvasSize.x - SIDE * 2f, 1000f);
         var bar = SpaceTheme.Rect("Info", _safe, new Vector2(0.5f, 1f), new Vector2(0f, -238f), new Vector2(w, 116f));
         SpaceTheme.Glass(bar, 40f, new Color(0.05f, 0.07f, 0.19f, 0.78f), SpaceTheme.A(SpaceTheme.GOLD, 0.35f));
@@ -216,9 +253,10 @@ public class CoinPusherController : MonoBehaviour
         coinImg.enabled = IgCurrency.Icon != null;
         SpaceTheme.Text(bar, "WalletLabel", CoinPusher.T_WALLET, 22, SpaceTheme.TEXT_SUB, new Vector2(0f, 0.5f),
             new Vector2(104f, 24f), new Vector2(220f, 30f), FontStyles.Bold, TextAlignmentOptions.Left, new Vector2(0f, 0.5f));
-        // 右の「今回の獲得」が7つに増えたので（2026-11-12 黒コマ・惑星回復薬を追加）、幅を 240→200 にして、大きな額は縮めて収める
+        // 右の「今回の獲得」が7つに増えたので（2026-11-12 黒コマ・惑星回復薬を追加）、幅を 240→200 にして、大きな額は縮めて収める。
+        // ピースも並べて8つのときは 180（2026-11-13）
         _wallet = SpaceTheme.Text(bar, "Wallet", "", 46, SpaceTheme.GOLD, new Vector2(0f, 0.5f), new Vector2(104f, -16f),
-            new Vector2(200f, 56f), FontStyles.Bold, TextAlignmentOptions.Left, new Vector2(0f, 0.5f));
+            new Vector2(pieces ? 180f : 200f, 56f), FontStyles.Bold, TextAlignmentOptions.Left, new Vector2(0f, 0.5f));
         _wallet.enableAutoSizing = true;
         _wallet.fontSizeMin = 28f;
         _wallet.fontSizeMax = 46f;
@@ -229,27 +267,40 @@ public class CoinPusherController : MonoBehaviour
         // コマ・星のカケラ・惑星回復薬は2けたまでの幅（2026-11-12 ユーザー指定「100G 以上で右の赤コマのアイコンと数字が被る」。
         // それまでは全部同じ幅で、数の枠が狭く、3けたの G がとなりの赤コマのアイコンに重なっていた）。
         // 130 ＋ 88 × 6 ＋ 右の余白 24 で、帯（幅 1000）の右から 682 まで。左の所持金（右はし 304）とは重ならない。
-        // 決めた枠より長くなったら、数の文字を縮めて枠に収める（となりに重ねない）
+        // 決めた枠より長くなったら、数の文字を縮めて枠に収める（となりに重ねない）。
+        // ピースも並べて8つのときは（2026-11-13）、G 以外の幅を CHIP_NARROW（78）にして 130 ＋ 78 × 7 ＋ 24 ＝ 700
+        // （帯の左から 300 まで）。所持金の枠も 180（右はし 284）にして重ならないようにした
+        float chipW = pieces ? CHIP_NARROW : CHIP;
         float right = -24f;
+        if (pieces)
+        {
+            _pieceCount = GotChip(bar, "GotPieces", right, chipW, PuzzleArt.Icon(0)); // 絵はショップのランダムと同じ（色の違う4マス）
+            right -= chipW;
+        }
         for (int i = HUD_ITEMS.Length - 1; i >= 0; i--)
         {
-            float cw = HUD_ITEMS[i] == PusherItem.Coin ? CHIP_GOLD : CHIP;
-            var chip = SpaceTheme.Rect("Got" + i, bar, new Vector2(1f, 0.5f), new Vector2(right, -18f), new Vector2(cw - 4f, 52f),
-                new Vector2(1f, 0.5f));
-            var icon = SpaceTheme.Rect("Icon", chip, new Vector2(0f, 0.5f), new Vector2(21f, 0f), new Vector2(42f, 42f));
-            var sprite = IconOf(HUD_ITEMS[i]);
-            var img = SpaceTheme.Img(icon, sprite, Color.white);
-            img.preserveAspect = true;
-            img.enabled = sprite != null;
-            var count = SpaceTheme.Text(chip, "Count", "0", 32, SpaceTheme.TEXT, new Vector2(0f, 0.5f), new Vector2(46f, 0f),
-                new Vector2(cw - 50f, 44f), FontStyles.Bold, TextAlignmentOptions.Left, new Vector2(0f, 0.5f));
-            count.textWrappingMode = TextWrappingModes.NoWrap; // 折り返さずに、枠の幅に合わせて縮める
-            count.enableAutoSizing = true;
-            count.fontSizeMin = 18f;
-            count.fontSizeMax = 32f;
-            _gotCounts[i] = count;
+            float cw = HUD_ITEMS[i] == PusherItem.Coin ? CHIP_GOLD : chipW;
+            _gotCounts[i] = GotChip(bar, "Got" + i, right, cw, IconOf(HUD_ITEMS[i]));
             right -= cw;
         }
+    }
+
+    /// <summary>上の帯の「今回の獲得」の1つ分（右はしの位置 right・幅 cw・絵 sprite）を作って、数の文字を返す</summary>
+    private static TextMeshProUGUI GotChip(RectTransform bar, string name, float right, float cw, Sprite sprite)
+    {
+        var chip = SpaceTheme.Rect(name, bar, new Vector2(1f, 0.5f), new Vector2(right, -18f), new Vector2(cw - 4f, 52f),
+            new Vector2(1f, 0.5f));
+        var icon = SpaceTheme.Rect("Icon", chip, new Vector2(0f, 0.5f), new Vector2(21f, 0f), new Vector2(42f, 42f));
+        var img = SpaceTheme.Img(icon, sprite, Color.white);
+        img.preserveAspect = true;
+        img.enabled = sprite != null;
+        var count = SpaceTheme.Text(chip, "Count", "0", 32, SpaceTheme.TEXT, new Vector2(0f, 0.5f), new Vector2(46f, 0f),
+            new Vector2(cw - 50f, 44f), FontStyles.Bold, TextAlignmentOptions.Left, new Vector2(0f, 0.5f));
+        count.textWrappingMode = TextWrappingModes.NoWrap; // 折り返さずに、枠の幅に合わせて縮める
+        count.enableAutoSizing = true;
+        count.fontSizeMin = 18f;
+        count.fontSizeMax = 32f;
+        return count;
     }
 
     private void BuildBottom()
@@ -312,6 +363,11 @@ public class CoinPusherController : MonoBehaviour
             _nextSave = now + SAVE_INTERVAL;
             SaveField();
         }
+        if (now >= _nextMonthCheck)
+        {
+            _nextMonthCheck = now + MONTH_CHECK_INTERVAL;
+            if (_world != null && CoinPusher.Expired(_world.Month, CoinPusher.MonthKey)) ResetField(true);
+        }
     }
 
     /// <summary>台の並びと、送っていない増減を端末に保存する</summary>
@@ -322,6 +378,41 @@ public class CoinPusherController : MonoBehaviour
         CoinPusher.Persist();
         PlayerPrefs.Save();
         _fieldDirty = false;
+    }
+
+    // ================================================================
+    // リセット（月に1回・管理者。2026-11-13）
+    // ================================================================
+    /// <summary>
+    /// 台をはじめの並びに戻す（月が変わったとき monthly・管理者のリセット）。ボーナスとコインタワーまでの数も 0 から。
+    /// 今回の獲得の表示と、送っていない増減（獲得した物）はそのまま。戻したらすぐ保存する
+    /// </summary>
+    private void ResetField(bool monthly)
+    {
+        if (!_built || _closing || _world == null) return;
+        _fieldGen++;
+        _towerPending = false;
+        _world.Clear();
+        _world.FillInitial(CoinPusher.MonthKey);
+        _sinceBonus = 0;
+        _sinceTower = 0;
+        SaveField();
+        if (monthly) ShowBanner(CoinPusher.T_MONTHLY, CoinPusher.T_MONTHLY_SUB, SpaceTheme.CYAN, life: RESET_NOTICE_LIFE);
+        else ShowBanner(CoinPusher.T_RESET, CoinPusher.T_RESET_DONE, SpaceTheme.CYAN, life: RESET_NOTICE_LIFE);
+    }
+
+    /// <summary>管理者の「リセット」: 確認してから台をはじめの並びに戻す</summary>
+    private void ConfirmReset()
+    {
+        if (!_built || _closing || _dialog != null) return;
+        _holding = false;
+        _dialog = SpaceDialog.Confirm(_canvas, CoinPusher.T_RESET_CONFIRM, CoinPusher.T_RESET_CONFIRM_BODY, CoinPusher.T_RESET, true,
+            () =>
+            {
+                _dialog = null;
+                if (this != null) ResetField(false);
+            },
+            () => _dialog = null);
     }
 
     private void RefreshHud()
@@ -335,6 +426,12 @@ public class CoinPusherController : MonoBehaviour
             int got = _session.Count(HUD_ITEMS[i]);
             _gotCounts[i].text = got.ToString(CultureInfo.InvariantCulture);
             _gotCounts[i].color = got > 0 ? SpaceTheme.GOLD : SpaceTheme.TEXT_MUTED;
+        }
+        if (_pieceCount != null)
+        {
+            int got = _session.PieceTotal;
+            _pieceCount.text = got.ToString(CultureInfo.InvariantCulture);
+            _pieceCount.color = got > 0 ? SpaceTheme.GOLD : SpaceTheme.TEXT_MUTED;
         }
         if (_dropGroup != null) _dropGroup.alpha = balance >= CoinPusher.COST ? 1f : 0.5f;
     }
@@ -399,14 +496,19 @@ public class CoinPusherController : MonoBehaviour
         }
     }
 
-    /// <summary>ボーナス: 星のカケラ・コマ（色はおまかせ）・惑星回復薬のどれかを、プッシャーの上のどこかへ1つ落とす</summary>
+    /// <summary>
+    /// ボーナス: 星のカケラ・コマ（色はおまかせ）・惑星回復薬のどれかを、プッシャーの上のどこかへ1つ落とす。
+    /// ピース座が完成している人（管理者は初めから）は、ピースパズルのピース（レアのU字も）のこともある
+    /// （2026-11-13 ユーザー指定。割合は CoinPusher.BONUS_PIECE・種類は CoinPusher.RollPieceType）
+    /// </summary>
     private IEnumerator DropBonus()
     {
-        var kind = CoinPusher.RollBonus(UnityEngine.Random.value);
+        int gen = _fieldGen;
+        var kind = CoinPusher.RollBonus(UnityEngine.Random.value, PuzzleStore.Unlocked, UnityEngine.Random.value);
         ShowBanner(CoinPusher.T_BONUS, NameOf(kind) + CoinPusher.T_BONUS_FALL_B, ColorOf(kind));
         CoinPusherSounds.Bonus();
         yield return new WaitForSecondsRealtime(0.6f);
-        if (_world == null || _closing) yield break;
+        if (_world == null || _closing || gen != _fieldGen) yield break; // 待っているあいだに台をリセットした
         _world.DropBonus(kind);
         _fieldDirty = true;
     }
@@ -420,11 +522,15 @@ public class CoinPusherController : MonoBehaviour
         _session.Add(kind);
         _fieldDirty = true;
         RefreshHud();
+        bool platinum = kind == PusherItem.PlatinumCoin; // プラチナコイン（2026-11-13。5G）
         if (kind == PusherItem.Coin) CoinPusherSounds.Win();
+        else if (platinum) CoinPusherSounds.Platinum();
         else CoinPusherSounds.Prize();
-        string text = kind == PusherItem.Coin ? "+1" + IgCurrency.UNIT : NameOf(kind) + " +1";
+        string text = kind == PusherItem.Coin ? "+1" + IgCurrency.UNIT
+            : platinum ? CoinPusher.T_PLATINUM + " +" + CoinPusher.PLATINUM_VALUE + IgCurrency.UNIT
+            : NameOf(kind) + " +1";
         ShowPopup(text, ColorOf(kind), IconOf(kind), _world != null ? _world.WorldToViewport(world) : new Vector2(0.5f, 0.2f));
-        if (kind == PusherItem.Coin)
+        if (CoinPusherWorld.IsCoin(kind)) // プラチナコインも1枚と数える
         {
             _sinceTower++;
             MaybeTower();
@@ -446,11 +552,13 @@ public class CoinPusherController : MonoBehaviour
     /// </summary>
     private IEnumerator TowerBonus()
     {
+        int gen = _fieldGen;
         var meeple = CoinPusher.RollTowerMeeple(UnityEngine.Random.value);
         ShowBanner(CoinPusher.T_TOWER, CoinPusher.T_TOWER_SUB_A + CoinPusher.TOWER_EVERY + CoinPusher.T_TOWER_SUB_B, SpaceTheme.GOLD,
             NameOf(meeple) + CoinPusher.T_TOWER_ALSO_B, ColorOf(meeple));
         CoinPusherSounds.Bonus();
         yield return new WaitForSecondsRealtime(0.35f);
+        if (gen != _fieldGen) yield break; // 待っているあいだに台をリセットした（数は 0 に戻してあるので、減らさない）
         if (_world == null || _closing)
         {
             _towerPending = false;
@@ -467,7 +575,8 @@ public class CoinPusherController : MonoBehaviour
 
     /// <summary>
     /// 横から落ちた（没収）。コマ・星のカケラ・惑星回復薬など G 以外のときは、残念な音を鳴らす
-    /// （2026-11-12 ユーザー指定「ミープルなどの G 以外のものが落ちてしまったときは、残念感のある音を」）
+    /// （2026-11-12 ユーザー指定「ミープルなどの G 以外のものが落ちてしまったときは、残念感のある音を」）。
+    /// プラチナコイン（5G）も惜しいので、残念な音を鳴らす（2026-11-13。ふつうの G のコインだけ鳴らさない）
     /// </summary>
     private void OnLost(PusherItem kind)
     {
@@ -483,6 +592,8 @@ public class CoinPusherController : MonoBehaviour
         PusherItem.MeepleBlack => SpaceMeeples.Black.Name,
         PusherItem.StarFragment => SpaceWorld.STAR_FRAGMENT_NAME,
         PusherItem.PlanetPotion => SpacePlanetPotion.NAME,
+        PusherItem.PlatinumCoin => CoinPusher.T_PLATINUM_NAME,
+        _ when CoinPusherWorld.IsPiece(kind) => PuzzleStore.PieceLabel(CoinPusherWorld.PieceType(kind)), // 「ピース（L字）」
         _ => IgCurrency.UNIT,
     };
 
@@ -494,6 +605,8 @@ public class CoinPusherController : MonoBehaviour
         PusherItem.MeepleBlack => SpaceMeeples.Black.Tint,
         PusherItem.StarFragment => STAR_COLOR,
         PusherItem.PlanetPotion => SpacePlanetPotion.TINT,
+        PusherItem.PlatinumCoin => PLATINUM_COLOR,
+        _ when CoinPusherWorld.IsPiece(kind) => PuzzleArt.ColorOf(CoinPusherWorld.PieceType(kind)), // パズルの画面と同じ色
         _ => SpaceTheme.GOLD,
     };
 
@@ -505,6 +618,8 @@ public class CoinPusherController : MonoBehaviour
         PusherItem.MeepleBlack => SpaceMeeples.Black.Icon,
         PusherItem.StarFragment => SpaceWorld.StarFragmentIcon,
         PusherItem.PlanetPotion => SpacePlanetPotion.Icon,
+        PusherItem.PlatinumCoin => CoinPusher.PlatinumIcon,
+        _ when CoinPusherWorld.IsPiece(kind) => PuzzleArt.Icon(CoinPusherWorld.PieceType(kind)), // ショップ・所持品と同じ絵
         _ => IgCurrency.Icon,
     };
 
@@ -523,6 +638,11 @@ public class CoinPusherController : MonoBehaviour
         img.enabled = icon != null;
         var label = SpaceTheme.Text(rt, "Text", text, 40, color, new Vector2(0f, 0.5f), new Vector2(80f, 0f), new Vector2(340f, 60f),
             FontStyles.Bold, TextAlignmentOptions.Left, new Vector2(0f, 0.5f));
+        // 長い名前（2026-11-13 に足したピースの「ピース（2マス） +1」など）も、折り返さずに枠の幅に合わせて縮める
+        label.textWrappingMode = TextWrappingModes.NoWrap;
+        label.enableAutoSizing = true;
+        label.fontSizeMin = 24f;
+        label.fontSizeMax = 40f;
         var fl = rt.gameObject.AddComponent<CoinPusherFloat>();
         fl.Init(1.15f, 150f, () => _popups--);
         _popups++;
@@ -531,9 +651,9 @@ public class CoinPusherController : MonoBehaviour
     /// <summary>
     /// ボーナスの知らせ。奥の壁のあたり（下から 75%）に出す（ボーナスの景品もコインタワーもプッシャーの上に出るので、
     /// そこを隠さないように。2026-11-12 までは 62% で、プッシャーの上と重なっていた）。
-    /// sub2 があれば3行目に（コインタワーの「黒コマも落ちてくる」。その色 sub2Color で）
+    /// sub2 があれば3行目に（コインタワーの「黒コマも落ちてくる」。その色 sub2Color で）。life は出しておく秒数
     /// </summary>
-    private void ShowBanner(string title, string sub, Color color, string sub2 = null, Color? sub2Color = null)
+    private void ShowBanner(string title, string sub, Color color, string sub2 = null, Color? sub2Color = null, float life = 1.8f)
     {
         if (_popLayer == null) return;
         var rt = SpaceTheme.Rect("Banner", _popLayer, new Vector2(0.5f, 0.75f), Vector2.zero, new Vector2(900f, 160f));
@@ -548,7 +668,7 @@ public class CoinPusherController : MonoBehaviour
         if (sub2 != null)
             SpaceTheme.Text(rt, "Sub2", sub2, 32, sub2Color ?? color, SpaceTheme.CENTER, new Vector2(0f, -82f),
                 new Vector2(900f, 46f), FontStyles.Bold);
-        rt.gameObject.AddComponent<CoinPusherFloat>().Init(1.8f, 40f, null);
+        rt.gameObject.AddComponent<CoinPusherFloat>().Init(life, 40f, null);
     }
 
     // ================================================================
@@ -558,6 +678,12 @@ public class CoinPusherController : MonoBehaviour
     public void HandleBack()
     {
         if (_closing) return;
+        if (_dialog != null) // 管理者のリセットの確認を出しているときは、確認だけ閉じる
+        {
+            Destroy(_dialog);
+            _dialog = null;
+            return;
+        }
         if (!_built)
         {
             Destroy(gameObject);
@@ -749,7 +875,7 @@ public class CoinPusherFloat : MonoBehaviour
 public static class CoinPusherSounds
 {
     private const int RATE = 44100;
-    private static AudioClip _clink, _win, _prize, _bonus, _lost;
+    private static AudioClip _clink, _win, _prize, _bonus, _lost, _platinum;
     private static AudioSource _source;
 
     /// <summary>コインを入れた（チャリン）</summary>
@@ -759,6 +885,13 @@ public static class CoinPusherSounds
     /// <summary>コインを獲得（キラン）</summary>
     public static void Win() => Play(_win != null ? _win : (_win = Bell("pusher_win",
         new[] { (1318.5f, 0f, 0.12f), (1975.5f, 0.07f, 0.3f) }, 0.4f)), 0.7f);
+
+    /// <summary>
+    /// プラチナコインを獲得（2026-11-13）: 高い音がソ・ド・ミ・ソと速く駆け上がり、最後が長く響く「キラリラリーン」
+    /// （コインの「キラン」より明るく、景品の「ピロリン」より高く速い）
+    /// </summary>
+    public static void Platinum() => Play(_platinum != null ? _platinum : (_platinum = Bell("pusher_platinum",
+        new[] { (1568f, 0f, 0.12f), (2093f, 0.055f, 0.12f), (2637f, 0.11f, 0.12f), (3136f, 0.165f, 0.62f) }, 0.34f)), 0.85f);
 
     /// <summary>コマ・星のカケラを獲得（ピロリン）</summary>
     public static void Prize() => Play(_prize != null ? _prize : (_prize = Bell("pusher_prize",

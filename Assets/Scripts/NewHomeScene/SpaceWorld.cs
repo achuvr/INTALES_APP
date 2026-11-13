@@ -52,7 +52,7 @@ public sealed class SpaceWorldArea
 ///  ・ダウンロードしていない人: 所持品のコマの欄を出さない・入店でコマをもらえない・惑星が力を失うこともない
 ///  ・ダウンロードした人: ホームの所持品の下に「INTALES WORLD」のボタン → オリジナルの世界地図（SpaceWorldMap）
 /// 世界地図には置き場が6か所あり、コマを1体置くと、その置き場の効果をもらえる（ワーカープレイスメント）。
-/// 6か所目の黄金の鉱山（3G をもらう）は 2026-11-12 追加。
+/// 6か所目の黄金の鉱山（G をもらう。GOLD_PER_PLACE＝4G。2026-11-13 に 3G から変更）は 2026-11-12 追加。
 ///  ・その日まだ誰も置いていない置き場には、好きな色を置ける。1体でも置かれたら、その日は同じ色しか置けない（マストフォロー）
 ///  ・ただし左下の「星くずの島」だけは、何色でも置ける保険の置き場（2026-11-11 ユーザー指定。星のカケラ5個で流れ星1回）
 ///  ・黒コマ（2026-11-12。切り札座の完成でショップに並ぶ）は何色にでもなるコマで、色が決まった置き場にも置ける。
@@ -129,8 +129,11 @@ public static class SpaceWorld
     /// <summary>置き場の数（置き場の文書の c0..c3・n0..n3・c5・n5 と red4 などの番号）</summary>
     public const int AREA_COUNT = 6;
 
-    /// <summary>黄金の鉱山でもらえる G（2026-11-12 ユーザー指定）</summary>
-    public const int GOLD_PER_PLACE = 3;
+    /// <summary>
+    /// 黄金の鉱山でもらえる G（2026-11-12 ユーザー指定で 3。2026-11-13 ユーザー指定「INTALES WORLD で貰えるコインの量を3から4に」で 4）。
+    /// 置き場の文言・シート・お知らせ・履歴はこの数から作る
+    /// </summary>
+    public const int GOLD_PER_PLACE = 4;
 
     /// <summary>「惑星を3つアクティブにする」で力を戻す数</summary>
     public const int REVIVE_COUNT = 3;
@@ -591,7 +594,7 @@ public static class SpaceWorld
                 break;
             }
             case WorldEffect.Gold:
-                // G を3（2026-11-12）。金貨座が完成していない人も、持っておける（所持品に出る）
+                // G を GOLD_PER_PLACE（4。2026-11-12 は 3）。金貨座が完成していない人も、持っておける（所持品に出る）
                 Add(r.Delta, IgCurrency.FIELD, GOLD_PER_PLACE);
                 r.Gold = GOLD_PER_PLACE;
                 break;

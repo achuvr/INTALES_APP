@@ -27,6 +27,11 @@ jobs:
         run: npm ci
         working-directory: tools/firestore
 
+      # 同期の中身（tools/functions/boardgames.js。アプリからの更新と共通）が cheerio をそちらから読むため（2026-11-13）
+      - name: Install dependencies (functions)
+        run: npm ci
+        working-directory: tools/functions
+
       - name: Write service account key
         run: printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$RUNNER_TEMP/sa.json"
         env:

@@ -8,8 +8,8 @@ using UnityEngine;
 using UnityEngine.UI;
 
 /// <summary>
-/// トランプのお知らせ（2026-11-12）: 引いたカードをめくって見せる（CardDrawn）／手札が8枚になったら捨てるカードを選ぶ
-/// （CardDiscard。選ぶまで閉じない）／ポーカーの結果（PokerResult）。カードの決まりは CardRules、保存は CardDeck
+/// トランプのお知らせ（2026-11-12）: 引いたカードをめくって見せる（CardDrawn）／手札が8枚になったら・山札座で引いたら
+/// 捨てるカードを選ぶ（CardDiscard。選ぶまで閉じない）／ポーカーの結果（PokerResult）。カードの決まりは CardRules、保存は CardDeck
 /// </summary>
 public static partial class SpaceNotice
 {
@@ -21,6 +21,8 @@ public static partial class SpaceNotice
     private const string T_DISCARD_TITLE = "捨てるカードを選んでください";
     private const string T_DISCARD_SUB_A = "手札は7枚までです（いま ";
     private const string T_DISCARD_SUB_B = "枚）。捨てたカードは山札に戻りません";
+    // 山札座で引いたあと（2026-11-13）
+    private const string T_DISCARD_SWAP_SUB = "山札座で1枚引いたので、手札から1枚捨てます。捨てたカードは山札に戻りません";
     private const string T_DISCARD_OK = "このカードを捨てる";
     private const string T_DISCARD_PICK = "カードを1枚選んでください";
     private const string T_DISCARDED = " を捨てました";
@@ -34,7 +36,7 @@ public static partial class SpaceNotice
     /// <summary>このお知らせの定型文（NewHome の起動時にまとめてフォントへ登録する）</summary>
     public static string CardGlyphText => new StringBuilder()
         .Append(T_CARD_CAPTION).Append(T_CARD_TITLE_ONE).Append(T_CARD_TITLE_A).Append(T_CARD_TITLE_B).Append(T_CARD_OVER)
-        .Append(T_DISCARD_TITLE).Append(T_DISCARD_SUB_A).Append(T_DISCARD_SUB_B).Append(T_DISCARD_OK)
+        .Append(T_DISCARD_TITLE).Append(T_DISCARD_SUB_A).Append(T_DISCARD_SUB_B).Append(T_DISCARD_SWAP_SUB).Append(T_DISCARD_OK)
         .Append(T_DISCARD_PICK).Append(T_DISCARDED).Append(T_DISCARD_FAILED).Append(T_DISCARD_MARK).Append(T_NEW)
         .Append(T_POKER_CAPTION).Append(T_POKER_GOT).Append(T_POKER_COUPON_NOTE).Append(T_IG_TOTAL)
         .Append(CardDeck.GlyphText).ToString();
@@ -43,10 +45,11 @@ public static partial class SpaceNotice
     // 引いたカード
     // ================================================================
     /// <summary>
-    /// 山札から引いたカードを、裏から表へめくって見せる（入店・ショップ）。overflow なら「このあと捨てるカードを選ぶ」と添える
+    /// 山札から引いたカードを、裏から表へめくって見せる（入店・ショップ・山札座）。overflow なら「このあと捨てるカードを選ぶ」と添える。
+    /// note を渡すと、その一言を代わりに添える（山札座の「このあと、手札から捨てるカードを1枚選びます」）
     /// </summary>
     public static GameObject CardDrawn(List<int> cards, string captionText = null, bool overflow = false,
-        Color? captionColor = null)
+        Color? captionColor = null, string note = null)
     {
         if (cards == null || cards.Count == 0) return null;
         var card = Overlay("__CardDrawnModal", out var root, SpaceTheme.A(CardDeck.ACCENT, 0.55f));
@@ -95,9 +98,10 @@ public static partial class SpaceNotice
         var summary = SpaceTheme.Text(card, "Summary", CardDeck.Summary(CardDeck.Current), 28, SpaceTheme.TEXT_SUB,
             FontStyles.Bold);
         Stack(summary.rectTransform, ref y, 40f, 6f);
-        if (overflow)
+        if (!string.IsNullOrEmpty(note) || overflow)
         {
-            var over = SpaceTheme.Text(card, "Over", T_CARD_OVER, 28, SpaceTheme.GOLD, FontStyles.Bold);
+            var over = SpaceTheme.Text(card, "Over", string.IsNullOrEmpty(note) ? T_CARD_OVER : note, 28, SpaceTheme.GOLD,
+                FontStyles.Bold);
             Wrap(over);
             Stack(over.rectTransform, ref y, Measure(over, 40f), 14f);
         }
@@ -143,21 +147,23 @@ public static partial class SpaceNotice
     private static GameObject _discard;
 
     /// <summary>
-    /// 手札が8枚以上のとき: 捨てるカードを1枚選ぶ（選ぶまで閉じない）。捨てたあともまだ8枚以上なら、もう一度出す。
+    /// 手札が8枚以上のとき・山札座で引いたあと: 捨てるカードを1枚選ぶ（選ぶまで閉じない）。捨てたあともまだ8枚以上なら、もう一度出す。
     /// すでに出ていればそれを返す
     /// </summary>
     public static GameObject CardDiscard()
     {
         if (_discard != null) return _discard;
         var state = CardDeck.Current;
-        if (!CardRules.Overflow(state)) return null;
+        if (!CardRules.MustDiscard(state)) return null;
+        // 山札座で引いたあと（7枚から引いて8枚になったときも、1枚捨てれば両方済むので山札座の文にする）
+        bool swap = state.SwapPending;
         var card = Overlay("__CardDiscardModal", out var root, SpaceTheme.A(SpaceTheme.GOLD, 0.5f), null, false);
         if (card == null) return null;
         _discard = root;
 
         float y = 48f;
-        var caption = SpaceTheme.Text(card, "Caption", T_CARD_CAPTION, 24, SpaceTheme.A(SpaceTheme.CYAN, 0.9f),
-            FontStyles.Bold);
+        var caption = SpaceTheme.Text(card, "Caption", swap ? SpaceDeckSwap.T_CAPTION : T_CARD_CAPTION, 24,
+            SpaceTheme.A(swap ? SpaceDeckSwap.Tint : SpaceTheme.CYAN, 0.9f), FontStyles.Bold);
         SpaceTheme.Tracking(caption, 18f);
         Stack(caption.rectTransform, ref y, 36f, 0f);
         var title = SpaceTheme.Text(card, "Title", T_DISCARD_TITLE, 40, SpaceTheme.TEXT, FontStyles.Bold);
@@ -165,8 +171,8 @@ public static partial class SpaceNotice
         title.fontSizeMin = 28f;
         title.fontSizeMax = 40f;
         Stack(title.rectTransform, ref y, 56f, 8f);
-        var sub = SpaceTheme.Text(card, "Sub", T_DISCARD_SUB_A + state.Hand.Count + T_DISCARD_SUB_B, 26,
-            SpaceTheme.TEXT_SUB, FontStyles.Bold);
+        string subText = swap ? T_DISCARD_SWAP_SUB : T_DISCARD_SUB_A + state.Hand.Count + T_DISCARD_SUB_B;
+        var sub = SpaceTheme.Text(card, "Sub", subText, 26, SpaceTheme.TEXT_SUB, FontStyles.Bold);
         Wrap(sub);
         Stack(sub.rectTransform, ref y, Measure(sub, 40f), 6f);
 

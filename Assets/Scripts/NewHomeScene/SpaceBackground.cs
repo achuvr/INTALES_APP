@@ -15,7 +15,7 @@ using UnityEngine.UI;
 /// お知らせが閉じてからその場所に光ってふくらんで現れる。
 /// 空の星座をタップするとその星座の詳細が開く。さいころ座は、いろいろなダイスを振れる画面（SpaceDiceRoller）、
 /// 金貨座は、アプリ内の通貨（G）で買い物をするショップ（SpaceShop。2026-11-12）、宝石座はポーカー（SpacePoker。同日）、
-/// 積み木座はコインプッシャー（CoinPusher。同日。別シーン）が開く
+/// 積み木座はコインプッシャー（CoinPusher。同日。別シーン）、ピース座はピースパズル（SpacePuzzle。2026-11-13）が開く
 /// （押せるものだと分かるよう後ろの光が明滅し、ホームの部品に隠れない場所に置いている。管理者には初めから出ている）。
 /// </summary>
 public class SpaceBackground : MonoBehaviour
@@ -76,11 +76,14 @@ public class SpaceBackground : MonoBehaviour
     private readonly Dictionary<string, RectTransform> _skyFigures = new Dictionary<string, RectTransform>();
 
     /// <summary>
-    /// 押すと画面が開く星座（さいころ座＝ダイス、金貨座＝ショップ、宝石座＝ポーカー、積み木座＝コインプッシャー）。
-    /// 完成するまで出ない・管理者には初めから出ている
+    /// 押すと画面が開く星座（さいころ座＝ダイス、金貨座＝ショップ、宝石座＝ポーカー、積み木座＝コインプッシャー、
+    /// ピース座＝ピースパズル）。完成するまで出ない・管理者には初めから出ている
     /// </summary>
     private static readonly string[] TAPPABLE =
-        { SpaceDiceRoller.CONSTELLATION, IgCurrency.CONSTELLATION, SpacePoker.CONSTELLATION, CoinPusher.CONSTELLATION };
+    {
+        SpaceDiceRoller.CONSTELLATION, IgCurrency.CONSTELLATION, SpacePoker.CONSTELLATION, CoinPusher.CONSTELLATION,
+        PuzzleStore.CONSTELLATION,
+    };
 
     /// <summary>
     /// 押せる星座を置ける高さ（キャンバスの下端からの距離。NewHomeController が SetTapBand で渡す）。
@@ -88,11 +91,26 @@ public class SpaceBackground : MonoBehaviour
     /// その高さは端末の縦横比や INTALES WORLD のボタンのあり・なしで変わり、決まった割合では3つを置き切れないので、
     /// 押せる星座だけは計算で置く（2026-11-12 宝石座を足したとき）: 左の列の上に金貨座・下に宝石座、
     /// 右の列の上にさいころ座・下に積み木座（同日、コインプッシャーを足したとき。それまでさいころ座は右の列のまん中）。
-    /// どの端末でもこの高さは 380（星座2つ分）以上ある
+    /// どの端末でもこの高さは 380（星座2つ分）以上ある。
+    /// ピース座が空に出ている人（2026-11-13 ユーザー指定「宇宙に浮かんでいるピース座をタップしたらパズルゲームが出てくるように」）は、
+    /// 右の列を3つにする（上からさいころ座・ピース座・積み木座）。3つが高さに収まらない端末では、押せる星座を全部同じ割合で
+    /// 小さくする（TapScale。押せる範囲どうしが重ならないように）
     /// </summary>
     private float _tapLo = -1f, _tapHi = -1f;
     private const float TAP_LEFT_X = 0.12f, TAP_RIGHT_X = 0.885f; // 左右の列（キャンバスの幅に対する割合）
     private const float TAP_SPREAD = 125f; // 左の列の2つの星座の、まん中からのずれの上限
+    private const float TAP_SPREAD3 = 220f; // 右の列に3つ並べるときの、星座どうしの間（中心の距離）の上限
+    /// <summary>ピース座が空に出ている（右の列が3つ）</summary>
+    private bool _pieceInSky;
+    /// <summary>出てくる演出の途中の星座（大きさは演出が決める）</summary>
+    private readonly HashSet<RectTransform> _arriving = new HashSet<RectTransform>();
+
+    /// <summary>
+    /// 押せる星座の大きさの倍率（右の列が3つで、置き場の高さに収まらないときだけ 1 より小さい。
+    /// 星座は少し傾けて置くので、高さの 1/3 より少し小さくして、となりの星座との間を空ける）
+    /// </summary>
+    private float TapScale =>
+        _pieceInSky && _tapHi > _tapLo ? Mathf.Min(1f, (_tapHi - _tapLo) / 3f * 0.95f / SKY_FIG) : 1f;
 
     /// <summary>押せる星座の後ろの光（押せるものだと分かるよう、ゆっくり明滅させる）</summary>
     private class TapGlow
@@ -364,6 +382,11 @@ public class SpaceBackground : MonoBehaviour
 
         var all = Constellations.All;
         var progress = Constellations.Progress();
+        // ピース座が空に出るか（完成・管理者）。変わったら右の列を2つ⇔3つに並べ直す（下の LayoutTappable）
+        var pieceProgress = progress.Find(x => x.Def.Id == PuzzleStore.CONSTELLATION);
+        bool pieceInSky = pieceProgress != null && (pieceProgress.Level > 0 || AdminClaim.IsAdmin);
+        bool relayout = pieceInSky != _pieceInSky;
+        _pieceInSky = pieceInSky;
         for (int i = 0; i < progress.Count && i < SKY_SLOTS.Length; i++)
         {
             var p = progress[i];
@@ -390,8 +413,8 @@ public class SpaceBackground : MonoBehaviour
             if (slot < 0 || slot >= SKY_SLOTS.Length) continue;
             var pos = SkyPos(p.Def.Id, slot);
             var fig = SpaceTheme.Rect("Sky_" + p.Def.Id, _skyLayer, Vector2.zero, pos, new Vector2(SKY_FIG, SKY_FIG));
-            // 星座ごとに少しだけ傾ける（並べたときに単調にならないように）
-            fig.localEulerAngles = new Vector3(0f, 0f, ((slot * 37) % 30) - 15f);
+            // 星座ごとに少しだけ傾ける（並べたときに単調にならないように。右の列が3つのときは傾きを小さく＝TiltOf）
+            fig.localEulerAngles = new Vector3(0f, 0f, TiltOf(p.Def.Id, slot));
             SpaceConstellationPage.Figure(fig, p.Def, adminShow ? p.Def.Size : p.Count - p.Partial, SKY_FIG); // いまのレベルの姿
             var group = fig.gameObject.AddComponent<CanvasGroup>();
             group.alpha = SKY_ALPHA;
@@ -401,8 +424,12 @@ public class SpaceBackground : MonoBehaviour
             string id = p.Def.Id;
             if (tappable)
             {
+                // 右の列が3つのときは小さめ（TapScale）。星座の絵は同じ大きさで描いて、まるごと縮める
+                float scale = TapScale;
+                fig.localScale = new Vector3(scale, scale, 1f);
                 var glowRt = SpaceTheme.Rect("Sky_" + id + "_glow", _skyLayer, Vector2.zero, pos,
                     new Vector2(SKY_FIG * 1.5f, SKY_FIG * 1.5f));
+                glowRt.localScale = new Vector3(scale, scale, 1f);
                 glowRt.SetSiblingIndex(fig.GetSiblingIndex()); // 星座の後ろ
                 _tapGlows[id] = new TapGlow
                 {
@@ -410,13 +437,16 @@ public class SpaceBackground : MonoBehaviour
                     Color = p.Def.Color,
                     // 同時に明滅しないよう、星座ごとにずらす
                     Phase = dice ? 0f : id == IgCurrency.CONSTELLATION ? Mathf.PI
-                        : id == SpacePoker.CONSTELLATION ? Mathf.PI * 0.5f : Mathf.PI * 1.5f,
+                        : id == SpacePoker.CONSTELLATION ? Mathf.PI * 0.5f
+                        : id == PuzzleStore.CONSTELLATION ? Mathf.PI * 0.75f : Mathf.PI * 1.5f,
                 };
                 if (dice) SpaceTheme.Clickable(fig.gameObject, SpaceTheme.HitArea(fig), () => SpaceDiceRoller.Open());
                 else if (id == IgCurrency.CONSTELLATION)
                     SpaceTheme.Clickable(fig.gameObject, SpaceTheme.HitArea(fig), () => SpaceShop.Open());
                 else if (id == CoinPusher.CONSTELLATION)
                     SpaceTheme.Clickable(fig.gameObject, SpaceTheme.HitArea(fig), CoinPusher.Open);
+                else if (id == PuzzleStore.CONSTELLATION) // ピースパズル（2026-11-13）
+                    SpaceTheme.Clickable(fig.gameObject, SpaceTheme.HitArea(fig), () => SpacePuzzle.Open());
                 else SpaceTheme.Clickable(fig.gameObject, SpaceTheme.HitArea(fig), () => SpacePoker.Open());
             }
             else
@@ -429,8 +459,10 @@ public class SpaceBackground : MonoBehaviour
                 // 管理者の判定が届いてから出るので、ぱっと出さずに静かに浮かび上がらせる
                 if (!_skyFirst) StartCoroutine(SpaceTheme.Tween(0.6f, 0f, k => { if (group != null) group.alpha = SKY_ALPHA * k; }));
             }
-            else if (!_skyFirst) StartCoroutine(SkyArrive(fig, group, p.Def.Color));
+            else if (!_skyFirst) StartCoroutine(SkyArrive(fig, group, p.Def.Color, tappable));
         }
+        // ピース座が出た・消えた: さいころ座・積み木座の位置と、押せる星座の大きさを合わせる
+        if (relayout) LayoutTappable();
         // 押せる星座は隣の星座と枠が少し重なることがあるので、いつもいちばん手前にして押しやすくする
         foreach (var tapId in TAPPABLE)
         {
@@ -449,13 +481,59 @@ public class SpaceBackground : MonoBehaviour
     {
         if (_tapHi > _tapLo && Array.IndexOf(TAPPABLE, id) >= 0)
         {
+            float band = _tapHi - _tapLo;
             float mid = (_tapLo + _tapHi) * 0.5f;
-            float d = Mathf.Min((_tapHi - _tapLo) * 0.25f, TAP_SPREAD);
+            float d = Mathf.Min(band * 0.25f, TAP_SPREAD);
+            bool right = id == SpaceDiceRoller.CONSTELLATION || id == CoinPusher.CONSTELLATION || id == PuzzleStore.CONSTELLATION;
+            if (right && _pieceInSky)
+            {
+                // 右の列に3つ（上からさいころ座・ピース座・積み木座。2026-11-13）。間は星座1つ分以上・TAP_SPREAD3 まで
+                float fig = SKY_FIG * TapScale;
+                float gap = Mathf.Min(TAP_SPREAD3, (band - fig) * 0.5f);
+                float y = id == SpaceDiceRoller.CONSTELLATION ? mid + gap : id == CoinPusher.CONSTELLATION ? mid - gap : mid;
+                return new Vector2(TAP_RIGHT_X * _size.x, y);
+            }
             if (id == SpaceDiceRoller.CONSTELLATION) return new Vector2(TAP_RIGHT_X * _size.x, mid + d);
             if (id == CoinPusher.CONSTELLATION) return new Vector2(TAP_RIGHT_X * _size.x, mid - d);
+            if (id == PuzzleStore.CONSTELLATION) return new Vector2(TAP_RIGHT_X * _size.x, mid);
             return new Vector2(TAP_LEFT_X * _size.x, id == IgCurrency.CONSTELLATION ? mid + d : mid - d);
         }
         return new Vector2(SKY_SLOTS[slot].x * _size.x, SKY_SLOTS[slot].y * _size.y);
+    }
+
+    /// <summary>
+    /// 星座の傾き（度）。右の列に3つ並べるときは、その3つの傾きを 1/3 にする（傾けた四角の角が、となりの星座や
+    /// 料金表の小さな惑星の押せる範囲にはみ出さないように。2026-11-13）
+    /// </summary>
+    private float TiltOf(string id, int slot)
+    {
+        float tilt = ((slot * 37) % 30) - 15f;
+        bool right = id == SpaceDiceRoller.CONSTELLATION || id == CoinPusher.CONSTELLATION || id == PuzzleStore.CONSTELLATION;
+        return right && _pieceInSky ? tilt / 3f : tilt;
+    }
+
+    /// <summary>
+    /// 押せる星座を、今の置き場の高さとピース座のあり・なしに合わせて置き直す（大きさも。出てくる演出の途中の星座は位置だけ）
+    /// </summary>
+    private void LayoutTappable()
+    {
+        var all = Constellations.All;
+        float scale = TapScale;
+        foreach (var id in TAPPABLE)
+        {
+            if (!_skyFigures.TryGetValue(id, out var fig) || fig == null) continue;
+            int slot = Array.FindIndex(all, d => d.Id == id);
+            if (slot < 0) continue;
+            var pos = SkyPos(id, slot);
+            fig.anchoredPosition = pos;
+            fig.localEulerAngles = new Vector3(0f, 0f, TiltOf(id, slot));
+            if (!_arriving.Contains(fig)) fig.localScale = new Vector3(scale, scale, 1f);
+            if (_tapGlows.TryGetValue(id, out var g) && g.Img != null)
+            {
+                g.Img.rectTransform.anchoredPosition = pos;
+                g.Img.rectTransform.localScale = new Vector3(scale, scale, 1f);
+            }
+        }
     }
 
     /// <summary>
@@ -467,25 +545,19 @@ public class SpaceBackground : MonoBehaviour
         if (Mathf.Approximately(lo, _tapLo) && Mathf.Approximately(hi, _tapHi)) return;
         _tapLo = lo;
         _tapHi = hi;
-        var all = Constellations.All;
-        foreach (var id in TAPPABLE)
-        {
-            if (!_skyFigures.TryGetValue(id, out var fig) || fig == null) continue;
-            int slot = Array.FindIndex(all, d => d.Id == id);
-            if (slot < 0) continue;
-            var pos = SkyPos(id, slot);
-            fig.anchoredPosition = pos;
-            if (_tapGlows.TryGetValue(id, out var g) && g.Img != null) g.Img.rectTransform.anchoredPosition = pos;
-        }
+        LayoutTappable();
     }
 
-    private System.Collections.IEnumerator SkyArrive(RectTransform fig, CanvasGroup group, Color color)
+    /// <param name="tappable">押せる星座（大きさは TapScale の倍率。右の列が3つのときは小さめ）</param>
+    private System.Collections.IEnumerator SkyArrive(RectTransform fig, CanvasGroup group, Color color, bool tappable)
     {
+        _arriving.Add(fig);
+        float baseScale = tappable ? TapScale : 1f;
         var flash = SpaceTheme.Rect("Arrive", _skyLayer, Vector2.zero, fig.anchoredPosition,
-            new Vector2(SKY_FIG * 1.6f, SKY_FIG * 1.6f));
+            new Vector2(SKY_FIG * 1.6f * baseScale, SKY_FIG * 1.6f * baseScale));
         var flashImg = SpaceTheme.Img(flash, SpaceSprites.Glow, SpaceTheme.A(color, 0f));
         var ring = SpaceTheme.Rect("ArriveRing", _skyLayer, Vector2.zero, fig.anchoredPosition,
-            new Vector2(SKY_FIG, SKY_FIG));
+            new Vector2(SKY_FIG * baseScale, SKY_FIG * baseScale));
         var ringImg = SpaceTheme.Img(ring, SpaceSprites.Ring, SpaceTheme.A(Color.white, 0f));
         const float D = 1.6f;
         for (float t = 0f; t < D; t += Time.unscaledDeltaTime)
@@ -494,6 +566,7 @@ public class SpaceBackground : MonoBehaviour
             float k = t / D;
             float pop = k < 0.35f ? Mathf.Lerp(0f, 1.35f, SpaceTheme.EaseOutCubic(k / 0.35f))
                 : Mathf.Lerp(1.35f, 1f, SpaceTheme.EaseOutCubic((k - 0.35f) / 0.65f));
+            pop *= tappable ? TapScale : 1f;
             fig.localScale = new Vector3(pop, pop, 1f);
             group.alpha = Mathf.Lerp(1f, SKY_ALPHA, Mathf.Clamp01((k - 0.4f) / 0.6f));
             flashImg.color = SpaceTheme.A(color, 0.7f * Mathf.Sin(Mathf.Clamp01(k / 0.7f) * Mathf.PI));
@@ -504,9 +577,11 @@ public class SpaceBackground : MonoBehaviour
         }
         if (fig != null)
         {
-            fig.localScale = Vector3.one;
+            float s = tappable ? TapScale : 1f;
+            fig.localScale = new Vector3(s, s, 1f);
             group.alpha = SKY_ALPHA;
         }
+        _arriving.Remove(fig);
         Destroy(flash.gameObject);
         Destroy(ring.gameObject);
     }

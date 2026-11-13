@@ -26,6 +26,11 @@ public sealed class SpaceShopItem
     public bool StarFragment;
     /// <summary>トランプを山札から引く（2026-11-12。Field の "cards" は手札と山札のまとまり。数を足すのではなく引く）</summary>
     public bool Card;
+    /// <summary>
+    /// ピースパズルのピース（2026-11-13）。0 ならピースではない。1〜7 はその形（選んで買う）、-1 はランダム（U字も出る）。
+    /// Field の "pieces" は種類ごとの数のまとまり
+    /// </summary>
+    public int Piece;
     /// <summary>並べるかどうか（null ならいつも並べる。トランプは宝石座か切り札座が完成した人だけ）</summary>
     public Func<bool> Visible;
     /// <summary>持っている数の書き方（null なら「持っている数 3個」）</summary>
@@ -48,6 +53,8 @@ public sealed class SpaceShopItem
 ///  ・星のカケラ … 1個 2G（INTALES WORLD の星くずの島と同じ star_fragment。5個そろうと、その場で流れ星を1回）
 ///  ・惑星回復薬 … 1個 3G（2026-11-12 追加。所持品で使うと、力を失った惑星1つに力を戻す。SpacePlanetPotion）
 ///  ・トランプを引く … 1枚 3G（2026-11-12 追加。宝石座か切り札座が完成した人だけ並ぶ。来店のときと同じ山札から引く。CardDeck）
+///  ・ピース … ランダムに1つ 3G・形を選んで 7G（2026-11-13 追加。ピース座が完成した人だけ並ぶ。U字はランダムでしか出ない。
+///    ピースパズル＝SpacePuzzle で置く。PuzzleStore）
 /// 品物を押すと個数を選ぶ画面 → 「購入する」。買うのは users を1回読むトランザクションで、
 /// 所持金が足りるかをその場で確かめてから、所持金と品物をまとめて書く（足りなければ何も書かない）。
 /// Android の戻るは NewHomeController が Instance.HandleBack を呼ぶ。
@@ -104,6 +111,14 @@ public class SpaceShop : MonoBehaviour
     private const string T_CARD_LOCKED = "宝石座か切り札座を完成させると、トランプが引けます";
     private const string T_CARD_HISTORY_A = "ショップで トランプを ";
     private const string T_CARD_HISTORY_B = "枚 引いた（";
+    // ピース（2026-11-13 ユーザー指定「ショップで3G払うと1ピースランダムで手に入り、7G払うと選んで購入できる」）
+    private const string T_PIECE_RANDOM_NAME = "ランダムピース";
+    private const string T_PIECE_RANDOM_DESC = "8種類から1つ。レアなU字も出ます";
+    private const string T_PIECE_NAME_B = "のピース";
+    private const string T_PIECE_DESC_A = "形を選んで買えます（";
+    private const string T_PIECE_DESC_B = "マス）";
+    private const string T_PIECE_LOCKED = "ピース座を完成させると、ピースが買えます";
+    private const string T_PIECE_HISTORY_B = " を手に入れた";
 
     /// <summary>売っている品物（並びのとおりにカードを出す）。今後ふえる予定（2026-11-12 ユーザー）</summary>
     public static readonly SpaceShopItem[] Items = BuildItems();
@@ -159,8 +174,29 @@ public class SpaceShop : MonoBehaviour
                 : CardDeck.T_HAND_A + CardDeck.Current.Hand.Count + " / " + CardRules.HAND_MAX,
             Limit = () => CardDeck.ShopDrawnToday ? 0 : Mathf.Clamp(CardRules.HAND_MAX + 1 - CardDeck.Current.Hand.Count, 0, 1),
             Blocked = () => CardDeck.ShopDrawnToday ? CardDeck.T_SHOP_DONE
-                : CardDeck.MustDiscard ? CardDeck.T_ERR_DISCARD_FIRST : null,
+                : CardDeck.MustDiscard ? CardDeck.DiscardFirstText(CardDeck.Current) : null,
         });
+        // ピース（2026-11-13 ユーザー指定「ショップで3G払うと1ピースランダムで手に入り、7G払うと選んで購入できる」）。
+        // ピース座が完成した人だけ並ぶ。ランダムの次に、選んで買う7種類（U字＝レアはランダムでしか出ないので並べない）
+        list.Add(new SpaceShopItem
+        {
+            Id = "piece_random", Field = PuzzleStore.FIELD_PIECES, Name = T_PIECE_RANDOM_NAME, Desc = T_PIECE_RANDOM_DESC,
+            Price = PuzzleRules.RANDOM_PRICE, Tint = SpacePuzzle.ACCENT, Icon = () => PuzzleArt.Icon(0),
+            Owned = d => PuzzleStore.OwnedTotal, Add = (d, n) => { }, Piece = -1, Visible = () => PuzzleStore.Unlocked,
+        });
+        foreach (var def in PuzzleRules.Pieces)
+        {
+            if (def.Rare) continue;
+            var piece = def;
+            list.Add(new SpaceShopItem
+            {
+                Id = "piece_" + piece.Id, Field = PuzzleStore.FIELD_PIECES, Name = piece.Name + T_PIECE_NAME_B,
+                Desc = T_PIECE_DESC_A + piece.Size + T_PIECE_DESC_B, Price = PuzzleRules.CHOOSE_PRICE,
+                Tint = PuzzleArt.ColorOf(piece.Id), Icon = () => PuzzleArt.Icon(piece.Id),
+                Owned = d => PuzzleStore.Owned[piece.Id], Add = (d, n) => { }, Piece = piece.Id,
+                Visible = () => PuzzleStore.Unlocked,
+            });
+        }
         return list.ToArray();
     }
 
@@ -175,7 +211,8 @@ public class SpaceShop : MonoBehaviour
                 .Append(T_ARROW).Append(T_CANCEL).Append(T_BUY).Append(T_BUYING).Append(T_SHORT).Append(T_BOUGHT_A)
                 .Append(T_BOUGHT_B).Append(T_ERR_USER).Append(T_ERR_LOCKED).Append(T_ERR_NETWORK).Append(T_HISTORY_A)
                 .Append(T_HISTORY_B).Append(T_HISTORY_STAR).Append("（）/×").Append(IgCurrency.GlyphText)
-                .Append(T_CARD_UNIT).Append(T_CARD_LOCKED).Append(T_CARD_HISTORY_A).Append(T_CARD_HISTORY_B);
+                .Append(T_CARD_UNIT).Append(T_CARD_LOCKED).Append(T_CARD_HISTORY_A).Append(T_CARD_HISTORY_B)
+                .Append(T_PIECE_LOCKED).Append(T_PIECE_HISTORY_B).Append(PuzzleStore.GlyphText);
             foreach (var item in Items) sb.Append(item.Name).Append(item.Desc);
             return sb.ToString();
         }
@@ -200,6 +237,8 @@ public class SpaceShop : MonoBehaviour
         public readonly List<int> Cards = new List<int>(); // 引いたトランプ（引いた順）
         public bool CardOverflow;                          // 引いて手札が8枚になった（このあと1枚捨てる）
         internal Dictionary<string, object> CardsMap;      // 書き込んだ手札と山札
+        public readonly List<int> Pieces = new List<int>(); // 手に入れたピースの種類（手に入れた順。2026-11-13）
+        internal Dictionary<string, object> PiecesMap;     // 書き込んだ持っているピース
     }
 
     private static UserData Data => UserDataManager.instance != null ? UserDataManager.instance.UserData : null;
@@ -225,6 +264,11 @@ public class SpaceShop : MonoBehaviour
         if (item.Card && !CardDeck.Unlocked)
         {
             fail.Error = T_CARD_LOCKED;
+            return fail;
+        }
+        if (item.Piece != 0 && !PuzzleStore.Unlocked)
+        {
+            fail.Error = T_PIECE_LOCKED;
             return fail;
         }
 
@@ -307,9 +351,10 @@ public class SpaceShop : MonoBehaviour
                 return r;
             }
             s.ShopDay = today;
-            if (CardRules.Overflow(s) || s.Hand.Count + count > CardRules.HAND_MAX + 1)
+            // 手札が8枚・山札座で引いて捨てる前（2026-11-13）なら引かない
+            if (CardRules.MustDiscard(s) || s.Hand.Count + count > CardRules.HAND_MAX + 1)
             {
-                r.Error = CardRules.Overflow(s) ? CardDeck.T_ERR_DISCARD_FIRST : CardDeck.T_ERR_CHANGED;
+                r.Error = CardRules.MustDiscard(s) ? CardDeck.DiscardFirstText(s) : CardDeck.T_ERR_CHANGED;
                 r.Balance = (int)balance;
                 return r;
             }
@@ -325,6 +370,25 @@ public class SpaceShop : MonoBehaviour
             r.Cost = (int)cost;
             r.Balance = (int)(balance - cost);
             r.OwnedAfter = s.Hand.Count;
+            r.Ok = true;
+            return r;
+        }
+        if (item.Piece != 0)
+        {
+            // ピース: ランダム（3G）は1個ずつ引く（U字は PuzzleRules.RARE_PERCENT %）。形を選んだ（7G）ならその形を count 個
+            var owned = PuzzleRules.PiecesFrom(u.TryGetValue(PuzzleStore.FIELD_PIECES, out var piecesRaw) ? piecesRaw : null);
+            for (int i = 0; i < count; i++)
+            {
+                int type = item.Piece > 0 ? item.Piece : PuzzleRules.RollPiece(rng);
+                owned[type]++;
+                r.Pieces.Add(type);
+            }
+            r.PiecesMap = PuzzleRules.PiecesToMap(owned);
+            updates[PuzzleStore.FIELD_PIECES] = r.PiecesMap;
+            tx.Update(userRef, updates);
+            r.Cost = (int)cost;
+            r.Balance = (int)(balance - cost);
+            r.OwnedAfter = owned.Sum();
             r.Ok = true;
             return r;
         }
@@ -369,6 +433,7 @@ public class SpaceShop : MonoBehaviour
             JourneyService.ApplyStarRewardsLocal(d, r.Star.Rewards); // 流れ星の当たり（クーポン・持ち物）
             d.Ig = r.Balance; // 流れ星の G も入った、トランザクションで書いた所持金（上で足した分はここで正しい値になる）
             if (r.Item.Card) d.CardsMap = r.CardsMap;
+            else if (r.Item.Piece != 0) d.PiecesMap = r.PiecesMap;
             else r.Item.Add(d, r.OwnedAfter - r.Item.Owned(d));
             foreach (var id in r.Star.Unlocked)
                 if (!d.Planets.Contains(id)) d.Planets.Add(id);
@@ -385,6 +450,8 @@ public class SpaceShop : MonoBehaviour
         {
             LocalHistoryLog.Add(IgCurrency.HISTORY,
                 T_HISTORY_A + r.Item.Name + T_BOUGHT_A + r.Count + T_HISTORY_B + IgCurrency.Format(r.Cost) + "）");
+            foreach (int type in r.Pieces)
+                LocalHistoryLog.Add(PuzzleStore.HISTORY, T_HISTORY_A + PuzzleStore.PieceLabel(type) + T_PIECE_HISTORY_B);
         }
         if (r.Stars > 0)
         {
@@ -437,6 +504,7 @@ public class SpaceShop : MonoBehaviour
     private float _cw;
     private bool _closing, _busy;
     private int _shownHand = -1; // 表示している手札の枚数（トランプ）
+    private int _shownPieces = -1; // 表示している持っているピースの数（ピースパズル）
     private TextMeshProUGUI _walletValue;
     private readonly List<Card> _cards = new List<Card>();
     private int _shownBalance = -1;
@@ -497,8 +565,9 @@ public class SpaceShop : MonoBehaviour
     {
         if (_closing || Time.unscaledTime < _nextCheck) return;
         _nextCheck = Time.unscaledTime + 0.5f;
-        // 所持金や手札の枚数が変わったら（入店・カードを捨てた・ほかの画面での変化など）表示を合わせる
-        if (IgCurrency.Balance != _shownBalance || CardDeck.Current.Hand.Count != _shownHand)
+        // 所持金や手札の枚数・ピースの数が変わったら（入店・カードを捨てた・パズルに置いた・ほかの画面での変化など）表示を合わせる
+        if (IgCurrency.Balance != _shownBalance || CardDeck.Current.Hand.Count != _shownHand
+            || PuzzleStore.OwnedTotal != _shownPieces)
         {
             Refresh();
             if (_sheet != null) UpdateSheet();
@@ -712,6 +781,7 @@ public class SpaceShop : MonoBehaviour
         if (_walletValue != null) _walletValue.text = PriceRich(balance);
         var d = Data;
         _shownHand = CardDeck.Current.Hand.Count;
+        _shownPieces = PuzzleStore.OwnedTotal;
         foreach (var c in _cards)
         {
             c.Owned.text = OwnedLine(c.Item, d);
@@ -736,9 +806,9 @@ public class SpaceShop : MonoBehaviour
         string blocked = item.Blocked?.Invoke();
         if (blocked != null)
         {
-            // 手札が8枚: 先に捨てるカードを選ぶ画面を出す（今日もう引いたときは知らせるだけ）
+            // 手札が8枚・山札座で引いて捨てる前: 先に捨てるカードを選ぶ画面を出す（今日もう引いたときは知らせるだけ）
             SpaceTheme.Toast(blocked, _canvas);
-            if (item.Card && blocked == CardDeck.T_ERR_DISCARD_FIRST) SpaceNotice.CardDiscard();
+            if (item.Card && blocked != CardDeck.T_SHOP_DONE && CardDeck.MustDiscard) SpaceNotice.CardDiscard();
             return;
         }
         OpenSheet(item);
@@ -928,6 +998,13 @@ public class SpaceShop : MonoBehaviour
             {
                 if (this != null) Refresh();
             });
+            var card = _cards.Find(c => c.Item == item);
+            if (card != null) StartCoroutine(Pop(card.Rt));
+        }
+        else if (item.Piece != 0)
+        {
+            // 手に入れたピースを見せる（ランダムなら何が出たか。「パズルを開く」でそのまま置きに行ける）
+            SpaceNotice.PiecesGot(new List<int>(res.Pieces), T_CAPTION, GREEN);
             var card = _cards.Find(c => c.Item == item);
             if (card != null) StartCoroutine(Pop(card.Rt));
         }

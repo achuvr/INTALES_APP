@@ -11,7 +11,7 @@ using UnityEngine.UI;
 /// <summary>
 /// INTALES WORLD の世界地図（2026-11-10 ユーザー指定。ホームの所持品の下の「INTALES WORLD」から開く全画面）。
 /// オリジナルの世界地図（SpaceWorld.MapSprite）の上に置き場が6か所あり、置かれたコマの色と数を全員で同期して出す
-/// （6か所目の黄金の鉱山＝3G をもらう は 2026-11-12 追加）。
+/// （6か所目の黄金の鉱山＝4G をもらう は 2026-11-12 追加。量は SpaceWorld.GOLD_PER_PLACE。2026-11-13 に 3G から 4G）。
 /// 置き場を押すと下からシートが出て、色を選んで「ここに置く」→ 確認 → 置く（SpaceWorld.PlaceAsync）→ 効果のお知らせ。
 ///  ・まだ誰も置いていなければ好きな色、1体でも置かれていればその色だけ（マストフォロー）
 ///  ・左下の星くずの島だけは何色でも置ける保険の置き場（輪が赤・青・黄の3つの弧。2026-11-11）
@@ -1054,7 +1054,7 @@ public class SpaceWorldMap : MonoBehaviour
                 steps.Add(() => SpaceNotice.FragmentGot(r.Area.Name, r.Fragments, r.CouponCompleted));
                 break;
             case WorldEffect.Gold:
-                // 黄金の鉱山: 金貨が上から収まり「3G をもらいました」（2026-11-12）
+                // 黄金の鉱山: 金貨が上から収まり「4G をもらいました」（2026-11-12。量は SpaceWorld.GOLD_PER_PLACE）
                 steps.Add(() => SpaceNotice.GoldGot(r.Gold, r.GoldBalance, T_CAPTION, r.Area.Name));
                 break;
         }

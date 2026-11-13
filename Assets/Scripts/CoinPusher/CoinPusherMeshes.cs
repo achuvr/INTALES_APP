@@ -16,8 +16,10 @@ public static class CoinPusherMeshes
     public const float COIN_R = 0.4f;    // コインの半径
     public const float COIN_H = 0.12f;   // コインの厚み
     public const float COIN_CHAMFER = 0.025f; // 当たり判定で、ふちの上下を削る幅（縦に立ちにくくする）
-    public const float MEEPLE_H = 1.0f;  // コマの背の高さ（寝かせるので、台の上では奥行き）
-    public const float MEEPLE_T = 0.4f;  // コマの厚み（寝かせるので、台の上では高さ）
+    // コマの大きさ。2026-11-13 ユーザー指定「ミープルの大きさを今の0.6倍に」で、形は変えずに背の高さ1.0・厚み0.4 を0.6倍にした
+    // （重さ CoinPusherWorld.Spawn はそのまま）。同時にコインも0.85倍（のち0.86倍）にしたが、「難しすぎた」で同日元の大きさに戻した
+    public const float MEEPLE_H = 0.6f;     // コマの背の高さ（寝かせるので、台の上では奥行き）
+    public const float MEEPLE_T = 0.24f;    // コマの厚み（寝かせるので、台の上では高さ）
     public const float STAR_L = 1.05f;   // 星のカケラの長さ（星の中心から先端まで）
     public const float STAR_T = 0.22f;   // 星のカケラの厚み
     public const float POTION_L = 0.98f; // 惑星回復薬の長さ（瓶の底から栓の上まで。寝かせるので、台の上では奥行き）
@@ -40,6 +42,52 @@ public static class CoinPusherMeshes
     };
 
     private static Mesh _coin, _coinCollider, _meeple, _star, _meepleBlack, _potion, _potionCollider;
+
+    // ピースパズルのピース（2026-11-13。ピース座が完成した人のボーナスの景品）: マス1つの大きさ・厚み・見た目のマスのすき間。
+    // いちばん長い棒（4マス）でも長さ 1.08 で、景品を落とす範囲の目安（CoinPusherWorld.ITEM_HALF＝半分 0.55）に収まる
+    public const float PIECE_CELL = 0.27f;
+    public const float PIECE_T = 0.15f;
+    private const float PIECE_GAP = 0.025f;
+    private static readonly Mesh[] _pieces = new Mesh[PuzzleRules.TYPES + 1];
+    private static Mesh _pieceCell;
+
+    /// <summary>
+    /// ピースの見た目（種類 1〜8）: マスごとの箱を並べた平たい形（マスの間はほんの少しすき間を空けて、マスの形が分かるように）。
+    /// 原点は形のまん中
+    /// </summary>
+    public static Mesh Piece(int type)
+    {
+        if (type < 1 || type > PuzzleRules.TYPES) type = 1;
+        if (_pieces[type] != null) return _pieces[type];
+        if (_pieceCell == null)
+            _pieceCell = Box(new Vector3(PIECE_CELL - PIECE_GAP, PIECE_T, PIECE_CELL - PIECE_GAP), Color.white);
+        var centers = PieceCellCenters(type);
+        var parts = new CombineInstance[centers.Count];
+        for (int i = 0; i < centers.Count; i++)
+            parts[i] = new CombineInstance { mesh = _pieceCell, transform = Matrix4x4.Translate(centers[i]) };
+        var mesh = new Mesh { name = "PusherPiece" + type };
+        mesh.CombineMeshes(parts, true, true);
+        mesh.RecalculateBounds();
+        _pieces[type] = mesh;
+        return mesh;
+    }
+
+    /// <summary>ピースのマスの中心（形のまん中を原点にした、平たく置いたときの x・z。当たり判定の箱もここに置く）</summary>
+    public static List<Vector3> PieceCellCenters(int type)
+    {
+        var list = new List<Vector3>();
+        var def = PuzzleRules.Piece(type);
+        if (def == null) return list;
+        int maxX = 0, maxY = 0;
+        foreach (var (x, y) in def.Cells)
+        {
+            if (x > maxX) maxX = x;
+            if (y > maxY) maxY = y;
+        }
+        float ox = maxX * 0.5f, oy = maxY * 0.5f;
+        foreach (var (x, y) in def.Cells) list.Add(new Vector3((x - ox) * PIECE_CELL, 0f, (oy - y) * PIECE_CELL));
+        return list;
+    }
 
     /// <summary>コインの見た目（サブメッシュ0＝上下の面・1＝ふち）</summary>
     public static Mesh Coin => _coin != null ? _coin : (_coin = BuildCoin(32));
@@ -234,8 +282,10 @@ public static class CoinPusherMeshes
         float h = MEEPLE_T * 0.5f;
         foreach (float side in new[] { 1f, -1f })
         {
-            RimBand(v, n, c, glow, pts, outward, 0.07f, side * (h + 0.003f), side);
-            Sparkle(v, n, c, glow, new Vector2(0f, -0.07f * MEEPLE_H), 0.12f, 0.028f, side * (h + 0.004f), side);
+            // 帯の幅・星の大きさは背の高さ1のときに決めた値なので、背の高さに比例させる（2026-11-13 にコマを0.6倍にしたとき。
+            // そのままだと細い腕で上下の帯が重なる）
+            RimBand(v, n, c, glow, pts, outward, 0.07f * MEEPLE_H, side * (h + 0.003f), side);
+            Sparkle(v, n, c, glow, new Vector2(0f, -0.07f * MEEPLE_H), 0.12f * MEEPLE_H, 0.028f * MEEPLE_H, side * (h + 0.004f), side);
         }
         var mesh = new Mesh { name = "PusherMeepleBlack" };
         mesh.SetVertices(v);

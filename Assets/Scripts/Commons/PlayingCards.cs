@@ -21,13 +21,16 @@ public sealed class PokerReward
 }
 
 /// <summary>
-/// 手札と山札（users/{uid}.cards = { month, hand, deck, day, shop_day }）。2026-11-12。
+/// 手札と山札（users/{uid}.cards = { month, hand, deck, day, shop_day, swap_day, swap_pending }）。2026-11-12。
 ///  ・month: 営業日の月 "yyyy-MM"。月が変わると手札も山札もリセット（CardRules.Normalize）
 ///  ・hand: 手札のカード（番号 0〜51。引いた順）。上限は7枚で、8枚になったら1枚捨てるまで遊べない
 ///  ・deck: 山札に残っているカード（引いたカードは山札に戻らない。捨てたカード・ポーカーで使ったカードも戻らない）
 ///  ・day: 来店で最後に引いた営業日 "yyyy-MM-dd"
 ///  ・shop_day: ショップで最後に引いた営業日 "yyyy-MM-dd"（2026-11-12 ユーザー指定「ショップでカードを購入できるのは
 ///    1日1回まで」。前の版で書いた記録にはない＝まだ引いていない）
+///  ・swap_day: 山札座で最後に引いた営業日 "yyyy-MM-dd"（2026-11-13 ユーザー指定「山札座をアクティブにすると1日1回だけ、
+///    山札から1枚引いて、1枚捨てる」。前の版で書いた記録にはない＝まだ引いていない）
+///  ・swap_pending: 山札座で引いて、まだ1枚捨てていない（捨てるまで、引くこともポーカーもできない。前の版の記録にはない＝false）
 /// </summary>
 public sealed class CardState
 {
@@ -36,6 +39,8 @@ public sealed class CardState
     public List<int> Deck = new List<int>();
     public string Day = "";
     public string ShopDay = "";
+    public string SwapDay = "";
+    public bool SwapPending;
 
     public static CardState From(object raw)
     {
@@ -44,6 +49,8 @@ public sealed class CardState
         s.Month = Str(m, "month");
         s.Day = Str(m, "day");
         s.ShopDay = Str(m, "shop_day");
+        s.SwapDay = Str(m, "swap_day");
+        s.SwapPending = m.TryGetValue("swap_pending", out var pending) && pending is bool b && b;
         s.Hand = Ints(m, "hand");
         s.Deck = Ints(m, "deck");
         return s;
@@ -56,11 +63,14 @@ public sealed class CardState
         { "deck", Deck.Select(x => (object)(long)x).ToList() },
         { "day", Day ?? "" },
         { "shop_day", ShopDay ?? "" },
+        { "swap_day", SwapDay ?? "" },
+        { "swap_pending", SwapPending },
     };
 
     public CardState Clone() => new CardState
     {
-        Month = Month, Day = Day, ShopDay = ShopDay, Hand = new List<int>(Hand), Deck = new List<int>(Deck),
+        Month = Month, Day = Day, ShopDay = ShopDay, SwapDay = SwapDay, SwapPending = SwapPending,
+        Hand = new List<int>(Hand), Deck = new List<int>(Deck),
     };
 
     private static string Str(Dictionary<string, object> m, string k) =>
@@ -93,6 +103,7 @@ public sealed class CardState
 ///  ・同じ色と数字のカードは2枚持てない（手札にあるカードは引かない）。引けるカードが手札にあるものだけなら、
 ///    山札をリセットする（リセットした山札には、そのとき手札にあるカードは入れない＝実物のトランプと同じ）
 ///  ・手札は7枚まで（8枚目を引いたら、好きなカードを1枚捨てる）
+///  ・山札座が完成していれば、1日1回「山札から1枚引いて、手札から1枚捨てる」（SwapDraw → Discard。2026-11-13）
 ///  ・月が変わると、手札も山札もリセット
 /// </summary>
 public static class CardRules
@@ -127,6 +138,8 @@ public static class CardRules
         s.Deck = FullDeck();
         s.Day = "";
         s.ShopDay = ""; // 月が変わったら前の営業日なので、その日のショップの分もまだ（同じ営業日の中で月は変わらない）
+        s.SwapDay = "";  // 山札座の分も同じ
+        s.SwapPending = false; // 捨てる前に月が変わったら、手札ごとなくなったので捨てなくてよい
         return true;
     }
 
@@ -153,8 +166,35 @@ public static class CardRules
     /// <summary>手札が上限を超えている（1枚捨てるまで、引くこともポーカーもできない）</summary>
     public static bool Overflow(CardState s) => s.Hand.Count > HAND_MAX;
 
-    /// <summary>手札から1枚捨てる（山札には戻らない）。捨てられたら true</summary>
-    public static bool Discard(CardState s, int code) => s.Hand.Remove(code);
+    /// <summary>
+    /// 1枚捨てるまで、引くこともポーカーもできない（手札が上限を超えている、または山札座で引いてまだ捨てていない）
+    /// </summary>
+    public static bool MustDiscard(CardState s) => Overflow(s) || s.SwapPending;
+
+    /// <summary>
+    /// 手札から1枚捨てる（山札には戻らない）。山札座で引いたあとの「1枚捨てる」も、これで済む
+    /// （7枚から山札座で引いて8枚になったときも、1枚捨てれば両方済む）。捨てられたら true
+    /// </summary>
+    public static bool Discard(CardState s, int code)
+    {
+        if (!s.Hand.Remove(code)) return false;
+        s.SwapPending = false;
+        return true;
+    }
+
+    /// <summary>
+    /// 山札座の「1枚引いて1枚捨てる」の、引くほう（2026-11-13）。1営業日 day に1回。引いたら、1枚捨てるまで SwapPending。
+    /// 引いたカードの番号を返す。今日もう引いた・先に捨てるカードがあるときは -1（何も変えない）
+    /// </summary>
+    public static int SwapDraw(CardState s, string day, Random rng)
+    {
+        if (s.SwapDay == day || MustDiscard(s)) return -1;
+        int card = Draw(s, rng);
+        if (card < 0) return -1;
+        s.SwapDay = day;
+        s.SwapPending = true;
+        return card;
+    }
 
     // ================================================================
     // ポーカー

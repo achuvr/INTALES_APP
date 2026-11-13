@@ -133,6 +133,14 @@ public class QRReader : MonoBehaviour
             return;
         }
 
+        // 星座に星を灯すQR（"stars:{星座ID}:{個数}:{営業日}:{番号}:{署名}"。管理者が星座と個数を決めて見せる。
+        // その日だけ・1人1回。2026-11-13 StarGiftQr）
+        if (_result.StartsWith(StarGiftQr.PREFIX))
+        {
+            _callMethodFromQR.ClaimStars(_result).Forget();
+            return;
+        }
+
         switch (_result)
         {
             case "Lv+1":

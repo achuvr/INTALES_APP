@@ -19,6 +19,7 @@ using UnityEngine.UI;
 ///  ・月が変わると、手札も山札もリセット（表示も書き込みも、月が違えばリセットしたものとして扱う）
 ///  ・宝石座が完成していれば（管理者は初めから）、ホームの空の宝石座をタップしてポーカー（SpacePoker）。
 ///    手札から5枚選んで勝負し、役に応じて報酬（CardRules.Rewards）。使った5枚はなくなる
+///  ・山札座も完成していれば（管理者は初めから）、1日1回「山札から1枚引いて、手札から1枚捨てる」（SpaceDeckSwap。2026-11-13）
 /// 保存先は users/{uid}.cards（本人が書けるのでルールの変更はなし）。書き込みはどれも users を1回読むトランザクション。
 /// </summary>
 public static class CardDeck
@@ -28,6 +29,8 @@ public static class CardDeck
     public const string HISTORY = "card";
     /// <summary>カードを持てるようになる星座（宝石座＝セットコレクション・切り札座＝トリックテイキング）</summary>
     public const string GEM = "gem", TRUMP = "trump";
+    /// <summary>1日1回「1枚引いて1枚捨てる」ができるようになる星座（山札座＝デッキ構築。2026-11-13）</summary>
+    public const string DECK = "deck";
     /// <summary>ショップで1枚引く値段（G。2026-11-12 ユーザー指定）</summary>
     public const int SHOP_PRICE = 3;
 
@@ -46,6 +49,10 @@ public static class CardDeck
     public const string T_ERR_NETWORK = "通信に失敗しました。もう一度お試しください";
     public const string T_ERR_DISCARD_FIRST = "手札が8枚あります。先に捨てるカードを1枚選んでください";
     public const string T_ERR_CHANGED = "手札が変わりました。もう一度選んでください";
+    /// <summary>山札座で引いて、まだ捨てていない（2026-11-13）</summary>
+    public const string T_ERR_SWAP_FIRST = "山札座で引いたので、先に捨てるカードを1枚選んでください";
+    /// <summary>山札座で今日もう引いた（1日1回まで。2026-11-13 ユーザー指定）</summary>
+    public const string T_SWAP_DONE = "山札座で引けるのは1日1回までです。また明日使えます";
 
     /// <summary>この機能で表示しうる文字（NewHome の起動時にまとめてフォントへ登録する）</summary>
     public static string GlyphText
@@ -55,7 +62,8 @@ public static class CardDeck
             var sb = new StringBuilder()
                 .Append(T_TITLE).Append(T_HAND_A).Append(T_DECK_A).Append(T_DECK_B).Append(T_RESET).Append(T_INFO)
                 .Append(T_POKER_HINT).Append(T_ERR_USER).Append(T_ERR_NETWORK).Append(T_ERR_DISCARD_FIRST).Append(T_ERR_CHANGED)
-                .Append(T_SHOP_DONE).Append(T_SHOP_DONE_SHORT)
+                .Append(T_SHOP_DONE).Append(T_SHOP_DONE_SHORT).Append(T_ERR_SWAP_FIRST).Append(T_SWAP_DONE)
+                .Append(SpaceDeckSwap.GlyphText)
                 .Append("0123456789/の・＋+GOLD");
             foreach (var n in CardRules.COLOR_NAMES) sb.Append(n);
             foreach (var r in CardRules.Rewards)
@@ -81,6 +89,11 @@ public static class CardDeck
     /// <summary>ポーカーができるか（宝石座が完成。管理者は初めから）</summary>
     public static bool PokerUnlocked => AdminClaim.IsAdmin || Complete(GEM);
 
+    /// <summary>
+    /// 山札座の「1枚引いて1枚捨てる」が使えるか（山札座が完成していて、カードを持てる＝宝石座か切り札座も完成。管理者は初めから）
+    /// </summary>
+    public static bool SwapUnlocked => AdminClaim.IsAdmin || (Complete(DECK) && (Complete(GEM) || Complete(TRUMP)));
+
     /// <summary>今の営業日の月</summary>
     public static string MonthKey => CardRules.MonthKey(StoreCalendar.TodayBusiness);
 
@@ -95,11 +108,19 @@ public static class CardDeck
         }
     }
 
-    /// <summary>手札が8枚以上（1枚捨てるまで、引くこともポーカーもできない）</summary>
-    public static bool MustDiscard => CardRules.Overflow(Current);
+    /// <summary>
+    /// 手札が8枚以上、または山札座で引いてまだ捨てていない（1枚捨てるまで、引くこともポーカーもできない）
+    /// </summary>
+    public static bool MustDiscard => CardRules.MustDiscard(Current);
+
+    /// <summary>先に捨てるカードを選ぶよう促す一言（手札が8枚以上なら「手札が8枚あります…」、山札座で引いたあとなら山札座の一言）</summary>
+    public static string DiscardFirstText(CardState s) => CardRules.Overflow(s) ? T_ERR_DISCARD_FIRST : T_ERR_SWAP_FIRST;
 
     /// <summary>今日（今の営業日）はもうショップで引いた（ショップで引けるのは1日1回まで。2026-11-12）</summary>
     public static bool ShopDrawnToday => Current.ShopDay == StoreCalendar.TodayKey;
+
+    /// <summary>今日（今の営業日）はもう山札座で引いた（1日1回まで。2026-11-13）</summary>
+    public static bool SwappedToday => Current.SwapDay == StoreCalendar.TodayKey;
 
     /// <summary>手札と山札の一言（「手札 5 / 7 ・ 山札 41枚」）</summary>
     public static string Summary(CardState s) =>
@@ -108,7 +129,9 @@ public static class CardDeck
     // ================================================================
     // 書き込み
     // ================================================================
-    /// <summary>手札から1枚捨てる（手札が8枚以上のときだけ。山札には戻らない）。できたら true</summary>
+    /// <summary>
+    /// 手札から1枚捨てる（手札が8枚以上のときと、山札座で引いたあとだけ。山札には戻らない）。できたら true
+    /// </summary>
     public static async UniTask<bool> DiscardAsync(int code)
     {
         var m = UserDataManager.instance;
@@ -125,9 +148,9 @@ public static class CardDeck
                 var u = t.Result.Exists ? t.Result.ToDictionary() : new Dictionary<string, object>();
                 var s = CardState.From(u.TryGetValue(FIELD, out var raw) ? raw : null);
                 bool reset = CardRules.Normalize(s, month);
-                if (!CardRules.Overflow(s))
+                if (!CardRules.MustDiscard(s))
                 {
-                    // もう7枚以下（月が変わった・ほかの端末で捨てた）: 捨てずに今の状態をそろえる
+                    // もう捨てなくてよい（月が変わった・ほかの端末で捨てた）: 捨てずに今の状態をそろえる
                     if (reset) tx.Update(doc, new Dictionary<string, object> { { FIELD, s.ToMap() } });
                     written = s.ToMap();
                     return true;
@@ -187,9 +210,9 @@ public static class CardDeck
                 }
                 var s = CardState.From(u.TryGetValue(FIELD, out var raw) ? raw : null);
                 CardRules.Normalize(s, month);
-                if (CardRules.Overflow(s))
+                if (CardRules.MustDiscard(s))
                 {
-                    r.Error = T_ERR_DISCARD_FIRST;
+                    r.Error = DiscardFirstText(s);
                     return r;
                 }
                 if (!five.All(s.Hand.Contains))
@@ -224,6 +247,66 @@ public static class CardDeck
         if (res.Reward.Gold > 0) d.Ig = res.Balance;
         if (res.Reward.Coupon != null) SpaceCoupons.ByField(res.Reward.Coupon)?.Add(d, res.Reward.CouponCount);
         LocalHistoryLog.Add(HISTORY, $"ポーカーで {res.Reward.Name}（{RewardText(res.Reward)}）");
+        JourneyService.NotifyChanged();
+        return res;
+    }
+
+    /// <summary>山札座で引いた結果</summary>
+    public sealed class SwapPlay
+    {
+        public bool Ok;
+        public string Error;
+        public int Card = -1;
+    }
+
+    /// <summary>
+    /// 山札座の「1枚引いて1枚捨てる」の、引くほう（1営業日に1回。2026-11-13）。引いたカードは手札に入り、
+    /// 1枚捨てるまで cards.swap_pending が立つ（捨てるのは SpaceNotice.CardDiscard → DiscardAsync）。
+    /// 今日もう引いた・先に捨てるカードがある（ほかの端末で引いた など）ときは引かずに、手元の cards をそろえて Error を返す
+    /// </summary>
+    public static async UniTask<SwapPlay> SwapDrawAsync()
+    {
+        var m = UserDataManager.instance;
+        if (m == null || string.IsNullOrEmpty(m.UID) || m.UserData == null) return new SwapPlay { Error = T_ERR_USER };
+        string month = MonthKey, today = StoreCalendar.TodayKey;
+        var rng = new System.Random();
+        var db = FirebaseFirestore.DefaultInstance;
+        var doc = db.Collection("users").Document(m.UID);
+        Dictionary<string, object> written = null;
+        SwapPlay res;
+        try
+        {
+            res = await db.RunTransactionAsync(tx => tx.GetSnapshotAsync(doc).ContinueWith(t =>
+            {
+                var r = new SwapPlay();
+                written = null;
+                if (!t.Result.Exists)
+                {
+                    r.Error = T_ERR_USER;
+                    return r;
+                }
+                var u = t.Result.ToDictionary();
+                var s = CardState.From(u.TryGetValue(FIELD, out var raw) ? raw : null);
+                CardRules.Normalize(s, month);
+                r.Card = CardRules.SwapDraw(s, today, rng);
+                written = s.ToMap();
+                if (r.Card < 0)
+                {
+                    r.Error = CardRules.MustDiscard(s) ? DiscardFirstText(s) : T_SWAP_DONE;
+                    return r;
+                }
+                tx.Update(doc, new Dictionary<string, object> { { FIELD, written } });
+                r.Ok = true;
+                return r;
+            })).AsUniTask();
+        }
+        catch (Exception ex)
+        {
+            Debug.LogWarning($"[CardDeck] 山札座で引けませんでした: {ex.Message}");
+            return new SwapPlay { Error = T_ERR_NETWORK };
+        }
+        if (written != null) m.UserData.CardsMap = written;
+        if (res.Ok) LocalHistoryLog.Add(HISTORY, $"山札座で トランプの {CardRules.Name(res.Card)} を引いた");
         JourneyService.NotifyChanged();
         return res;
     }

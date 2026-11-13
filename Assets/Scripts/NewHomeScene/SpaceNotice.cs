@@ -104,7 +104,8 @@ public static partial class SpaceNotice
     // ================================================================
     /// <summary>
     /// タイトル＋強調テキスト＋補足テキストのお知らせ。
-    /// 例: 入店ボーナス、会員証の引き継ぎ完了、イベントガチャの結果。
+    /// 例: 入店ボーナス、会員証の引き継ぎ完了、イベントガチャの結果、管理者の図鑑の更新の結果。
+    /// 強調テキストが空なら、その段は出さない（2026-11-13。図鑑を更新できなかったときの知らせ）
     /// </summary>
     public static GameObject Info(string title, string strong, string sub = null)
     {
@@ -120,10 +121,13 @@ public static partial class SpaceNotice
         Stack(t.rectTransform, ref y, Measure(t, 56f), 24f);
         Stack(Divider(card), ref y, 2f, 16f, INNER - 120f);
 
-        var s = SpaceTheme.Text(card, "Strong", SpaceTheme.SafeNow(strong), 54, SpaceTheme.GOLD, FontStyles.Bold);
-        Wrap(s);
-        s.lineSpacing = -8f;
-        Stack(s.rectTransform, ref y, Measure(s, 72f), 28f);
+        if (!string.IsNullOrEmpty(strong))
+        {
+            var s = SpaceTheme.Text(card, "Strong", SpaceTheme.SafeNow(strong), 54, SpaceTheme.GOLD, FontStyles.Bold);
+            Wrap(s);
+            s.lineSpacing = -8f;
+            Stack(s.rectTransform, ref y, Measure(s, 72f), 28f);
+        }
 
         if (!string.IsNullOrEmpty(sub))
         {

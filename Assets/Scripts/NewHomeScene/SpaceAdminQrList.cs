@@ -16,6 +16,8 @@ using UnityEngine.UI;
 ///  ・クーポン   … 店頭クーポン4種（所持品と同じ並び）。中身は従来の店頭QRと同じ文字（CallMethodFromQR.QR_*_COUPON）。
 ///                 読み取るたびに1枚もらえ、受け取った側の新ホームが「○○を1枚入手しました」と知らせる。
 ///                 最後のマス「G を渡す」（2026-11-12）は金額を決めて G のQR（GoldQr。その日だけ・1人1回）を出す
+///  ・ゲーム     … ゲームを選ぶと、その日の公認QR（BoardGameCertify。アチーブメント達成＋星座の星が1つ）。
+///                 検索欄の右の「星座に星を灯す」（2026-11-13）は、星座と個数を決めて星を灯すQR（StarGiftQr。その日だけ・1人1回）を出す
 ///  ・惑星の解放 … SpacePlanets.QrPayload。惑星を選ぶ画面と同じ並び・同じマス（最初から持っているルミナのマスは空き）
 ///  ・1か月パス  … 1か月遊び放題パス（平日のみ・土日のみ・ALL DAY）の受け取りQR。カードを選ぶたびに
 ///                 1回だけ使えるQRをその場で発行する（StorePasses.IssueAsync。発行から60分間有効）。
@@ -81,6 +83,20 @@ public class SpaceAdminQrList : MonoBehaviour
     private static readonly int[] GOLD_PRESETS = { 1, 3, 5, 10, 20, 50, 100 };
     /// <summary>最後に決めた金額（アプリを起動しているあいだ覚えておく）</summary>
     private static int s_goldAmount = 5;
+    // 星座に星を灯すQR（2026-11-13 ユーザー指定「管理者用機能に、指定した星座に指定した個数分灯す機能を」。StarGiftQr）
+    private const string T_STAR_BUTTON = "星座に星を灯す";
+    private const string T_STAR_PICK = "灯す星座と数を選んでください";
+    private const string T_STAR_UNIT = "個";
+    private const string T_STAR_RANGE_A = "1回に ";
+    private const string T_STAR_RANGE_B = "個まで";
+    private const string T_STAR_NOTE = "星座が完成・レベルアップすると、いつもと同じくチケットももらえます";
+    private const string T_STAR_SCAN_A = "このQRコードを読み取ると、";
+    private const string T_STAR_SCAN_B = "に星が";
+    private const string T_STAR_SCAN_C = "つ灯ります";
+    private const string T_STAR_SUB = "今日だけ使えます。同じQRコードは1人1回だけ読み取れます";
+    /// <summary>最後に選んだ星座と数（アプリを起動しているあいだ覚えておく。最初は一覧の先頭の星座・1個）</summary>
+    private static string s_starId;
+    private static int s_starCount = 1;
 
     /// <summary>この画面で表示しうる文字（惑星の名前は SpacePlanets.GlyphText）</summary>
     public static string GlyphText
@@ -98,6 +114,9 @@ public class SpaceAdminQrList : MonoBehaviour
               .Append(T_GAME_SEARCH).Append(T_GAME_EN).Append(T_GAME_SCAN).Append(T_GAME_SUB)
               .Append(T_GOLD_CELL).Append(T_GOLD_CELL_SUB).Append(T_GOLD_EN).Append(T_GOLD_PICK).Append(T_GOLD_RANGE_A)
               .Append(T_GOLD_RANGE_B).Append(T_GOLD_SHOW).Append(T_GOLD_SCAN_B).Append(T_GOLD_SUB)
+              .Append(T_STAR_BUTTON).Append(T_STAR_PICK).Append(T_STAR_UNIT).Append(T_STAR_RANGE_A).Append(T_STAR_RANGE_B)
+              .Append(T_STAR_NOTE).Append(T_STAR_SCAN_A).Append(T_STAR_SCAN_B).Append(T_STAR_SCAN_C).Append(T_STAR_SUB)
+              .Append(StarGiftQr.GlyphText).Append(Constellations.GlyphText)
               .Append(IgCurrency.GlyphText).Append("−＋");
             foreach (var t in T_TABS) sb.Append(t);
             foreach (var t in T_NOTES) sb.Append(t);
@@ -406,7 +425,22 @@ public class SpaceAdminQrList : MonoBehaviour
         page.pivot = SpaceTheme.CENTER;
         page.offsetMin = new Vector2(-GRID_W * 0.5f, LIST_BOTTOM);
         page.offsetMax = new Vector2(GRID_W * 0.5f, -LIST_TOP);
-        var input = SpaceRecruitForm.SearchInput(page, new Vector2(0f, 0f), new Vector2(GRID_W, 96f), T_GAME_SEARCH);
+        // 検索欄の右に「星座に星を灯す」（星座と個数を決めて、星を灯すQRを出す。2026-11-13）
+        const float STAR_BUTTON_W = 300f, STAR_BUTTON_GAP = 16f;
+        var input = SpaceRecruitForm.SearchInput(page, new Vector2(0f, 0f),
+            new Vector2(GRID_W - STAR_BUTTON_W - STAR_BUTTON_GAP, 96f), T_GAME_SEARCH);
+        var starButton = SpaceTheme.Rect("Stars", page, new Vector2(1f, 1f), Vector2.zero, new Vector2(STAR_BUTTON_W, 96f),
+            new Vector2(1f, 1f));
+        var starFace = SpaceTheme.Glass(starButton, 32f, new Color(0.07f, 0.09f, 0.24f, 0.85f), SpaceTheme.A(SpaceTheme.GOLD, 0.6f),
+            true);
+        SpaceTheme.Clickable(starButton.gameObject, starFace, ShowStarPicker);
+        var starIcon = SpaceTheme.Rect("Icon", starButton, new Vector2(0f, 0.5f), new Vector2(46f, 0f), new Vector2(46f, 46f));
+        SpaceTheme.Img(starIcon, SpaceSprites.Sparkle, SpaceTheme.GOLD);
+        var starLabel = SpaceTheme.Text(starButton, "Label", T_STAR_BUTTON, 28, SpaceTheme.GOLD, FontStyles.Bold);
+        SpaceTheme.Stretch(starLabel.rectTransform, 76f, 0f, 16f, 0f);
+        starLabel.enableAutoSizing = true;
+        starLabel.fontSizeMin = 20f;
+        starLabel.fontSizeMax = 28f;
 
         // 行の数は大きめの高さで用意し（画面の高さは機種で違う）、枠は検索欄の下いっぱいに広げる
         const float listH = 1900f;
@@ -693,6 +727,129 @@ public class SpaceAdminQrList : MonoBehaviour
         string label = IgCurrency.Format(amount);
         FillDetail(safe, T_GOLD_EN, SpaceTheme.GOLD, label, GoldQr.NewPayload(amount), T_SCAN_A + label + T_GOLD_SCAN_B,
             T_GOLD_SUB);
+    }
+
+    // ---------------------------------------------------------------- 星座に星を灯す（2026-11-13）
+    /// <summary>
+    /// 灯す星座と数を決める画面: 16の星座（4列。押すと選ぶ）と、数（数字で入力・−/＋）→「QRコードを表示」で
+    /// その星座にその数だけ星を灯すQR（StarGiftQr）を出す
+    /// </summary>
+    private void ShowStarPicker()
+    {
+        var safe = OpenDetail();
+        if (safe == null) return;
+        var top = new Vector2(0.5f, 1f);
+        var all = Constellations.All;
+        var selected = Array.Find(all, d => d.Id == s_starId) ?? all[0];
+
+        var en = SpaceTheme.Text(safe, "En", StarGiftQr.T_CAPTION, 26, SpaceTheme.A(SpaceTheme.GOLD, 0.95f), top,
+            new Vector2(0f, -110f), new Vector2(900f, 36f), FontStyles.Bold);
+        SpaceTheme.Tracking(en, 24f);
+        var title = SpaceTheme.Text(safe, "Title", T_STAR_PICK, 46, SpaceTheme.TEXT, top, new Vector2(0f, -166f),
+            new Vector2(860f, 60f), FontStyles.Bold);
+        title.enableAutoSizing = true;
+        title.fontSizeMin = 30f;
+        title.fontSizeMax = 46f;
+
+        // 星座（4列。選んでいる星座は星座の色の縁）
+        const int STAR_COLS = 4;
+        const float CELL_GAP = 14f, STAR_CELL_H = 186f, GRID_TOP = 226f, FIG = 116f;
+        float cellW = (GRID_W - (STAR_COLS - 1) * CELL_GAP) / STAR_COLS;
+        var marks = new System.Collections.Generic.Dictionary<string, GameObject>();
+        for (int i = 0; i < all.Length; i++)
+        {
+            var def = all[i];
+            var pos = new Vector2(-GRID_W * 0.5f + cellW * 0.5f + (i % STAR_COLS) * (cellW + CELL_GAP),
+                -(GRID_TOP + STAR_CELL_H * 0.5f + (i / STAR_COLS) * (STAR_CELL_H + CELL_GAP)));
+            var cell = SpaceTheme.Rect("Star_" + def.Id, safe, top, pos, new Vector2(cellW, STAR_CELL_H));
+            var face = SpaceTheme.Glass(cell, 30f, new Color(0.07f, 0.09f, 0.24f, 0.78f), null, true);
+            var glow = SpaceTheme.Rect("Glow", cell, SpaceTheme.CENTER, new Vector2(0f, 18f), new Vector2(170f, 170f));
+            SpaceTheme.Img(glow, SpaceSprites.Glow, SpaceTheme.A(def.Color, 0.22f));
+            var fig = SpaceTheme.Rect("Figure", cell, SpaceTheme.CENTER, new Vector2(0f, 18f), new Vector2(FIG, FIG));
+            SpaceConstellationPage.Figure(fig, def, def.Size, FIG); // 完成した姿
+            var name = SpaceTheme.Text(cell, "Name", def.Name, 26, SpaceTheme.TEXT, new Vector2(0.5f, 0f), new Vector2(0f, 26f),
+                new Vector2(cellW - 16f, 34f), FontStyles.Bold);
+            name.enableAutoSizing = true;
+            name.fontSizeMin = 18f;
+            name.fontSizeMax = 26f;
+            var mark = SpaceTheme.Rect("Selected", cell);
+            SpaceTheme.Stretch(mark, -4f, -4f, -4f, -4f);
+            SpaceTheme.RoundedStroke(mark, def.Color, 34f);
+            mark.gameObject.SetActive(def == selected);
+            marks[def.Id] = mark.gameObject;
+            var picked = def;
+            SpaceTheme.Clickable(cell.gameObject, face, () =>
+            {
+                selected = picked;
+                s_starId = picked.Id;
+                foreach (var kv in marks) kv.Value.SetActive(kv.Key == picked.Id);
+            });
+        }
+        int rows = Mathf.CeilToInt(all.Length / (float)STAR_COLS);
+        float y = GRID_TOP + rows * STAR_CELL_H + (rows - 1) * CELL_GAP;
+
+        // 数（−  [ 3 ] 個  ＋）。数字の欄を押すと数字のキーボードで打てる
+        float rowY = -(y + 100f);
+        var input = AmountInput(safe, new Vector2(-40f, rowY), new Vector2(260f, 140f));
+        input.characterLimit = 2;
+        input.text = s_starCount.ToString(CultureInfo.InvariantCulture);
+        SpaceTheme.Text(safe, "Unit", T_STAR_UNIT, 64, SpaceTheme.GOLD, top, new Vector2(140f, rowY), new Vector2(90f, 100f),
+            FontStyles.Bold);
+        void Set(int v)
+        {
+            s_starCount = Mathf.Clamp(v, StarGiftQr.MIN, StarGiftQr.MAX);
+            input.SetTextWithoutNotify(s_starCount.ToString(CultureInfo.InvariantCulture));
+        }
+        int Typed() => int.TryParse(input.text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var v) ? v : s_starCount;
+        input.onEndEdit.AddListener(_ => Set(Typed()));
+        StepButton(safe, new Vector2(-300f, rowY), false, () => Set(Typed() - 1));
+        StepButton(safe, new Vector2(300f, rowY), true, () => Set(Typed() + 1));
+        var range = SpaceTheme.Text(safe, "Range", T_STAR_RANGE_A + StarGiftQr.MAX + T_STAR_RANGE_B, 24, SpaceTheme.TEXT_MUTED,
+            top, new Vector2(0f, -(y + 196f)), new Vector2(900f, 36f), FontStyles.Bold);
+        range.enableAutoSizing = true;
+        range.fontSizeMin = 18f;
+        range.fontSizeMax = 24f;
+        var note = SpaceTheme.Text(safe, "Note", T_STAR_NOTE, 24, SpaceTheme.TEXT_SUB, top, new Vector2(0f, -(y + 236f)),
+            new Vector2(960f, 36f), FontStyles.Bold);
+        note.enableAutoSizing = true;
+        note.fontSizeMin = 18f;
+        note.fontSizeMax = 24f;
+
+        // QRコードを表示（金色のボタン）
+        var show = SpaceTheme.Rect("Show", safe, top, new Vector2(0f, -(y + 340f)), new Vector2(600f, 124f));
+        var showFace = SpaceTheme.GradientFace(show, SpaceTheme.Hex(0xFFE7A0), SpaceTheme.Hex(0xE0A640), SpaceTheme.GOLD);
+        SpaceTheme.Clickable(show.gameObject, showFace, () =>
+        {
+            Set(Typed());
+            ShowStars(selected, s_starCount);
+        });
+        var showLabel = SpaceTheme.Text(show, "Label", T_GOLD_SHOW, 40, SpaceTheme.TEXT_DARK, FontStyles.Bold);
+        SpaceTheme.Stretch(showLabel.rectTransform);
+
+        // 下: 一覧にもどる
+        var back = SpaceTheme.Rect("Back", safe, new Vector2(0.5f, 0f), new Vector2(0f, 56f), new Vector2(560f, 112f),
+            new Vector2(0.5f, 0f));
+        var backFace = SpaceTheme.Glass(back, 46f, new Color(0.05f, 0.07f, 0.19f, 0.92f), null, true);
+        SpaceTheme.Clickable(back.gameObject, backFace, CloseDetail);
+        var backLabel = SpaceTheme.Text(back, "Label", T_BACK, 34, SpaceTheme.TEXT, FontStyles.Bold);
+        SpaceTheme.Stretch(backLabel.rectTransform);
+
+        _detail.AddComponent<SpacePopIn>().Target = (RectTransform)input.transform;
+    }
+
+    /// <summary>星座 def に星を count 個灯すQR（その日だけ・1人1回。出すたびに番号の違う新しいQR）</summary>
+    private void ShowStars(ConstellationDef def, int count)
+    {
+        var safe = OpenDetail();
+        if (safe == null) return;
+        var pos = new Vector2(0f, -150f);
+        var glow = SpaceTheme.Rect("IconGlow", safe, new Vector2(0.5f, 1f), pos, new Vector2(300f, 300f));
+        SpaceTheme.Img(glow, SpaceSprites.Glow, SpaceTheme.A(def.Color, 0.4f));
+        var fig = SpaceTheme.Rect("Figure", safe, new Vector2(0.5f, 1f), pos, new Vector2(170f, 170f));
+        SpaceConstellationPage.Figure(fig, def, def.Size, 170f);
+
+        FillDetail(safe, StarGiftQr.T_CAPTION, def.Color, StarGiftQr.Title(def, count), StarGiftQr.NewPayload(def, count),
+            T_STAR_SCAN_A + def.Name + T_STAR_SCAN_B + count + T_STAR_SCAN_C, T_STAR_SUB);
     }
 
     /// <summary>金額を打つ欄（数字だけ・3桁まで。真ん中そろえの大きな金色の数字）</summary>

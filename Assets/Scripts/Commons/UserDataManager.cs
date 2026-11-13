@@ -355,6 +355,28 @@ public class UserData
     private Dictionary<string, object> _certifiedStarMap;
 
     /// <summary>
+    /// お店から灯した星（2026-11-13。管理者が星座と個数を決めて出すQR＝StarGiftQr）。
+    /// QRの番号 → { id: 星座ID, count: 個数, day: 灯した営業日 "yyyy-MM-dd" }。読むときは StarGiftQr.Gifts
+    /// </summary>
+    [FirestoreProperty("star_gifts")]
+    public Dictionary<string, object> StarGiftMap
+    {
+        get => _starGiftMap ?? (_starGiftMap = new Dictionary<string, object>());
+        set => _starGiftMap = value;
+    }
+    private Dictionary<string, object> _starGiftMap;
+
+    /// <summary>
+    /// ピースパズルの盤面（2026-11-13。{ month, board, types, bonus, claimed }。読むときは PuzzleState.From、表示は PuzzleStore.Current）
+    /// </summary>
+    [FirestoreProperty("puzzle")]
+    public Dictionary<string, object> PuzzleMap { get; set; }
+
+    /// <summary>持っている（まだ置いていない）ピース（2026-11-13。{ "1": 個数, … }。読むときは PuzzleRules.PiecesFrom）</summary>
+    [FirestoreProperty("pieces")]
+    public Dictionary<string, object> PiecesMap { get; set; }
+
+    /// <summary>
     /// 解放済みの惑星ID（新ホームの中央に置ける惑星。アチーブメント報酬）。
     /// 以前からの会員のルミナは入れない（最初から持っている扱い）。最初に選んだ惑星（Starter）は入れる。
     /// 店頭の惑星QRを読むと ArrayUnion で1つずつ増える（CallMethodFromQR.UnlockPlanet）。判定は SpacePlanets.IsOwned 経由で行う。
