@@ -250,7 +250,7 @@ public class NewHomeController : MonoBehaviour
         var insets = SpaceTheme.SafeInsets(size);
         _background = SpaceBackground.Create(canvasRt, size, insets.top);
         // 押せる星座（さいころ座・金貨座・宝石座）の置き場を、星座を並べる前に渡す（あとで決まった場所から跳ばないように）
-        UpdateTapBand(SpaceWorld.Installed ? WORLD_H + WORLD_GAP : 0f);
+        UpdateSkyFrame(SpaceWorld.Installed ? WORLD_H + WORLD_GAP : 0f);
         _background.EnableConstellations(); // 完成した星座を空に並べる
 
         // 中央の惑星の表面テクスチャは裏のスレッドで作るので、文字の登録・UIの組み立てと並行して先に始めておく
@@ -327,7 +327,8 @@ public class NewHomeController : MonoBehaviour
           .Append(T_ORBIT).Append(T_STREAK_UNIT).Append(PlanetPowers.GlyphText).Append(SpaceNotice.JourneyGlyphText)
           .Append(SpaceOrbitPanel.GlyphText).Append(SpaceDiceRoller.GlyphText).Append(DiceChallenge.GlyphText)
           .Append(IgCurrency.GlyphText).Append(SpaceShop.GlyphText).Append(SpaceNotice.CardGlyphText)
-          .Append(SpacePoker.GlyphText).Append(CoinPusher.GlyphText).Append(SpacePuzzle.GlyphText);
+          .Append(SpacePoker.GlyphText).Append(CoinPusher.GlyphText).Append(SpacePuzzle.GlyphText)
+          .Append(SpaceMinions.GlyphText);
         var d = Data;
         if (d != null && !string.IsNullOrEmpty(d.Username)) sb.Append(d.Username);
         return sb.ToString();
@@ -359,7 +360,7 @@ public class NewHomeController : MonoBehaviour
     private void BuildUserCard()
     {
         _cardRt = SpaceTheme.Rect("UserCard", _content);
-        SpaceTheme.TopBand(_cardRt, 168f, 336f, 56f, 56f);
+        SpaceTheme.TopBand(_cardRt, CARD_TOP, CARD_H, 56f, 56f);
         _cardGroup = _cardRt.gameObject.AddComponent<CanvasGroup>();
         SpaceTheme.Glass(_cardRt, 44f);
 
@@ -487,7 +488,8 @@ public class NewHomeController : MonoBehaviour
         _dotBack = OrbitDot("MoonBack");
 
         // 押せる範囲（惑星＋下のラベルまで）
-        var hit = SpaceTheme.Rect("Button", _orbRt, SpaceTheme.CENTER, new Vector2(0f, -60f), new Vector2(500f, 720f));
+        var hit = SpaceTheme.Rect("Button", _orbRt, SpaceTheme.CENTER, new Vector2(0f, CAMERA_HIT_DY),
+            new Vector2(CAMERA_HIT_W, CAMERA_HIT_H));
         SpaceTheme.Clickable(hit.gameObject, SpaceTheme.HitArea(hit), OnCameraPressed);
 
         // 中央の惑星（SpacePlanetView を差し替える入れ物）。ルミナのときだけ中央にカメラのアイコンを重ねる
@@ -826,7 +828,7 @@ public class NewHomeController : MonoBehaviour
         _bagRt.anchorMin = new Vector2(0f, 0f);
         _bagRt.anchorMax = new Vector2(1f, 0f);
         _bagRt.pivot = new Vector2(0.5f, 0f);
-        _bagRt.sizeDelta = new Vector2(-112f, 176f);
+        _bagRt.sizeDelta = new Vector2(-112f, BAG_H);
         _bagRt.anchoredPosition = new Vector2(0f, 64f);
         _bagGroup = _bagRt.gameObject.AddComponent<CanvasGroup>();
         var face = SpaceTheme.Glass(_bagRt, 48f, null, null, true);
@@ -894,27 +896,54 @@ public class NewHomeController : MonoBehaviour
         float lift = on ? WORLD_H + WORLD_GAP : 0f;
         _bagRt.anchoredPosition = new Vector2(0f, BAG_Y + lift);
         if (_cameraArea != null) _cameraArea.offsetMin = new Vector2(_cameraArea.offsetMin.x, CAMERA_BOTTOM + lift);
-        UpdateTapBand(lift);
+        UpdateSkyFrame(lift);
     }
 
     /// <summary>お知らせ・料金表の小さな惑星の名前の下端（小さな惑星の中心からの距離。文字の大きさの設定で少しのびる分も含む）</summary>
     private const float MOON_LABEL_BELOW = 100f;
+    /// <summary>ユーザー情報カードの上端・高さ（セーフエリアの上端から。BuildUserCard）</summary>
+    private const float CARD_TOP = 168f, CARD_H = 336f;
+    /// <summary>中央の惑星の押せる範囲（惑星＋下の「カメラを起動」まで。惑星の中心から下へ CAMERA_HIT_DY ずらした 500×720）</summary>
+    private const float CAMERA_HIT_W = 500f, CAMERA_HIT_H = 720f, CAMERA_HIT_DY = -60f;
+    /// <summary>
+    /// 図鑑・履歴の小さな惑星の名前の下端（小さな惑星の中心からの距離）と、図鑑の名前の半分の幅（いちばん大きい文字のとき）。
+    /// 名前（MoonLabel）は惑星の中心から 82 下・高さ 38・幅 280 の枠で、文字の大きさの設定で少しのびる分も含む
+    /// </summary>
+    private const float SIDE_LABEL_BELOW = 104f, SIDE_LABEL_HALF_W = 135f;
+    /// <summary>所持品ボタンの高さ</summary>
+    private const float BAG_H = 176f;
 
     /// <summary>
-    /// 空の押せる星座（さいころ座・金貨座・宝石座）を置ける高さを背景に渡す（2026-11-12）:
-    /// 図鑑・履歴の小さな惑星の上端 〜 お知らせ・料金表の小さな惑星の名前の下端（キャンバスの下端からの距離）
+    /// 空の星座を置く場所の手がかり（ホームの部品の位置）を背景に渡す。2026-11-12 に押せる星座の置き場の高さを渡し始め、
+    /// 2026-11-14 ユーザー指定「名前などが載ってるUIの下など空きスペースが気になるので、良い感じに散らばるように」で、
+    /// 16の星座すべての置き場を SpaceSkyLayout が部品のあいだの空いている所から決めるようにした。
+    /// 起動時と、INTALES WORLD のボタンを出し入れしたとき（所持品ボタン・中央の惑星が上下する）に呼ぶ。
+    /// どれもキャンバスの左下からの距離
     /// </summary>
-    private void UpdateTapBand(float lift)
+    private void UpdateSkyFrame(float lift)
     {
         if (_background == null || _canvas == null) return;
         var size = SpaceTheme.CanvasSize(_canvas);
         var insets = SpaceTheme.SafeInsets(size);
         float top = size.y - insets.top;
         float areaLo = insets.bottom + CAMERA_BOTTOM + lift, areaHi = top - CAMERA_TOP;
-        float orb = (areaLo + areaHi) * 0.5f + ORB_Y;                    // 中央の惑星の中心
-        float lo = orb + HISTORY_POS.y + HISTORY_HIT * 0.5f;              // 図鑑・履歴の小さな惑星の上端
-        float hi = top + PRICE_POS.y - MOON_LABEL_BELOW;                  // お知らせ・料金表の名前の下端
-        _background.SetTapBand(lo, hi);
+        float orb = (areaLo + areaHi) * 0.5f + ORB_Y;  // 中央の惑星の中心
+        float camera = orb + CAMERA_HIT_DY;            // 中央の惑星の押せる範囲の中心
+        float side = orb + HISTORY_POS.y;              // 図鑑・履歴の小さな惑星の中心
+        _background.SetSkyFrame(new SpaceSkyLayout.Frame
+        {
+            Width = size.x,
+            CardBottom = top - (CARD_TOP + CARD_H),
+            MoonTop = top + PRICE_POS.y + PRICE_HIT * 0.5f,
+            MoonLabelBottom = top + PRICE_POS.y - MOON_LABEL_BELOW,
+            CameraTop = camera + CAMERA_HIT_H * 0.5f,
+            CameraBottom = camera - CAMERA_HIT_H * 0.5f,
+            CameraLeft = size.x * 0.5f - CAMERA_HIT_W * 0.5f,
+            SideTop = side + HISTORY_HIT * 0.5f,
+            SideLabelBottom = side - SIDE_LABEL_BELOW,
+            SideLabelRight = size.x * 0.5f + ZUKAN_POS.x + SIDE_LABEL_HALF_W,
+            BagTop = insets.bottom + BAG_Y + lift + BAG_H,
+        });
     }
 
     /// <summary>ボタンの下の一言（今日もう置いたか・入店中か）</summary>
@@ -1291,7 +1320,7 @@ public class NewHomeController : MonoBehaviour
                               || _prices != null || _orbitPanel != null || _accountMenu.IsOpen
                               || SpaceConstellationPage.Instance != null || SpaceDiceRoller.Instance != null
                               || SpaceShop.Instance != null || SpacePoker.Instance != null || CoinPusher.Active
-                              || SpacePuzzle.Instance != null;
+                              || SpacePuzzle.Instance != null || SpaceMinions.Instance != null;
 
     /// <summary>公転の画面（ユーザーカードの公転・来店回数・入店状況を押す）</summary>
     private void OpenOrbit()
@@ -2009,7 +2038,8 @@ public class NewHomeController : MonoBehaviour
             _planetView.Animate = !qrOpen && _news == null && _zukan == null && _prices == null
                                   && SpaceConstellationPage.Instance == null && SpaceDiceRoller.Instance == null
                                   && SpaceShop.Instance == null && SpacePoker.Instance == null && !CoinPusher.Active
-                                  && SpacePuzzle.Instance == null && (_picker == null || _landing);
+                                  && SpacePuzzle.Instance == null && SpaceMinions.Instance == null
+                                  && (_picker == null || _landing);
 
         // 惑星を解放したお知らせで「この惑星にする」が押されたら、中央の惑星を入れ替える
         // （選ぶ画面からの決定は OnPlanetChosen が先に _planet を変えるので、ここでは何もしない）
@@ -2040,6 +2070,7 @@ public class NewHomeController : MonoBehaviour
             else if (CoinPusherController.Instance != null) CoinPusherController.Instance.HandleBack(); // コインプッシャー（全画面）
             else if (SpaceConstellationPage.Instance != null) SpaceConstellationPage.Instance.HandleBack();
             else if (SpaceDiceRoller.Instance != null) SpaceDiceRoller.Instance.HandleBack();
+            else if (SpaceMinions.Instance != null) SpaceMinions.Instance.HandleBack(); // ミニオン（2026-11-14。作るシート → 画面）
             // ピースパズルとショップは互いの上に開ける（パズルの「ショップでピースを買う」・ピースを買ったお知らせの「パズルを開く」）
             // ので、手前にあるほうから閉じる
             else if (SpacePuzzle.Instance != null && (SpaceShop.Instance == null
@@ -2073,6 +2104,8 @@ public class NewHomeController : MonoBehaviour
         if (DebugGoldPressed() && !_debugGold) DebugGoldAsync().Forget();
         // エディタ専用: T キーでトランプを1枚引く（1日1回の決まりを使わない。ポーカーを試すため。本当に書き込む。2026-11-12）
         if (DebugCardPressed() && !_debugCard && !SpaceNoticeQueue.Running) DebugCardAsync().Forget();
+        // エディタ専用: M キーで旅の途中のミニオンを全員すぐ帰らせる（24時間待たずに試すため。本当に書き込む。2026-11-14）
+        if (DebugMinionPressed() && !_debugMinion) DebugMinionAsync().Forget();
 #endif
     }
 
@@ -2271,6 +2304,43 @@ public class NewHomeController : MonoBehaviour
 #endif
 #if ENABLE_LEGACY_INPUT_MANAGER
         if (Input.GetKeyDown(KeyCode.T)) pressed = true;
+#endif
+        return pressed;
+    }
+
+    private bool _debugMinion;
+
+    /// <summary>エディタ専用: M キーで旅の途中のミニオンを全員すぐ帰らせる（MinionStore.DebugReturnAllAsync）</summary>
+    private async UniTaskVoid DebugMinionAsync()
+    {
+        _debugMinion = true;
+        try
+        {
+            var r = await MinionStore.DebugReturnAllAsync();
+            if (this == null) return;
+            SpaceTheme.Toast(SpaceTheme.SafeNow(r != null && r.Ok ? $"ミニオンを {r.LevelAfter} 体すぐ帰らせました（デバッグ）"
+                : (r?.Error ?? "失敗しました")), _canvas);
+        }
+        catch (Exception ex)
+        {
+            Debug.LogError($"[Debug] ミニオンの書き込みに失敗: {ex.Message}");
+        }
+        finally
+        {
+            _debugMinion = false;
+        }
+    }
+
+    /// <summary>エディタ専用: M キー（旅の途中のミニオンをすぐ帰らせる）</summary>
+    private static bool DebugMinionPressed()
+    {
+        bool pressed = false;
+#if ENABLE_INPUT_SYSTEM
+        var kb = UnityEngine.InputSystem.Keyboard.current;
+        if (kb != null && kb.mKey.wasPressedThisFrame) pressed = true;
+#endif
+#if ENABLE_LEGACY_INPUT_MANAGER
+        if (Input.GetKeyDown(KeyCode.M)) pressed = true;
 #endif
         return pressed;
     }

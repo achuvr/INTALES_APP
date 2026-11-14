@@ -177,7 +177,8 @@ public class SpaceShop : MonoBehaviour
                 : CardDeck.MustDiscard ? CardDeck.DiscardFirstText(CardDeck.Current) : null,
         });
         // ピース（2026-11-13 ユーザー指定「ショップで3G払うと1ピースランダムで手に入り、7G払うと選んで購入できる」）。
-        // ピース座が完成した人だけ並ぶ。ランダムの次に、選んで買う7種類（U字＝レアはランダムでしか出ないので並べない）
+        // ピース座が完成した人だけ並ぶ。ランダムの次に、選んで買う7種類（U字＝レアはランダムでしか出ないので並べない）。
+        // 1マスのピースだけは選んでも3G（2026-11-14 ユーザー指定「1マスピースを3Gで購入できるように」。PuzzleRules.ChoosePrice）
         list.Add(new SpaceShopItem
         {
             Id = "piece_random", Field = PuzzleStore.FIELD_PIECES, Name = T_PIECE_RANDOM_NAME, Desc = T_PIECE_RANDOM_DESC,
@@ -191,7 +192,7 @@ public class SpaceShop : MonoBehaviour
             list.Add(new SpaceShopItem
             {
                 Id = "piece_" + piece.Id, Field = PuzzleStore.FIELD_PIECES, Name = piece.Name + T_PIECE_NAME_B,
-                Desc = T_PIECE_DESC_A + piece.Size + T_PIECE_DESC_B, Price = PuzzleRules.CHOOSE_PRICE,
+                Desc = T_PIECE_DESC_A + piece.Size + T_PIECE_DESC_B, Price = PuzzleRules.ChoosePrice(piece.Id),
                 Tint = PuzzleArt.ColorOf(piece.Id), Icon = () => PuzzleArt.Icon(piece.Id),
                 Owned = d => PuzzleStore.Owned[piece.Id], Add = (d, n) => { }, Piece = piece.Id,
                 Visible = () => PuzzleStore.Unlocked,

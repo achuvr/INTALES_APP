@@ -141,6 +141,14 @@ public class QRReader : MonoBehaviour
             return;
         }
 
+        // ミニオンをあげるQR（"minion:{職業}:{属性}:{レベル}:{営業日}:{番号}:{署名}"。管理者が職業・属性・レベルを決めて見せる。
+        // その日だけ・1人1回。2026-11-14 MinionGiftQr）
+        if (_result.StartsWith(MinionGiftQr.PREFIX))
+        {
+            _callMethodFromQR.ClaimMinion(_result).Forget();
+            return;
+        }
+
         switch (_result)
         {
             case "Lv+1":

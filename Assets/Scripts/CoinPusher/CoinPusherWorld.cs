@@ -1172,6 +1172,15 @@ public class CoinPusherTwinkle : MonoBehaviour
         }
         _t += Time.deltaTime;
         float k = Mathf.Clamp01(_t / LIFE);
+        if (k >= 1f)
+        {
+            // きらめき終わり。先に片づける（k = 1 で sin(π) を計算すると、float の丸めでごくわずかに負の数
+            // −0.0000000874 になり、その平方根が NaN で「localScale is NaN」のエラーになっていた。2026-11-14）
+            _t = -1f;
+            _next = now + UnityEngine.Random.Range(0.7f, 1.8f);
+            _glint.localScale = Vector3.zero;
+            return;
+        }
         // コインの2つの面のうち、上を向いているほう（裏返っていても上の面で光る）
         var up = _glint.parent != null ? _glint.parent.up : Vector3.up;
         float side = Vector3.Dot(transform.up, up) >= 0f ? 1f : -1f;
@@ -1179,14 +1188,8 @@ public class CoinPusherTwinkle : MonoBehaviour
         pos += (_cam.position - pos).normalized * 0.08f; // 少しカメラ寄りに（面に埋もれないように）
         _glint.position = pos;
         _glint.rotation = _cam.rotation * Quaternion.Euler(0f, 0f, _spin + k * 40f);
-        float s = Mathf.Sin(k * Mathf.PI); // 0 → 1 → 0
+        float s = Mathf.Max(0f, Mathf.Sin(k * Mathf.PI)); // 0 → 1 → 0（負にならないように。平方根を取るので）
         _glint.localScale = Vector3.one * (SIZE * s * Mathf.Sqrt(s));
-        if (k >= 1f)
-        {
-            _t = -1f;
-            _next = now + UnityEngine.Random.Range(0.7f, 1.8f);
-            _glint.localScale = Vector3.zero;
-        }
     }
 
     private void OnDisable()

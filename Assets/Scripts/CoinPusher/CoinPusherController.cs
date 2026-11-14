@@ -31,6 +31,11 @@ public class CoinPusherController : MonoBehaviour
     private const float RESAVE_INTERVAL = 10f;   // 何もしなくても台の並びを保存し直す間隔（プッシャーで動くので）
     private const float MONTH_CHECK_INTERVAL = 10f; // 開いているあいだに月が変わっていないか調べる間隔（アプリに戻ったときはすぐ）
     private const float RESET_NOTICE_LIFE = 3f;  // リセットの知らせを出しておく秒数（ボーナスの知らせより長く。文が長いので）
+    private const float BANNER_LIFE = 1.8f;      // ボーナス・コインタワーの知らせを出しておく秒数
+    // ボーナスとコインタワーが同じ時になったときの間（秒）。前の知らせが消えてから次を出す。2026-11-14 ユーザー指摘
+    // 「上から降ってくるボーナスが2個同時にくることがある」: 20枚入れたボーナスと40枚ゲットしたコインタワー（コマも1つ落ちてくる）は
+    // 別々に数えるので、同じ時に届くと2つが一緒に落ち、知らせも同じ所に重なっていた
+    private const float BONUS_GAP = BANNER_LIFE;
     private const int MAX_POPUPS = 10;
     private const float CHIP = 88f, CHIP_GOLD = 130f; // 上の帯の「今回の獲得」の1つ分の幅（G だけ広い）
     private const float CHIP_NARROW = 78f;            // ピースも並べて8つにするときの、G 以外の幅（2026-11-13）
@@ -54,7 +59,8 @@ public class CoinPusherController : MonoBehaviour
     private TextMeshProUGUI _wallet;
     private readonly TextMeshProUGUI[] _gotCounts = new TextMeshProUGUI[HUD_ITEMS.Length];
     private TextMeshProUGUI _pieceCount; // 今回の獲得のピース（全種類の合計。ピース座が完成している人だけ。2026-11-13）
-    private bool _built, _closing, _holding, _fieldDirty, _towerPending;
+    private bool _built, _closing, _holding, _fieldDirty, _towerPending, _bonusPending;
+    private float _bonusFreeAt; // 次のボーナス・コインタワーを始めてよい時刻（Time.unscaledTime。BONUS_GAP）
     private float _nextDrop, _holdNext, _nextFlush, _nextSave, _nextResave, _nextShortToast, _nextMonthCheck;
     private int _sinceBonus, _sinceTower, _popups; // ボーナスまでに入れた枚数・コインタワーまでにゲットした枚数（台と一緒に保存）
     // 台をはじめの並びに戻すたびに増やす（戻す前に知らせを出して、落とすのを待っていたボーナス・コインタワーを新しい台に持ちこまない）
@@ -178,6 +184,7 @@ public class CoinPusherController : MonoBehaviour
         if (expired)
             ShowBanner(CoinPusher.T_MONTHLY, CoinPusher.T_MONTHLY_SUB, SpaceTheme.CYAN, life: RESET_NOTICE_LIFE);
         MaybeTower(); // 前に開いていたとき、タワーが出る前に閉じていたら
+        MaybeBonus(); // ボーナスが落ちる前に閉じていたら（2026-11-14 から）
     }
 
     /// <summary>
@@ -392,6 +399,7 @@ public class CoinPusherController : MonoBehaviour
         if (!_built || _closing || _world == null) return;
         _fieldGen++;
         _towerPending = false;
+        _bonusPending = false;
         _world.Clear();
         _world.FillInitial(CoinPusher.MonthKey);
         _sinceBonus = 0;
@@ -489,28 +497,55 @@ public class CoinPusherController : MonoBehaviour
         CoinPusherSounds.Clink();
         _fieldDirty = true;
         RefreshHud();
-        if (++_sinceBonus >= CoinPusher.BONUS_EVERY)
-        {
-            _sinceBonus = 0;
-            StartCoroutine(DropBonus());
-        }
+        _sinceBonus++;
+        MaybeBonus();
+    }
+
+    /// <summary>
+    /// 入れたコインが BONUS_EVERY 枚に届いていたら、ボーナスを出す（出している途中なら、出し終わってから）。
+    /// 数はボーナスが落ちてから減らす（落ちる前に閉じたら、数はそのまま保存されて、次に開いたときに出る。コインタワーと同じ。
+    /// 2026-11-14 から。それまでは届いた時に 0 に戻していた。コインタワーの知らせが消えるのを待つことができたので、
+    /// 待っているあいだに閉じてもボーナスがなくならないようにした）
+    /// </summary>
+    private void MaybeBonus()
+    {
+        if (_bonusPending || _closing || !_built || _sinceBonus < CoinPusher.BONUS_EVERY) return;
+        _bonusPending = true;
+        StartCoroutine(DropBonus());
     }
 
     /// <summary>
     /// ボーナス: 星のカケラ・コマ（色はおまかせ）・惑星回復薬のどれかを、プッシャーの上のどこかへ1つ落とす。
     /// ピース座が完成している人（管理者は初めから）は、ピースパズルのピース（レアのU字も）のこともある
-    /// （2026-11-13 ユーザー指定。割合は CoinPusher.BONUS_PIECE・種類は CoinPusher.RollPieceType）
+    /// （2026-11-13 ユーザー指定。割合は CoinPusher.BONUS_PIECE・種類は CoinPusher.RollPieceType）。
+    /// コインタワーと同じ時になったら、前の知らせが消えるまで待ってから出す（BONUS_GAP）
     /// </summary>
     private IEnumerator DropBonus()
     {
         int gen = _fieldGen;
+        while (Time.unscaledTime < _bonusFreeAt) yield return null; // 前のボーナス・コインタワーの知らせが消えるまで待つ
+        if (gen != _fieldGen) yield break; // 待っているあいだに台をリセットした（数は 0 に戻してある）
+        if (_world == null || _closing)
+        {
+            _bonusPending = false;
+            yield break;
+        }
+        _bonusFreeAt = Time.unscaledTime + BONUS_GAP; // 次のボーナス・コインタワーは、この知らせが消えてから
         var kind = CoinPusher.RollBonus(UnityEngine.Random.value, PuzzleStore.Unlocked, UnityEngine.Random.value);
         ShowBanner(CoinPusher.T_BONUS, NameOf(kind) + CoinPusher.T_BONUS_FALL_B, ColorOf(kind));
         CoinPusherSounds.Bonus();
         yield return new WaitForSecondsRealtime(0.6f);
-        if (_world == null || _closing || gen != _fieldGen) yield break; // 待っているあいだに台をリセットした
+        if (gen != _fieldGen) yield break; // 待っているあいだに台をリセットした
+        if (_world == null || _closing)
+        {
+            _bonusPending = false;
+            yield break;
+        }
         _world.DropBonus(kind);
+        _sinceBonus -= CoinPusher.BONUS_EVERY;
         _fieldDirty = true;
+        _bonusPending = false;
+        MaybeBonus();
     }
 
     // ================================================================
@@ -518,6 +553,9 @@ public class CoinPusherController : MonoBehaviour
     // ================================================================
     private void OnWon(PusherItem kind, Vector3 world)
     {
+        // 閉じている途中（「保存しています…」のあいだ。台の並びは閉じ始めに保存済み）に落ちた物は数えない。
+        // その物は保存した台に残っていて次に開いたときに戻るので、ここで数えると二重にもらえてしまう（2026-11-14）
+        if (_closing) return;
         CoinPusher.RecordWin(kind);
         _session.Add(kind);
         _fieldDirty = true;
@@ -548,11 +586,20 @@ public class CoinPusherController : MonoBehaviour
     /// <summary>
     /// コインタワー: 知らせを出してから、プッシャーの上にコインを積んだタワーを出し、同時にタワーの横へコマを1つ落とす
     /// （2026-11-12 ユーザー指定。色は赤・青・黄・黒から同じ割合で。CoinPusher.RollTowerMeeple）。タワーとコマは同じ時に出すので、
-    /// どちらかだけになることはない。数はタワーが出てから減らす（出る前に閉じたら、数はそのまま保存されて、次に開いたときに出る）
+    /// どちらかだけになることはない。数はタワーが出てから減らす（出る前に閉じたら、数はそのまま保存されて、次に開いたときに出る）。
+    /// 20枚ごとのボーナスと同じ時になったら、前の知らせが消えるまで待ってから出す（BONUS_GAP。2026-11-14）
     /// </summary>
     private IEnumerator TowerBonus()
     {
         int gen = _fieldGen;
+        while (Time.unscaledTime < _bonusFreeAt) yield return null; // 前のボーナスの知らせが消えるまで待つ
+        if (gen != _fieldGen) yield break; // 待っているあいだに台をリセットした（数は 0 に戻してある）
+        if (_world == null || _closing)
+        {
+            _towerPending = false;
+            yield break;
+        }
+        _bonusFreeAt = Time.unscaledTime + BONUS_GAP; // 次のボーナスは、この知らせが消えてから
         var meeple = CoinPusher.RollTowerMeeple(UnityEngine.Random.value);
         ShowBanner(CoinPusher.T_TOWER, CoinPusher.T_TOWER_SUB_A + CoinPusher.TOWER_EVERY + CoinPusher.T_TOWER_SUB_B, SpaceTheme.GOLD,
             NameOf(meeple) + CoinPusher.T_TOWER_ALSO_B, ColorOf(meeple));
@@ -653,7 +700,8 @@ public class CoinPusherController : MonoBehaviour
     /// そこを隠さないように。2026-11-12 までは 62% で、プッシャーの上と重なっていた）。
     /// sub2 があれば3行目に（コインタワーの「黒コマも落ちてくる」。その色 sub2Color で）。life は出しておく秒数
     /// </summary>
-    private void ShowBanner(string title, string sub, Color color, string sub2 = null, Color? sub2Color = null, float life = 1.8f)
+    private void ShowBanner(string title, string sub, Color color, string sub2 = null, Color? sub2Color = null,
+        float life = BANNER_LIFE)
     {
         if (_popLayer == null) return;
         var rt = SpaceTheme.Rect("Banner", _popLayer, new Vector2(0.5f, 0.75f), Vector2.zero, new Vector2(900f, 160f));

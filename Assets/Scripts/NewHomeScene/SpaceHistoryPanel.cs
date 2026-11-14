@@ -70,6 +70,7 @@ public class SpaceHistoryPanel : MonoBehaviour
         new Kind { Key = CardDeck.HISTORY, Label = "トランプ", Color = SpaceTheme.Hex(0xB89BFF) }, // 引いた・捨てた・ポーカー（2026-11-12）
         new Kind { Key = CoinPusher.HISTORY, Label = "ミニゲーム", Color = SpaceTheme.Hex(0x7FE7FF) }, // コインプッシャー（2026-11-12）
         new Kind { Key = PuzzleStore.HISTORY, Label = "パズル", Color = SpaceTheme.Hex(0x8FA8FF) }, // ピースパズル（2026-11-13）
+        new Kind { Key = MinionStore.HISTORY, Label = "ミニオン", Color = SpaceTheme.MINT }, // ミニオン（2026-11-14）
     };
     private static readonly Kind OTHER = new Kind { Key = "", Label = "その他", Color = SpaceTheme.TEXT_SUB };
 

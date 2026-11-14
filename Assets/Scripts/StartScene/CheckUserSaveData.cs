@@ -66,6 +66,7 @@ public class CheckUserSaveData : MonoBehaviour
         }
         catch (System.Exception ex)
         {
+            if (this == null) return; // ログインの途中で再生を止めた（エディタ）。止めたあとの画面に何も出さない
             // パスワード変更・通信不良・ファイルの破損などで自動ログインできないときはログインの入力に戻す
             Debug.LogError($"自動ログイン失敗: {ex}");
             if (_screen != null) _screen.OnAutoLoginFailed();
@@ -74,6 +75,9 @@ public class CheckUserSaveData : MonoBehaviour
             return;
         }
 
+        // ログインの途中で再生を止めた（エディタ）: Start シーンも UserDataManager も消えているので、ここで終える
+        // （続けると、再生を止めたあとに Firestore を読み、消えた UserDataManager で MissingReferenceException。2026-11-14）
+        if (this == null || UserDataManager.instance == null) return;
         SetUserDataSingleton(uid);
         await UserDataManager.instance.FetchUserDataByUID();
     }

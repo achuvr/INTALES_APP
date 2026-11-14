@@ -43,6 +43,7 @@ public static partial class SpaceNotice
         .Append(SpaceNoticeTexts.SwapUnlockedNeedCards)
         .Append(SpaceNoticeTexts.PuzzleUnlocked).Append(SpaceNoticeTexts.PuzzleUnlockedSub).Append(SpaceNoticeTexts.PuzzleUnlockedWhere)
         .Append(SpaceNoticeTexts.PuzzleUnlockedNeedShop)
+        .Append(SpaceNoticeTexts.MinionUnlocked).Append(SpaceNoticeTexts.MinionUnlockedSub).Append(SpaceNoticeTexts.MinionUnlockedTap)
         .Append(IgCurrency.GlyphText)
         .Append("Lv.0123456789/ →（）枚").ToString();
 
@@ -340,6 +341,9 @@ public class SpaceConstellationReveal : MonoBehaviour
             UnlockedLines(safe, textGroup, textY - 250f, "Puzzle", PuzzleArt.Icon(0), SpaceNoticeTexts.PuzzleUnlocked,
                 SpaceNoticeTexts.PuzzleUnlockedSub,
                 IgCurrency.Unlocked ? SpaceNoticeTexts.PuzzleUnlockedWhere : SpaceNoticeTexts.PuzzleUnlockedNeedShop, SpacePuzzle.ACCENT);
+        if (first && def.Id == MinionStore.CONSTELLATION) // きずな座の完成でミニオン（2026-11-14）
+            UnlockedLines(safe, textGroup, textY - 250f, "Minion", MinionArt.Sprite(0, 2), SpaceNoticeTexts.MinionUnlocked,
+                SpaceNoticeTexts.MinionUnlockedSub, SpaceNoticeTexts.MinionUnlockedTap, SpaceMinions.ACCENT);
         var tg = textGroup.gameObject.AddComponent<CanvasGroup>();
         tg.alpha = 0f;
         yield return SpaceTheme.Tween(0.5f, 0f, k =>
@@ -501,6 +505,10 @@ internal static class SpaceNoticeTexts
     public const string PuzzleUnlockedSub = "ボーナスマスのまわり8マスをピースで囲むと、アイテムがもらえます";
     public const string PuzzleUnlockedWhere = "ホームの空のピース座をタップすると遊べます。ピースは金貨座のショップで買えます";
     public const string PuzzleUnlockedNeedShop = "ホームの空のピース座をタップすると遊べます。ピースは金貨座が完成するとショップで買えます";
+    /// <summary>きずな座が完成したときだけ添える一言（2026-11-14。旅に出てアイテムを持ち帰るミニオン）</summary>
+    public const string MinionUnlocked = "ミニオンを作れるようになりました";
+    public const string MinionUnlockedSub = "ミニオンは旅に出て、アイテムを見つけて持ち帰ってくれる仲間です";
+    public const string MinionUnlockedTap = "ホームの空のきずな座をタップすると、ミニオンの画面が開きます";
     public const string IgUnlockedSubB = " もらえます。所持金は所持品で見られます";
     public const string IgUnlockedShop = "ホームの空の金貨座をタップすると、ショップが開きます";
 }

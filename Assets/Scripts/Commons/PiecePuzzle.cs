@@ -127,7 +127,7 @@ public sealed class PuzzleState
 ///    置いたピースは動かせない
 ///  ・ボーナスマスは盤のふちを除いた所に BONUS_COUNT 個。互いのまわり8マスには入らない（どれも囲める）。
 ///    並びともらえる物は月ごとに決まる（その月はみんな同じ盤面。Generate）
-///  ・ピースはショップで、ランダムに1つ 3G・選んで 7G（U字はランダムでしか出ない）
+///  ・ピースはショップで、ランダムに1つ 3G・選んで 7G（U字はランダムでしか出ない）。1マスだけは選んでも 3G（2026-11-14）
 /// </summary>
 public static class PuzzleRules
 {
@@ -141,6 +141,11 @@ public static class PuzzleRules
     public const int RARE_PERCENT = 5;
     /// <summary>ショップの値段（G。ユーザー指定）</summary>
     public const int RANDOM_PRICE = 3, CHOOSE_PRICE = 7;
+    /// <summary>1マスのピース（番号）と、それを選んで買う値段（2026-11-14 ユーザー指定「1マスピースを3Gで購入できるように」）</summary>
+    public const int SINGLE = 7, SINGLE_PRICE = 3;
+
+    /// <summary>形を選んで買うときの値段（G）。1マスだけ SINGLE_PRICE、ほかは CHOOSE_PRICE</summary>
+    public static int ChoosePrice(int pieceId) => pieceId == SINGLE ? SINGLE_PRICE : CHOOSE_PRICE;
 
     // ボーナスマスでもらえる物（users のフィールド名。こちらで決めた）。毎月この5つ（コマの色は月ごとに変わる）
     public const string REWARD_DRINK = "drink_coupon";

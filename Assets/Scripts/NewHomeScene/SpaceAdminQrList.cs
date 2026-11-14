@@ -15,7 +15,8 @@ using UnityEngine.UI;
 ///                 このQRを自分では読めないので、読んだのと同じ入店をする。入店中は「ログアウト」＝退店）
 ///  ・クーポン   … 店頭クーポン4種（所持品と同じ並び）。中身は従来の店頭QRと同じ文字（CallMethodFromQR.QR_*_COUPON）。
 ///                 読み取るたびに1枚もらえ、受け取った側の新ホームが「○○を1枚入手しました」と知らせる。
-///                 最後のマス「G を渡す」（2026-11-12）は金額を決めて G のQR（GoldQr。その日だけ・1人1回）を出す
+///                 「G を渡す」（2026-11-12）は金額を決めて G のQR（GoldQr。その日だけ・1人1回）を出す。
+///                 最後のマス「ミニオンをあげる」（2026-11-14）は職業・属性・レベルを決めてミニオンのQR（MinionGiftQr。その日だけ・1人1回）を出す
 ///  ・ゲーム     … ゲームを選ぶと、その日の公認QR（BoardGameCertify。アチーブメント達成＋星座の星が1つ）。
 ///                 検索欄の右の「星座に星を灯す」（2026-11-13）は、星座と個数を決めて星を灯すQR（StarGiftQr。その日だけ・1人1回）を出す
 ///  ・惑星の解放 … SpacePlanets.QrPayload。惑星を選ぶ画面と同じ並び・同じマス（最初から持っているルミナのマスは空き）
@@ -35,7 +36,7 @@ public class SpaceAdminQrList : MonoBehaviour
     private static readonly string[] T_NOTES =
     {
         "お店の入口などに出しておきます（毎日変わります）",
-        "クーポンは読み取るたびに1枚、G は決めた金額をもらえます",
+        "クーポンは読み取るたびに1枚。G とミニオンは決めたものを1人1回もらえます",
         "遊んだゲームを選んで見せると、アチーブメント達成になり星座が灯ります",
         "条件を達成したお客様に見せて、読み取ってもらいます",
         "購入されたお客様に、種類を選んで受け取りQRを見せます",
@@ -97,6 +98,16 @@ public class SpaceAdminQrList : MonoBehaviour
     /// <summary>最後に選んだ星座と数（アプリを起動しているあいだ覚えておく。最初は一覧の先頭の星座・1個）</summary>
     private static string s_starId;
     private static int s_starCount = 1;
+    // ミニオンをあげるQR（2026-11-14 ユーザー指定「指定した職業・属性・レベルのミニオンをあげるQRコードを発行できるように」。MinionGiftQr）
+    private const string T_MINION_CELL = "ミニオンをあげる";
+    private const string T_MINION_CELL_SUB = "職業・属性・レベルを決めてQRを出します";
+    private const string T_MINION_PICK = "あげるミニオンを決めてください";
+    private const string T_MINION_JOB = "職業";
+    private const string T_MINION_ELEMENT = "属性";
+    private const string T_MINION_LEVEL = "レベル（1〜150）";
+    private static readonly int[] MINION_LEVEL_PRESETS = { 1, 10, 30, 50, 100, 150 };
+    /// <summary>最後に選んだ職業・属性・レベル（アプリを起動しているあいだ覚えておく）</summary>
+    private static int s_minionJob, s_minionElement, s_minionLevel = 1;
 
     /// <summary>この画面で表示しうる文字（惑星の名前は SpacePlanets.GlyphText）</summary>
     public static string GlyphText
@@ -117,6 +128,8 @@ public class SpaceAdminQrList : MonoBehaviour
               .Append(T_STAR_BUTTON).Append(T_STAR_PICK).Append(T_STAR_UNIT).Append(T_STAR_RANGE_A).Append(T_STAR_RANGE_B)
               .Append(T_STAR_NOTE).Append(T_STAR_SCAN_A).Append(T_STAR_SCAN_B).Append(T_STAR_SCAN_C).Append(T_STAR_SUB)
               .Append(StarGiftQr.GlyphText).Append(Constellations.GlyphText)
+              .Append(T_MINION_CELL).Append(T_MINION_CELL_SUB).Append(T_MINION_PICK).Append(T_MINION_JOB).Append(T_MINION_ELEMENT)
+              .Append(T_MINION_LEVEL).Append(MinionGiftQr.GlyphText).Append(MinionStore.GlyphText)
               .Append(IgCurrency.GlyphText).Append("−＋");
             foreach (var t in T_TABS) sb.Append(t);
             foreach (var t in T_NOTES) sb.Append(t);
@@ -360,13 +373,38 @@ public class SpaceAdminQrList : MonoBehaviour
     private GameObject BuildCouponPage()
     {
         var all = SpaceCoupons.All;
-        int cells = all.Length + 1; // クーポン＋「G を渡す」（2026-11-12）
+        int cells = all.Length + 2; // クーポン＋「G を渡す」（2026-11-12）＋「ミニオンをあげる」（2026-11-14）
         int rows = Mathf.CeilToInt(cells / 2f);
         float contentH = PAD_TOP + rows * COUPON_H + (rows - 1) * GAP + PAD_BOTTOM;
         var content = BuildScroll("CouponList", contentH, out var page);
         for (int i = 0; i < all.Length; i++) BuildCouponCell(content, all[i], i);
         BuildGoldCell(content, all.Length);
+        BuildMinionCell(content, all.Length + 1);
         return page;
+    }
+
+    /// <summary>「ミニオンをあげる」のマス（G の次。2026-11-14）。押すと職業・属性・レベルを決める画面</summary>
+    private void BuildMinionCell(RectTransform content, int index)
+    {
+        var pos = new Vector2(COUPON_W * 0.5f + (index % 2) * (COUPON_W + GAP),
+            -(PAD_TOP + COUPON_H * 0.5f + (index / 2) * (COUPON_H + GAP)));
+        var rt = SpaceTheme.Rect("Minion", content, new Vector2(0f, 1f), pos, new Vector2(COUPON_W, COUPON_H));
+        var face = SpaceTheme.Glass(rt, 40f, new Color(0.07f, 0.09f, 0.24f, 0.78f), SpaceTheme.A(SpaceMinions.ACCENT, 0.45f), true);
+        var color = MinionArt.ColorOf(s_minionElement);
+        var glow = SpaceTheme.Rect("Glow", rt, SpaceTheme.CENTER, new Vector2(0f, 50f), new Vector2(COUPON_ICON * 1.2f, COUPON_ICON * 1.2f));
+        SpaceTheme.Img(glow, SpaceSprites.Glow, SpaceTheme.A(color, 0.35f));
+        var icon = SpaceTheme.Rect("Picture", rt, SpaceTheme.CENTER, new Vector2(0f, 50f), new Vector2(COUPON_ICON, COUPON_ICON));
+        var img = SpaceTheme.Img(icon, MinionArt.Sprite(s_minionJob, s_minionElement), Color.white);
+        img.preserveAspect = true;
+        SpaceTheme.Text(rt, "Name", T_MINION_CELL, 34, SpaceTheme.TEXT, SpaceTheme.CENTER,
+            new Vector2(0f, -COUPON_H * 0.5f + 92f), new Vector2(COUPON_W - 24f, 46f), FontStyles.Bold);
+        var desc = SpaceTheme.Text(rt, "Desc", T_MINION_CELL_SUB, 24, SpaceTheme.TEXT_SUB, SpaceTheme.CENTER,
+            new Vector2(0f, -COUPON_H * 0.5f + 48f), new Vector2(COUPON_W - 24f, 34f), FontStyles.Bold);
+        desc.enableAutoSizing = true;
+        desc.fontSizeMin = 16f;
+        desc.fontSizeMax = 24f;
+        QrMark(rt, 36f, 30f);
+        SpaceTheme.Clickable(rt.gameObject, face, ShowMinionPicker);
     }
 
     /// <summary>「G を渡す」のマス（クーポンの最後）。押すと金額を決める画面</summary>
@@ -850,6 +888,191 @@ public class SpaceAdminQrList : MonoBehaviour
 
         FillDetail(safe, StarGiftQr.T_CAPTION, def.Color, StarGiftQr.Title(def, count), StarGiftQr.NewPayload(def, count),
             T_STAR_SCAN_A + def.Name + T_STAR_SCAN_B + count + T_STAR_SCAN_C, T_STAR_SUB);
+    }
+
+    // ---------------------------------------------------------------- ミニオンをあげる（2026-11-14）
+    /// <summary>
+    /// あげるミニオンを決める画面: 選んでいるミニオン（大きく）・職業4つ・属性4つ（押すと選ぶ）・レベル（数字で入力・−/＋・
+    /// よく使うレベルのボタン）→「QRコードを表示」でそのミニオンをあげるQR（MinionGiftQr）を出す
+    /// </summary>
+    private void ShowMinionPicker()
+    {
+        var safe = OpenDetail();
+        if (safe == null) return;
+        var top = new Vector2(0.5f, 1f);
+
+        var en = SpaceTheme.Text(safe, "En", MinionGiftQr.T_CAPTION, 26, SpaceTheme.A(SpaceMinions.ACCENT, 0.95f), top,
+            new Vector2(0f, -96f), new Vector2(900f, 36f), FontStyles.Bold);
+        SpaceTheme.Tracking(en, 24f);
+        var title = SpaceTheme.Text(safe, "Title", T_MINION_PICK, 46, SpaceTheme.TEXT, top, new Vector2(0f, -150f),
+            new Vector2(860f, 60f), FontStyles.Bold);
+        title.enableAutoSizing = true;
+        title.fontSizeMin = 30f;
+        title.fontSizeMax = 46f;
+
+        // 選んでいるミニオン（大きく）と「炎の戦士 Lv.50」
+        var glow = SpaceTheme.Rect("Glow", safe, top, new Vector2(0f, -318f), new Vector2(330f, 330f));
+        var glowImg = SpaceTheme.Img(glow, SpaceSprites.Glow, Color.white);
+        var pic = SpaceTheme.Rect("Preview", safe, top, new Vector2(0f, -318f), new Vector2(230f, 230f));
+        var picImg = SpaceTheme.Img(pic, null, Color.white);
+        picImg.preserveAspect = true;
+        var name = SpaceTheme.Text(safe, "Name", "", 40, SpaceTheme.TEXT, top, new Vector2(0f, -462f), new Vector2(900f, 56f),
+            FontStyles.Bold);
+        name.richText = true;
+
+        const int COLS4 = 4;
+        const float CELL_GAP = 14f;
+        float cellW = (GRID_W - (COLS4 - 1) * CELL_GAP) / COLS4;
+        Vector2 CellPos(int i, float centerY) =>
+            new Vector2(-GRID_W * 0.5f + cellW * 0.5f + i * (cellW + CELL_GAP), centerY);
+
+        // 職業（4つ。絵は選んでいる属性の色）
+        SpaceTheme.Text(safe, "JobLabel", T_MINION_JOB, 26, SpaceTheme.A(SpaceMinions.ACCENT, 0.95f), top,
+            new Vector2(-GRID_W * 0.5f, -528f), new Vector2(GRID_W, 36f), FontStyles.Bold, TextAlignmentOptions.Left,
+            new Vector2(0f, 0.5f));
+        var jobMarks = new GameObject[MinionRules.JOBS];
+        var jobImages = new Image[MinionRules.JOBS];
+        var elementMarks = new GameObject[MinionRules.ELEMENTS]; // 下の属性のマスで埋める（UpdatePreview が使うので先に作る）
+        for (int i = 0; i < MinionRules.JOBS; i++)
+        {
+            int job = i;
+            var cell = SpaceTheme.Rect("Job" + i, safe, top, CellPos(i, -652f), new Vector2(cellW, 206f));
+            var face = SpaceTheme.Glass(cell, 30f, new Color(0.07f, 0.09f, 0.24f, 0.78f), null, true);
+            var jp = SpaceTheme.Rect("Picture", cell, new Vector2(0.5f, 1f), new Vector2(0f, -84f), new Vector2(150f, 150f));
+            jobImages[i] = SpaceTheme.Img(jp, null, Color.white);
+            jobImages[i].preserveAspect = true;
+            var jn = SpaceTheme.Text(cell, "Name", MinionRules.JOB_NAMES[i], 26, SpaceTheme.TEXT, new Vector2(0.5f, 0f),
+                new Vector2(0f, 26f), new Vector2(cellW - 12f, 34f), FontStyles.Bold);
+            jn.enableAutoSizing = true;
+            jn.fontSizeMin = 18f;
+            jn.fontSizeMax = 26f;
+            var mark = SpaceTheme.Rect("Selected", cell);
+            SpaceTheme.Stretch(mark, -4f, -4f, -4f, -4f);
+            SpaceTheme.RoundedStroke(mark, SpaceMinions.ACCENT, 34f);
+            jobMarks[i] = mark.gameObject;
+            SpaceTheme.Clickable(cell.gameObject, face, () =>
+            {
+                s_minionJob = job;
+                UpdatePreview();
+            });
+        }
+
+        // 属性（4つ）
+        SpaceTheme.Text(safe, "ElementLabel", T_MINION_ELEMENT, 26, SpaceTheme.A(SpaceMinions.ACCENT, 0.95f), top,
+            new Vector2(-GRID_W * 0.5f, -790f), new Vector2(GRID_W, 36f), FontStyles.Bold, TextAlignmentOptions.Left,
+            new Vector2(0f, 0.5f));
+        for (int i = 0; i < MinionRules.ELEMENTS; i++)
+        {
+            int element = i;
+            var cell = SpaceTheme.Rect("Element" + i, safe, top, CellPos(i, -886f), new Vector2(cellW, 146f));
+            var face = SpaceTheme.Glass(cell, 30f, new Color(0.07f, 0.09f, 0.24f, 0.78f),
+                SpaceTheme.A(MinionArt.ColorOf(i), 0.35f), true);
+            var ic = SpaceTheme.Rect("Icon", cell, new Vector2(0.5f, 1f), new Vector2(0f, -54f), new Vector2(80f, 80f));
+            var icImg = SpaceTheme.Img(ic, MinionArt.ElementIcon(i), Color.white);
+            icImg.preserveAspect = true;
+            SpaceTheme.Text(cell, "Name", MinionRules.ELEMENT_NAMES[i], 28, MinionArt.ColorOf(i), new Vector2(0.5f, 0f),
+                new Vector2(0f, 24f), new Vector2(cellW - 12f, 36f), FontStyles.Bold);
+            var mark = SpaceTheme.Rect("Selected", cell);
+            SpaceTheme.Stretch(mark, -4f, -4f, -4f, -4f);
+            SpaceTheme.RoundedStroke(mark, SpaceMinions.ACCENT, 34f);
+            elementMarks[i] = mark.gameObject;
+            SpaceTheme.Clickable(cell.gameObject, face, () =>
+            {
+                s_minionElement = element;
+                UpdatePreview();
+            });
+        }
+
+        // レベル（−  [ 50 ]  ＋）。数字の欄を押すと数字のキーボードで打てる
+        SpaceTheme.Text(safe, "LevelLabel", T_MINION_LEVEL, 26, SpaceTheme.A(SpaceMinions.ACCENT, 0.95f), top,
+            new Vector2(-GRID_W * 0.5f, -1000f), new Vector2(GRID_W, 36f), FontStyles.Bold, TextAlignmentOptions.Left,
+            new Vector2(0f, 0.5f));
+        const float ROW_Y = -1088f;
+        var input = AmountInput(safe, new Vector2(0f, ROW_Y), new Vector2(300f, 140f));
+        input.text = s_minionLevel.ToString(CultureInfo.InvariantCulture);
+        void Set(int v)
+        {
+            s_minionLevel = Mathf.Clamp(v, 1, MinionRules.MAX_LEVEL);
+            input.SetTextWithoutNotify(s_minionLevel.ToString(CultureInfo.InvariantCulture));
+            UpdatePreview();
+        }
+        int Typed() => int.TryParse(input.text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var v) ? v : s_minionLevel;
+        input.onEndEdit.AddListener(_ => Set(Typed()));
+        StepButton(safe, new Vector2(-260f, ROW_Y), false, () => Set(Typed() - 1));
+        StepButton(safe, new Vector2(260f, ROW_Y), true, () => Set(Typed() + 1));
+
+        // よく使うレベル（押すとそのレベルにする）
+        const float CHIP_W = 128f, CHIP_H = 80f, CHIP_GAP = 14f;
+        float total = MINION_LEVEL_PRESETS.Length * CHIP_W + (MINION_LEVEL_PRESETS.Length - 1) * CHIP_GAP;
+        for (int i = 0; i < MINION_LEVEL_PRESETS.Length; i++)
+        {
+            int value = MINION_LEVEL_PRESETS[i];
+            var chip = SpaceTheme.Rect("Preset_" + value, safe, top,
+                new Vector2(-total * 0.5f + CHIP_W * 0.5f + i * (CHIP_W + CHIP_GAP), -1206f), new Vector2(CHIP_W, CHIP_H));
+            var chipFace = SpaceTheme.Glass(chip, 34f, new Color(0.05f, 0.07f, 0.19f, 0.92f), SpaceTheme.A(SpaceTheme.GOLD, 0.45f),
+                true);
+            SpaceTheme.Clickable(chip.gameObject, chipFace, () => Set(value));
+            var chipLabel = SpaceTheme.Text(chip, "Label", "Lv." + value, 30, SpaceTheme.GOLD, FontStyles.Bold);
+            SpaceTheme.Stretch(chipLabel.rectTransform, 6f, 0f, 6f, 0f);
+            chipLabel.enableAutoSizing = true;
+            chipLabel.fontSizeMin = 20f;
+            chipLabel.fontSizeMax = 30f;
+        }
+
+        // QRコードを表示（金色のボタン）
+        var show = SpaceTheme.Rect("Show", safe, top, new Vector2(0f, -1328f), new Vector2(600f, 124f));
+        var showFace = SpaceTheme.GradientFace(show, SpaceTheme.Hex(0xFFE7A0), SpaceTheme.Hex(0xE0A640), SpaceTheme.GOLD);
+        SpaceTheme.Clickable(show.gameObject, showFace, () =>
+        {
+            Set(Typed());
+            ShowMinion(s_minionJob, s_minionElement, s_minionLevel);
+        });
+        var showLabel = SpaceTheme.Text(show, "Label", T_GOLD_SHOW, 40, SpaceTheme.TEXT_DARK, FontStyles.Bold);
+        SpaceTheme.Stretch(showLabel.rectTransform);
+
+        // 下: 一覧にもどる
+        var back = SpaceTheme.Rect("Back", safe, new Vector2(0.5f, 0f), new Vector2(0f, 56f), new Vector2(560f, 112f),
+            new Vector2(0.5f, 0f));
+        var backFace = SpaceTheme.Glass(back, 46f, new Color(0.05f, 0.07f, 0.19f, 0.92f), null, true);
+        SpaceTheme.Clickable(back.gameObject, backFace, CloseDetail);
+        var backLabel = SpaceTheme.Text(back, "Label", T_BACK, 34, SpaceTheme.TEXT, FontStyles.Bold);
+        SpaceTheme.Stretch(backLabel.rectTransform);
+
+        // 選んでいる職業・属性・レベルを、大きな絵・名前・選んだ印・職業の絵の色に出す
+        void UpdatePreview()
+        {
+            var color = MinionArt.ColorOf(s_minionElement);
+            picImg.sprite = MinionArt.Sprite(s_minionJob, s_minionElement);
+            glowImg.color = SpaceTheme.A(color, 0.4f);
+            name.text = $"<color=#{ColorUtility.ToHtmlStringRGB(color)}>{MinionRules.NameOf(s_minionJob, s_minionElement)}</color>"
+                        + $"  <color=#{ColorUtility.ToHtmlStringRGB(SpaceTheme.GOLD)}>Lv.{s_minionLevel}</color>";
+            for (int i = 0; i < MinionRules.JOBS; i++)
+            {
+                jobMarks[i].SetActive(i == s_minionJob);
+                jobImages[i].sprite = MinionArt.Sprite(i, s_minionElement);
+            }
+            for (int i = 0; i < MinionRules.ELEMENTS; i++) elementMarks[i].SetActive(i == s_minionElement);
+        }
+        UpdatePreview();
+        _detail.AddComponent<SpacePopIn>().Target = pic;
+    }
+
+    /// <summary>そのミニオンをあげるQR（その日だけ・1人1回。出すたびに番号の違う新しいQR）</summary>
+    private void ShowMinion(int job, int element, int level)
+    {
+        var safe = OpenDetail();
+        if (safe == null) return;
+        var color = MinionArt.ColorOf(element);
+        var pos = new Vector2(0f, -150f);
+        var glow = SpaceTheme.Rect("IconGlow", safe, new Vector2(0.5f, 1f), pos, new Vector2(300f, 300f));
+        SpaceTheme.Img(glow, SpaceSprites.Glow, SpaceTheme.A(color, 0.4f));
+        var pic = SpaceTheme.Rect("Minion", safe, new Vector2(0.5f, 1f), pos, new Vector2(190f, 190f));
+        var img = SpaceTheme.Img(pic, MinionArt.Sprite(job, element), Color.white);
+        img.preserveAspect = true;
+
+        string label = MinionGiftQr.Title(job, element, level);
+        FillDetail(safe, MinionGiftQr.T_CAPTION, color, label, MinionGiftQr.NewPayload(job, element, level),
+            T_SCAN_A + label + T_GOLD_SCAN_B, T_GOLD_SUB); // 説明は G のQRと同じ（その日だけ・1人1回）
     }
 
     /// <summary>金額を打つ欄（数字だけ・3桁まで。真ん中そろえの大きな金色の数字）</summary>

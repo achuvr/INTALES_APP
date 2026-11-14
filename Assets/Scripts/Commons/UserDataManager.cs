@@ -48,6 +48,10 @@ public class UserDataManager : SingletonBehaviour<UserDataManager>
     public async UniTask FetchUserDataByUID()
     {
         await FetchAsync();
+        // 読み込みの途中でこのオブジェクトがなくなっていたら何もしない（エディタで自動ログインの途中に再生を止めると、
+        // Firestore の返事が再生を止めたあとに届き、消えたこのオブジェクトで StartCoroutine して
+        // MissingReferenceException になっていた。2026-11-14）
+        if (this == null) return;
         StartCoroutine(LoadSceneAsyncWithActivationControl());
     }
 
@@ -59,6 +63,7 @@ public class UserDataManager : SingletonBehaviour<UserDataManager>
     public async UniTask FetchUserDataByUIDForReload(bool isStartScene)
     {
         await FetchAsync();
+        if (this == null) return; // 読み込みの途中で再生を止めた（上と同じ）
         SceneManager.LoadScene(AppScenes.Home);
     }
 
@@ -375,6 +380,13 @@ public class UserData
     /// <summary>持っている（まだ置いていない）ピース（2026-11-13。{ "1": 個数, … }。読むときは PuzzleRules.PiecesFrom）</summary>
     [FirestoreProperty("pieces")]
     public Dictionary<string, object> PiecesMap { get; set; }
+
+    /// <summary>
+    /// ミニオン（2026-11-14。きずな座の完成で作れる、旅に出て報酬を持ち帰る仲間）。{ clock, next, items: { 番号: ミニオン } }。
+    /// 読むときは MinionBook.From、書き込みは MinionStore（clock はサーバーの時刻なので、まだ届いていない間は null のことがある）
+    /// </summary>
+    [FirestoreProperty("minions")]
+    public Dictionary<string, object> MinionsMap { get; set; }
 
     /// <summary>
     /// 解放済みの惑星ID（新ホームの中央に置ける惑星。アチーブメント報酬）。

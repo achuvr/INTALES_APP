@@ -26,6 +26,7 @@ using Unity.Notifications;
 ///     - 誕生月を登録していれば、次の誕生月の1日 10時「お誕生月です。アプリに贈りもの」
 ///     - 営業カレンダー（ShopCalendar）の臨時休業の前日 19時「明日は臨時休業です」（近いものから3つまで。2026-11-10）
 ///       カレンダーを読み込んだ・管理者が登録を変えたときにも予約し直す
+///     - 旅に出したミニオンが帰ってくる時刻「ミニオンが旅から帰ってきました」（2026-11-14。旅に出す・話しかけるたびにも予約し直す）
 /// 時刻はお店の暦（日本時間）で決め、端末の時刻に直して予約する。
 /// </summary>
 public static class AppNotifications
@@ -40,6 +41,8 @@ public static class AppNotifications
     private const int CLOSED_REMIND_MAX = 3;
     private const int CLOSED_REMIND_HOUR = 19; // 前日の19時（日本時間）
     private const int CLOSED_LOOKAHEAD_DAYS = 60;
+    private const int ID_MINION_BASE = 1020;   // ミニオンが旅から帰ってくる時刻（1020〜1029。2026-11-14）
+    private const int MINION_REMIND_MAX = 10;
 
     public const string T_ORBIT_LAST_TITLE = "今の公転は明日の日曜まで";
     public const string T_ORBIT_LAST_BODY = "来店すると公転が続きます。流れ星も待っています";
@@ -49,6 +52,9 @@ public static class AppNotifications
     public const string T_BIRTHDAY_BODY = "アプリを開くと、お店からの贈りものが届きます";
     public const string T_CLOSED_TITLE = "明日は臨時休業です";
     public const string T_CLOSED_BODY = "はお店をお休みします"; // 「11月20日（木）はお店をお休みします（理由）」
+    public const string T_MINION_TITLE = "ミニオンが旅から帰ってきました";
+    public const string T_MINION_BODY_A = "入店中に「"; // 受け取れるのは入店中だけ（2026-11-14）
+    public const string T_MINION_BODY_B = "」に話しかけると、持ち帰った物を受け取れます";
 
     private static bool _initialized;
 
@@ -176,6 +182,23 @@ public static class AppNotifications
                               + (string.IsNullOrEmpty(day.Note) ? "" : $"（{day.Note}）");
                 Schedule(ID_CLOSED_BASE + slot, T_CLOSED_TITLE, body, fire, now);
                 slot++;
+            }
+
+            // ミニオンが旅から帰ってくる時刻（2026-11-14。旅の途中のミニオンごとに、いちばん多くて10体）。
+            // 帰ってくる時刻はサーバーの時刻で持っているので、この端末の時計に直して予約する
+            for (int i = 0; i < MINION_REMIND_MAX; i++) NotificationCenter.CancelScheduledNotification(ID_MINION_BASE + i);
+            var book = MinionStore.Book;
+            var serverNow = MinionStore.NowUtc;
+            int mslot = 0;
+            foreach (var m in book.Items)
+            {
+                if (mslot >= MINION_REMIND_MAX) break;
+                if (MinionRules.StateOf(m, serverNow) != MinionState.Traveling) continue;
+                var fireUtc = MinionRules.BackAt(m) - (serverNow - DateTime.UtcNow);
+                var fire = DateTime.SpecifyKind(fireUtc, DateTimeKind.Utc).ToLocalTime();
+                Schedule(ID_MINION_BASE + mslot, T_MINION_TITLE, T_MINION_BODY_A + MinionStore.NameOf(m, book) + T_MINION_BODY_B,
+                    fire, now);
+                mslot++;
             }
         }
         catch (Exception ex)

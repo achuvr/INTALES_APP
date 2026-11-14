@@ -270,6 +270,51 @@ public class CallMethodFromQR : MonoBehaviour
     }
 
     /// <summary>
+    /// ミニオンをあげるQR（"minion:{職業}:{属性}:{レベル}:{営業日}:{番号}:{署名}"。2026-11-14。MinionGiftQr）。
+    /// 管理者の「お客様に見せるQRコード」のクーポンタブの「ミニオンをあげる」で、職業・属性・レベルを決めて出したもの。
+    /// その営業日のうちだけ・同じQRは1人1回まで。持てる数に関係なく受け取れる（お店からもらったミニオン。自分で作れる数には数えない）
+    /// </summary>
+    public async UniTask ClaimMinion(string qrText)
+    {
+        var parsed = MinionGiftQr.Parse(qrText, System.DateTime.UtcNow, out int job, out int element, out int level, out string nonce);
+        if (parsed != MinionGiftQr.Result.Ok)
+        {
+            FriendMenuController.ShowToast(parsed == MinionGiftQr.Result.Expired ? MinionGiftQr.T_EXPIRED : MinionGiftQr.T_INVALID);
+            EndFromButton();
+            return;
+        }
+
+        string title = MinionGiftQr.Title(job, element, level);
+        MinionStore.Result r;
+        try
+        {
+            r = await MinionStore.ReceiveGiftAsync(job, element, level, nonce);
+        }
+        catch (System.Exception ex)
+        {
+            Debug.LogError($"[QR] ミニオンを受け取れませんでした ({title}): {ex.Message}");
+            r = null;
+        }
+        if (r != null && r.Already)
+        {
+            EndFromButton();
+            InfoModal.Show(MinionGiftQr.T_ALREADY, title, MinionGiftQr.T_ALREADY_SUB);
+            return;
+        }
+        if (r == null || !r.Ok)
+        {
+            FriendMenuController.ShowToast(MinionGiftQr.T_FAILED);
+            EndFromButton();
+            return;
+        }
+
+        AssetsDatabase.instance?.PlayLevelUpSE();
+        End();
+        if (SpaceTheme.InUse) SpaceNotice.MinionGift(r, MinionStore.Unlocked);
+        else InfoModal.Show(MinionGiftQr.T_TITLE, title, "");
+    }
+
+    /// <summary>
     /// 1か月遊び放題パスの受け取りQR（"pass:{ID}"）。管理者の「お客様に見せるQRコード」の「1か月パス」で
     /// 発行したもの（1回だけ・発行から60分間使える）。受け取ると、今日を1日目として30日間のパスが所持品に入る
     /// </summary>
